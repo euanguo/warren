@@ -42,16 +42,18 @@ export class ErrorBoundary extends Component<Props, State> {
         <p className="text-xs text-muted-foreground">
           环境本身没有受影响：Core 和本地 RPC 仍在运行，agent 侧照常可用。
         </p>
-        <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">{error.message}</pre>
+        <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] border bg-muted/30 p-3 text-xs">
+          {error.message}
+        </pre>
         {stack && (
-          <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-[10px] leading-relaxed text-muted-foreground">
+          <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] border bg-muted/30 p-3 text-[10px] leading-relaxed text-muted-foreground">
             {stack}
           </pre>
         )}
         <div>
           <button
             type="button"
-            className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent"
+            className="rounded-[var(--radius-md)] border px-3 py-1.5 text-xs hover:bg-accent"
             onClick={() => this.setState({ error: undefined, stack: undefined })}
           >
             重试渲染

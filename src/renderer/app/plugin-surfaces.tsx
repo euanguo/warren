@@ -41,10 +41,12 @@ export class PluginBoundary extends Component<BoundaryProps, BoundaryState> {
         <p className="text-xs text-muted-foreground">
           只有这一块停了，应用的其它部分照常可用。可以在设置 → 插件里停用它。
         </p>
-        <pre className="overflow-auto rounded-md border border-border bg-muted/30 p-3 text-xs">{error.message}</pre>
+        <pre className="overflow-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-3 text-xs">
+          {error.message}
+        </pre>
         <button
           type="button"
-          className="self-start rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent"
+          className="self-start rounded-[var(--radius-md)] border border-border px-3 py-1.5 text-xs hover:bg-accent"
           onClick={() => this.setState({ error: undefined })}
         >
           重试渲染

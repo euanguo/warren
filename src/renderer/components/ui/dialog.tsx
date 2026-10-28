@@ -68,7 +68,7 @@ function DialogContent({
             data-slot="dialog-close"
             // Close control: 24×24, p-1, top-right; light ghost hover.
             render={
-              <IconButton className="absolute top-3.5 right-3.5 text-subtle-foreground hover:bg-surface-hover hover:text-foreground" />
+              <IconButton className="absolute top-3 right-3 text-subtle-foreground hover:bg-surface-hover hover:text-foreground" />
             }
           >
             <Icon name="X" />

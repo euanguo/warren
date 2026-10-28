@@ -70,7 +70,7 @@ function SheetContent({
           <SheetPrimitive.Close
             data-slot="sheet-close"
             render={
-              <IconButton className="absolute top-3.5 right-3.5 text-subtle-foreground hover:bg-surface-hover hover:text-foreground" />
+              <IconButton className="absolute top-3 right-3 text-subtle-foreground hover:bg-surface-hover hover:text-foreground" />
             }
           >
             <Icon name="X" className="size-4" />

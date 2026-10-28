@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cardSurfaceClass } from '@/theme/surface';
+import { cardSurfaceClass, controlFieldCompactClass } from '@/theme/surface';
 import { cn } from '@/lib/utils';
 import { PERMISSION_TIERS } from '@shared/permissions';
 import type { InstalledPlugin, PluginLogEntry, PluginSettingValue } from '@shared/types';
@@ -90,7 +90,7 @@ function SettingField({
       </span>
       {setting.options ? (
         <select
-          className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+          className={cn(controlFieldCompactClass, 'text-xs')}
           value={String(setting.value ?? '')}
           onChange={(event) =>
             void window.envApi.pluginConfigSet(plugin.id, setting.key, event.target.value).then(onSaved)
@@ -244,7 +244,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
       )}
 
       {logs && (
-        <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-[10px] leading-relaxed">
+        <pre className="max-h-40 overflow-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-2 text-[10px] leading-relaxed">
           {logs.length
             ? logs.map((entry) => `${entry.at.slice(11, 19)} ${entry.level.toUpperCase()} ${entry.message}`).join('\n')
             : '（还没有日志）'}
