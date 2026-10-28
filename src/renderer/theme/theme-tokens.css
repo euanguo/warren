@@ -274,9 +274,9 @@
   --shell-address-row-height: 2.75rem; /* 44px，对齐 bb 的浏览器工具栏行高 */
   --shell-card-radius: var(--radius-xl);
   /* rail 几何：全部落在既有阶梯上 —— 控件 32（control-size-lg）、圆角 12.5（control-radius）、
-     padding 10（space-4）、间距 4（space-1）、顶部 20（space-7）。宽度 52 = 32 + 2×10。 */
+     padding 10（space-4）、间距 4（space-1）。四边 padding 同值，宽度 52 = 32 + 2×10。 */
   --rail-padding: var(--space-4);
-  --rail-padding-y: var(--space-7);
+  --rail-padding-y: var(--rail-padding);
   --rail-control-size: var(--control-size-lg);
   --rail-control-icon-size: var(--size-icon-sm);
   --rail-control-radius: var(--control-radius);
