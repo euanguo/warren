@@ -410,39 +410,39 @@ export function App() {
           所以显式给 h-svh，否则 ResizablePanel 的高度会塌成 0。 */}
       <SidebarProvider className="h-svh" style={{ '--sidebar-width': '100%' } as CSSProperties}>
         {/*
-          外壳：凹陷底色 + 标题行 + 右/下的 lip。两张卡片浮在它上面，
-          rail 贴在卡片外面、不参与圆角（见 docs/DESKTOP-SHELL-MIGRATION.md）。
+          外壳只剩右/下的 lip。**标题行在卡片内**——参考稿的 header 就是卡片第一行，
+          底下一条 1px 线，再往下才是 rail / 侧栏 / 内容三列。
         */}
         {/*
           w-full 不能省：SidebarProvider 本身是 flex 行，不给宽度这个外壳会被收缩成内容宽度。
         */}
         <div className="flex h-full w-full flex-col bg-surface-recessed pr-[var(--shell-frame-lip)] pb-[var(--shell-frame-lip)]">
-          <AppTitlebar
-            environment={current}
-            groupName={current?.groupId ? groups.find((g) => g.id === current.groupId)?.name : undefined}
-            showSidebarToggle={sidebarVisible}
-            sidebarOpen={!sidebarCollapsed}
-            onToggleSidebar={toggleSidebar}
-            onTakeover={takeover}
-            onRelease={release}
-          />
-
-          <div className="flex min-h-0 flex-1">
-            <AppRail
-              settingsActive={settingsOpen}
-              onOpenSettings={() => {
-                setRequestedPage(undefined);
-                setSettingsOpen((open) => !open);
-              }}
-              destinations={railDestinations}
+          {/*
+            整块（header + rail + 侧栏 + 内容）是**一张**卡片：圆角只套在最外层，
+            内部用直线分隔。分开圆角会在浏览器区左边凭空出现一个圆角，
+            而且侧栏收起时还得给内容区补角，多一处状态。
+          */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-clip rounded-[var(--shell-card-radius)] bg-background">
+            <AppTitlebar
+              environment={current}
+              groupName={current?.groupId ? groups.find((g) => g.id === current.groupId)?.name : undefined}
+              showSidebarToggle={sidebarVisible}
+              sidebarOpen={!sidebarCollapsed}
+              onToggleSidebar={toggleSidebar}
+              onTakeover={takeover}
+              onRelease={release}
             />
 
-            {/*
-              中间那一整块（侧栏 + 内容）是**一张**卡片：圆角套在外面这一层，
-              左右两栏内部各自不再圆角。分开圆角会在浏览器区左边凭空出现一个圆角，
-              而且侧栏收起时还得给内容区补角，多一处状态。
-            */}
-            <div className="min-h-0 min-w-0 flex-1 overflow-clip rounded-[var(--shell-card-radius)] border border-border">
+            <div className="flex min-h-0 flex-1">
+              <AppRail
+                settingsActive={settingsOpen}
+                onOpenSettings={() => {
+                  setRequestedPage(undefined);
+                  setSettingsOpen((open) => !open);
+                }}
+                destinations={railDestinations}
+              />
+
               <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
                 {/*
                   环境列表**只在「环境」路由**。插件页和设置页占满整张卡——

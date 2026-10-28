@@ -244,7 +244,7 @@ export function EnvironmentStage({
         标签是渲染层的 DOM，不是原生视图；占位区的矩形由 ResizeObserver 实测，
         所以这一行压矮页面多少，主进程会自动跟上。
       */}
-      <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center gap-1 px-1.5">
+      <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center gap-1 px-2">
         {current ? (
           <>
             <EnvironmentSpaceSwitcher

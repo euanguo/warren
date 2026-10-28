@@ -138,7 +138,7 @@ export function EnvironmentAddressBar({
   };
 
   return (
-    <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 px-1.5">
+    <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 px-2">
       <IconButton
         variant="ghost"
         title={title('后退')}

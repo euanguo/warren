@@ -262,7 +262,7 @@ export function EnvironmentSidebar(props: Props) {
           chrome 行：高度必须和 rail 顶格、内容卡片的标签行一致（三列横向一条线）。
           放的是这个侧栏的主操作，对齐 bb 的 SidebarTopReserveRow。
         */}
-        <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center px-1.5">
+        <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center px-2">
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setCreateEnvOpen(true)}>
             <Icon name="Plus" />
             <span className="truncate">新建环境</span>

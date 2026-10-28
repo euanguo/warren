@@ -28,7 +28,7 @@ function ResizablePanel({ ...props }: ResizablePrimitive.PanelProps) {
 
 /**
  * 接缝。占位只有 1px，热区由 Group 的 `resizeTargetMinimumSize` 撑开。
- * 线平时透明，hover / 拖拽 / 聚焦时才显色——和 bb 的接缝观感一致。
+ * 线**常显**（参考稿的面板分隔）：平时是 --divider，hover / 拖拽 / 聚焦时加深。
  */
 function ResizableHandle({
   className,
@@ -39,7 +39,7 @@ function ResizableHandle({
       data-slot="resizable-handle"
       className={cn(
         "relative w-px shrink-0 cursor-col-resize bg-transparent outline-none",
-        "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent after:transition-colors",
+        "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-divider after:transition-colors",
         "hover:after:bg-border-heavy active:after:bg-border-heavy focus-visible:after:bg-focus",
         "aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full aria-[orientation=horizontal]:cursor-row-resize",
         "aria-[orientation=horizontal]:after:inset-x-0 aria-[orientation=horizontal]:after:inset-y-auto aria-[orientation=horizontal]:after:top-1/2 aria-[orientation=horizontal]:after:left-0 aria-[orientation=horizontal]:after:h-px aria-[orientation=horizontal]:after:w-full aria-[orientation=horizontal]:after:translate-x-0 aria-[orientation=horizontal]:after:-translate-y-1/2",

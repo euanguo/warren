@@ -49,6 +49,8 @@ function anyOverlayOverlaps(stage: HTMLElement): boolean {
  */
 export function createNativeViewOverlayGuard(): () => void {
   let hidden = false;
+  /** 上一帧已经看到重叠、还在等定位完成。 */
+  let pending = false;
   let frame: number | null = null;
   /** 冻结请求的代号。浮层关掉就作废，免得迟到的截图糊在已经收回的页面上。 */
   let freezeToken = 0;
@@ -82,7 +84,18 @@ export function createNativeViewOverlayGuard(): () => void {
     frame = null;
     const stage = stageNode();
     const next = Boolean(stage && anyOverlayOverlaps(stage));
-    if (next === hidden) return;
+    if (next === hidden) {
+      pending = false;
+      return;
+    }
+    // 浮层插入后还要再定位一帧（Floating UI 改 style，不触发 MutationObserver）。
+    // 只重叠一帧不算数：否则定位中间态会把页面藏掉，而之后没有事件再让它恢复。
+    if (next && !pending) {
+      pending = true;
+      schedule();
+      return;
+    }
+    pending = false;
     hidden = next;
     if (next && stage) {
       void hide(stage);

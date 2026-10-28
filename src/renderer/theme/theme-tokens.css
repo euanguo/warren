@@ -57,6 +57,7 @@
   --color-surface-active: var(--surface-active);
   --color-surface-selected: var(--surface-selected);
   --color-surface-fog: var(--surface-fog);
+  --color-divider: var(--divider);
   --color-surface-recessed: var(--surface-recessed);
   --color-overlay: var(--overlay);
   --color-tooltip: var(--tooltip);
@@ -220,10 +221,12 @@
   /* Focus is blue hairline — not ink gray, not ring bloom. */
   --focus: color-mix(in oklab, var(--accent-seed) 76%, transparent);
   --ring: var(--focus);
+  /* 常显分隔线（rail / 面板 / 标题行）。参考稿 #f0f0f0 on white ≈ ink 6%。 */
+  --divider: color-mix(in oklab, var(--ink) 6%, transparent);
   --surface-hover: color-mix(in oklab, var(--ink) 7.8%, transparent);
   /* icon active ≈ foreground/15 */
   --surface-active: color-mix(in oklab, var(--ink) 15%, transparent);
-  --surface-selected: color-mix(in oklab, var(--ink) 5.2%, transparent);
+  --surface-selected: color-mix(in oklab, var(--ink) 6%, transparent);
   --surface-fog: color-mix(in oklab, var(--ink) 2.5%, transparent);
   --overlay: color-mix(in oklab, black 18%, transparent);
   /* Row denser pad — aliases of control compact pads */
@@ -240,7 +243,7 @@
   --radius-dialog: var(--radius-3xl);
   --radius-control: var(--radius-lg);
   --radius-composer: calc(1.375rem * var(--radius-scale));
-  --sidebar: var(--surface-under);
+  --sidebar: var(--surface);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--ink);
   --sidebar-primary-foreground: var(--surface);
@@ -265,20 +268,25 @@
    * rail 贴在外壳上、在两张卡片**外面**，所以它自己不圆角。
    * 三列（rail / 侧栏 / 内容）的顶行共用 --shell-chrome-row-height，横向才是一条线。
    */
-  --shell-title-bar-height: 2.5rem; /* macOS hiddenInset 拖拽区 + 红绿灯 */
-  --shell-frame-lip: 0.5rem; /* 卡片到窗口右/下的留白 */
+  --shell-title-bar-height: 3rem; /* macOS hiddenInset 拖拽区 + 红绿灯；对齐参考稿 header 50 */
+  --shell-frame-lip: 0px; /* 卡片贴满窗口：右/下留白会在底部显成一条多余的灰线 */
   --shell-chrome-row-height: 2.25rem;
   --shell-address-row-height: 2.75rem; /* 44px，对齐 bb 的浏览器工具栏行高 */
   --shell-card-radius: var(--radius-xl);
-  --rail-padding: 8px;
-  --rail-control-size: 28px;
-  --rail-control-icon-size: 16px;
+  /* rail 几何：全部落在既有阶梯上 —— 控件 32（control-size-lg）、圆角 12.5（control-radius）、
+     padding 10（space-4）、间距 4（space-1）、顶部 20（space-7）。宽度 52 = 32 + 2×10。 */
+  --rail-padding: var(--space-4);
+  --rail-padding-y: var(--space-7);
+  --rail-control-size: var(--control-size-lg);
+  --rail-control-icon-size: var(--size-icon-sm);
+  --rail-control-radius: var(--control-radius);
+  --rail-gap: var(--space-1);
   --rail-width: calc(var(--rail-control-size) + 2 * var(--rail-padding));
   /* 外壳（标题行 / rail / 卡片外的留白）。混 ink 而不是混黑：
      深色主题下 ink 是白的，外壳会比卡片**亮**；浅色主题下 ink 是深的，外壳比卡片**暗**。
      一条公式两个方向都对，而且不会出现「纯黑的一圈」。
      参考 bb：--surface-recessed = ink 6% over canvas。 */
-  --surface-recessed: color-mix(in oklab, var(--ink) 3.5%, var(--surface));
+  --surface-recessed: color-mix(in oklab, var(--ink) 6%, var(--surface));
 
   color-scheme: light;
 }
@@ -332,9 +340,11 @@
   /* Live: rgba(131, 195, 255, 0.76) */
   --focus: color-mix(in oklab, var(--accent-seed) 76%, transparent);
   --ring: var(--focus);
+  /* 深色下 6% 白太淡（#242424），提到 8% 才和浅色的 #f0f0f0 等价。 */
+  --divider: color-mix(in oklab, var(--ink) 8%, transparent);
   --surface-hover: color-mix(in oklab, var(--ink) 7.8%, transparent);
   --surface-active: color-mix(in oklab, var(--ink) 15%, transparent);
-  --surface-selected: color-mix(in oklab, var(--ink) 5.2%, transparent);
+  --surface-selected: color-mix(in oklab, var(--ink) 8%, transparent);
   --surface-fog: color-mix(in oklab, var(--ink) 2.5%, transparent);
   --overlay: color-mix(in oklab, black 40%, transparent);
   --chart-1: #339cff;
@@ -342,7 +352,7 @@
   --chart-3: #fb6a22;
   --chart-4: #ad7bf9;
   --chart-5: #ff6764;
-  --sidebar: var(--surface-under);
+  --sidebar: var(--surface);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--accent-seed);
   --sidebar-primary-foreground: var(--surface-under);

@@ -50,7 +50,7 @@ export function AppTitlebar({
     <header
       data-slot="app-titlebar"
       className={cn(
-        'flex h-[var(--shell-title-bar-height)] shrink-0 items-center gap-2 pr-2',
+        'flex h-[var(--shell-title-bar-height)] shrink-0 items-center gap-2 border-b border-divider bg-background pr-4',
         window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
         DRAG_CLASS,
       )}
