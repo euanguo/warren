@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Warren Hello",
+  "version": "1.0.0",
+  "description": "最小扩展 fixture：内容脚本给 <html> 打一个标记，用来验证扩展真的注入了。",
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1:8899/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

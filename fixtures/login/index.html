@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fixture Login</title>
+    <style>
+      body { font: 14px -apple-system, sans-serif; display: grid; place-items: center; height: 100vh; margin: 0; background: #f6f7f9; }
+      form { background: #fff; padding: 28px 32px; border-radius: 12px; box-shadow: 0 2px 16px #0001; display: flex; flex-direction: column; gap: 14px; width: 300px; }
+      label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+      input { padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 14px; }
+      button { padding: 9px; border: 0; border-radius: 6px; background: #1f6feb; color: #fff; font-size: 14px; cursor: pointer; }
+      #error { color: #cf222e; min-height: 18px; font-size: 12px; }
+      #done { font-size: 20px; }
+    </style>
+  </head>
+  <body>
+    <form id="form">
+      <label>邮箱<input id="email" name="email" type="text" autocomplete="off" /></label>
+      <label>密码<input id="password" name="password" type="password" autocomplete="off" /></label>
+      <div id="error"></div>
+      <button type="submit">登录</button>
+    </form>
+
+    <script>
+      const form = document.getElementById('form');
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const error = document.getElementById('error');
+        if (email === 'verger@example.com' && password === 'fixture-secret') {
+          document.body.innerHTML = '<div id="done">已登录</div>';
+          document.title = '已登录';
+        } else {
+          error.textContent = '账号或密码不正确';
+          document.title = '登录失败';
+        }
+      });
+    </script>
+  </body>
+</html>

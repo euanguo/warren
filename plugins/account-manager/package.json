@@ -1,0 +1,74 @@
+{
+  "name": "warren-plugin-account-manager",
+  "version": "0.1.0",
+  "description": "本地明文账号管理：站点、账号、密码、备注和标签。",
+  "files": [
+    "server.js",
+    "app.js",
+    "README.md"
+  ],
+  "warren": {
+    "id": "com.warren.accounts",
+    "name": "账号管理",
+    "apiVersion": "4",
+    "runtime": "sandbox",
+    "server": "server.js",
+    "app": "app.js",
+    "engines": {
+      "warren": ">=0.1.0"
+    },
+    "permissions": [
+      "storage.write",
+      "rpc.serve",
+      "vault.fill",
+      "ui.mount"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "name": "list",
+          "summary": "列出账号（不含密码，只有 hasPassword 与打码用户名）；可加 --input='{\"query\":\"关键词\"}'"
+        },
+        {
+          "name": "create",
+          "summary": "新增账号：--input='{\"name\":\"站点\",\"username\":\"账号\",\"password\":\"密码\",\"note\":\"备注\"}'"
+        },
+        {
+          "name": "update",
+          "summary": "修改账号：--input='{\"id\":1,\"note\":\"新备注\"}'"
+        },
+        {
+          "name": "remove",
+          "summary": "删除账号：--input='{\"id\":1}'"
+        },
+        {
+          "name": "fill",
+          "summary": "把账号填进页面字段（不回传值）：--env=<环境> --input='{\"id\":1,\"environmentId\":\"<环境>\",\"fields\":{\"username\":\"#account\",\"password\":\"input[type=password]\"}}'"
+        },
+        {
+          "name": "export",
+          "summary": "导出全部账号（明文 JSON，仅供人手工备份）：必须 --input='{\"confirm\":\"plaintext\"}'"
+        }
+      ],
+      "surfaces": [
+        {
+          "kind": "railPage",
+          "id": "accounts",
+          "title": "账号",
+          "icon": "User",
+          "path": "accounts"
+        }
+      ],
+      "rpc": [
+        "list",
+        "get",
+        "create",
+        "update",
+        "remove",
+        "fill",
+        "reveal",
+        "export"
+      ]
+    }
+  }
+}

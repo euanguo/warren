@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>beforeunload 页面</title>
+</head>
+<body>
+<h1 id="marker">未保存的改动</h1>
+<p id="result">还没试过离开</p>
+<button id="save">标记为已保存</button>
+<script>
+  let dirty = true;
+  document.getElementById('save').addEventListener('click', () => {
+    dirty = false;
+    document.getElementById('result').textContent = '已保存，可以离开';
+  });
+  window.addEventListener('beforeunload', (event) => {
+    if (!dirty) return;
+    event.preventDefault();
+    event.returnValue = '有未保存的改动';
+  });
+</script>
+</body>
+</html>

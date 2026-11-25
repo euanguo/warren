@@ -1,0 +1,164 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
+@import './theme/theme-tokens.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    overflow: hidden;
+  }
+}
+
+/*
+ * Product scrollbar chrome (native scrollers: Legend transcript, overflow panels).
+ *
+ * Track is slightly wider than classic 10px for grabability next to panel resize
+ * rails (`--app-resize-rail-size`, half overhang into the center).
+ * `--app-scrollbar-edge-gap` keeps the bar a hair off the seam so drag-resize and
+ * scroll-drag don't fight. Native scrollers use `.product-scroller` (margin-end);
+ * conversation timeline uses the same token as padding-end.
+ *
+ * Do NOT set `scrollbar-width: thin` — Chromium then ignores our track width.
+ * Thumb uses background-color + transparent border + background-clip:padding-box
+ * (never the `background` shorthand) so inset survives hover/theme overrides.
+ */
+:root {
+  /* Slightly above classic 10px — thin enough not to dominate the seam. */
+  --app-scrollbar-size: 12px;
+  /*
+   * Only for native center transcript (resize-rail air). Do NOT apply to
+   * ScrollArea list panes — inset there leaves a dead strip that fights row hover.
+   */
+  --app-scrollbar-edge-gap: 2px;
+  --app-scrollbar-thumb-inset: 2px;
+  /* Fallback tokens for ScrollArea / Firefox; webkit uses explicit light/dark below. */
+  --app-scrollbar-thumb: rgba(0, 0, 0, 0.1);
+  --app-scrollbar-thumb-hover: rgba(0, 0, 0, 0.18);
+
+  /*
+   * Side-panel resize rail: hit box straddles the 1px seam, half into each side.
+   * Keep left/right identical so both seams feel the same.
+   */
+  --app-resize-rail-size: 12px;
+  --app-resize-rail-overhang: 6px;
+}
+
+:root.dark,
+:root[data-theme='dark'],
+.dark {
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.07);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+}
+
+/* Optional helper for native scrollports that need a hair of end air (transcript). */
+.product-scroller {
+  box-sizing: border-box;
+  margin-inline-end: var(--app-scrollbar-edge-gap);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+::-webkit-scrollbar {
+  width: var(--app-scrollbar-size);
+  height: var(--app-scrollbar-size);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.1);
+  border: var(--app-scrollbar-thumb-inset) solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.18);
+}
+
+:root.dark ::-webkit-scrollbar-thumb,
+:root[data-theme='dark'] ::-webkit-scrollbar-thumb,
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+:root.dark ::-webkit-scrollbar-thumb:hover,
+:root[data-theme='dark'] ::-webkit-scrollbar-thumb:hover,
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox-only: no webkit pseudos. Keep auto width (not thin) + token colors. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: var(--app-scrollbar-thumb) transparent;
+  }
+}
+
+/* Horizontal chip strips (tabs) — fade utility owns overflow chrome, hide bar. */
+.scroll-fade-x {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scroll-fade-x::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* corner profile: radius px + superellipse(1.5). Circular arcs look rounder at same px. */
+@layer base {
+  /* Product chrome: any slotted control / floating surface. */
+  [data-slot],
+  button,
+  input,
+  textarea,
+  select,
+  kbd,
+  [role='tooltip'],
+  [role='dialog'],
+  [role='menu'],
+  [role='listbox'],
+  [role='combobox'] {
+    corner-shape: var(--corner-shape, superellipse(1.5));
+  }
+
+  /* True pills / avatars stay geometric circles. */
+  .rounded-full,
+  [class*='rounded-full'],
+  [data-slot='avatar'],
+  [data-slot='avatar-fallback'],
+  [data-slot='avatar-image'],
+  [data-slot='switch'],
+  [data-slot='switch-thumb'],
+  [data-slot='radio-group-item'] {
+    corner-shape: round;
+  }
+}

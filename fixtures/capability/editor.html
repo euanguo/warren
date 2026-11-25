@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>editor fixture</title>
+    <style>
+      #editable {
+        min-height: 40px;
+        border: 1px solid #999;
+        padding: 6px;
+        width: 320px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>富文本与日期</h1>
+    <div id="editable" contenteditable="true"></div>
+    <p><input id="date" type="date" /></p>
+    <p><input id="number" type="number" /></p>
+    <p><input id="range" type="range" min="0" max="100" /></p>
+    <p id="log">-</p>
+    <script>
+      const log = document.getElementById('log');
+      const events = [];
+      for (const id of ['editable', 'date', 'number', 'range']) {
+        const el = document.getElementById(id);
+        for (const type of ['input', 'change', 'beforeinput']) {
+          el.addEventListener(type, () => { events.push(`${id}:${type}`); log.textContent = events.join(' '); });
+        }
+      }
+    </script>
+  </body>
+</html>

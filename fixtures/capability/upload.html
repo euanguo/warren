@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>upload fixture</title>
+  </head>
+  <body>
+    <h1>上传</h1>
+    <input id="file" type="file" multiple />
+    <p id="names">未选择</p>
+    <button id="late">动态插入 input</button>
+    <script>
+      document.getElementById('file').addEventListener('change', (event) => {
+        const names = [...event.target.files].map((f) => f.name).join(', ');
+        document.getElementById('names').textContent = names || '未选择';
+      });
+      document.getElementById('late').onclick = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.id = 'late-file';
+        input.addEventListener('change', (event) => {
+          document.getElementById('names').textContent = [...event.target.files].map((f) => f.name).join(', ');
+        });
+        document.body.appendChild(input);
+      };
+    </script>
+  </body>
+</html>

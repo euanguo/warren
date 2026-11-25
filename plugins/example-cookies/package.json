@@ -1,0 +1,39 @@
+{
+  "name": "warren-plugin-example-cookies",
+  "version": "0.2.0",
+  "private": true,
+  "description": "演示 Cookie 受控通道：只搬运元数据，不向插件返回 cookie 值。",
+  "files": [
+    "server.js"
+  ],
+  "warren": {
+    "id": "com.example.cookies",
+    "name": "Example Cookies",
+    "apiVersion": "4",
+    "runtime": "sandbox",
+    "server": "server.js",
+    "engines": {
+      "warren": ">=0.1.0"
+    },
+    "permissions": [
+      "environment.read",
+      "storage.cookie.port"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "name": "report",
+          "summary": "列当前环境的 cookie 名字与域（没有值）"
+        },
+        {
+          "name": "copyFrom",
+          "summary": "把另一个环境的 cookie 搬过来：--input='{\"from\":\"<env>\"}'"
+        },
+        {
+          "name": "clear",
+          "summary": "清掉当前环境的 cookie：--input='{\"domain\":\"<domain>\"}'（不传就全清）"
+        }
+      ]
+    }
+  }
+}

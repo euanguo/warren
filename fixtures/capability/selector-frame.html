@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>selector fixture</title>
+    <style>
+      body {
+        font: 14px system-ui;
+        margin: 16px;
+      }
+      iframe {
+        border: 1px solid #ccc;
+        display: block;
+        margin: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>选择器误报复现页</h1>
+    <p>本页同时放了跨源 iframe（localhost，OOPIF）、同源 iframe、open shadow root 与 <code>[data-testid]</code> 元素。</p>
+    <button data-testid="login-type-pwd" id="pwd">邮箱登录</button>
+    <div id="host"></div>
+    <p id="result">未点击</p>
+    <iframe id="cross" src="http://localhost:8899/cap/frame.html" title="跨源内层页面" width="360" height="120"></iframe>
+    <iframe id="same" src="/cap/frame.html" title="同源内层页面" width="360" height="120"></iframe>
+    <script>
+      document.getElementById('pwd').onclick = () => {
+        document.getElementById('result').textContent = 'pwd clicked';
+      };
+      // 影子树里也放一个同名 testid：验证 walk 真的穿透 shadow root
+      const root = document.getElementById('host').attachShadow({ mode: 'open' });
+      root.innerHTML = '<button data-testid="shadow-only">影子按钮</button>';
+    </script>
+  </body>
+</html>

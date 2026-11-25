@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules/**",
+    ".vite/**",
+    "out/**",
+    "shots/**",
+    "legacy/**",
+    "logo-candidates/**",
+    ".pi/**",
+    // fixtures 是测试数据，其中 plugins/broken 是**故意**写坏的插件
+    "fixtures/**",
+    // stock 快照：永不 import、永不构建、也不进 typecheck（见 AGENTS.md）
+    "src/renderer/components/ui-reference/**"
+  ],
+  "rules": {
+    // `[...map.keys()]` / `[...set]` 在这里是「先取快照再遍历」的防御性写法：
+    // 循环体会删掉当前元素（关标签 / 停环境 / 卸载 handler），这条规则判错了。
+    "unicorn/no-useless-spread": "off",
+
+    // 这条只可能在 `components/ui/label.tsx` 里触发（label 元素只在那里出现），
+    // 而关联方式是调用方给的 `<FieldLabel htmlFor="…">`——规则看不到调用点，对原语组件必然误报。
+    "jsx-a11y/label-has-associated-control": "off",
+
+    /*
+     * 开着（error）。11 处命中已经全部改掉，改法分三类，**不要退回 effect + setState**：
+     *   · 能派生的就派生：插件面失效、快照归属、遥测归属、地址栏草稿（地址栏那处原 effect
+     *     干脆是死代码——输入框本来就 `value={editing ? draft : url}`）
+     *   · 打开时重置：三个弹窗改成渲染期重置（React 官方的「prop 变了就重置 state」写法），
+     *     比 effect 版少一轮「先渲染上次的半截输入再纠正」
+     *   · 拉数据：把 async 函数定义在 effect **里面**（外面定义的会被这条规则判成同步 setState）
+     * 还有一条前提：主进程每次变更都会发 `state:changed`，所以「操作完手动 refresh」是多余的，
+     * App.tsx 里那个 `refresh` 已经删掉，统一走 stateTick 重取。
+     */
+    "react/set-state-in-effect": "error"
+  },
+  // 设置 plugins 会**覆盖**默认集合，所以默认那几个要一起列出来。
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "jsx-a11y"]
+}

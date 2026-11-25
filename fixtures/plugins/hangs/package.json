@@ -1,0 +1,22 @@
+{
+  "name": "warren-plugin-fixture-hangs",
+  "version": "0.2.0",
+  "private": true,
+  "description": "永远不返回的命令，用来验证 sandbox 插件的异步时限。",
+  "files": ["server.js"],
+  "warren": {
+    "id": "com.example.hangs",
+    "name": "Hangs",
+    "apiVersion": "4",
+    "runtime": "sandbox",
+    "server": "server.js",
+    "engines": { "warren": ">=0.1.0" },
+    "permissions": ["environment.read"],
+    "contributes": {
+      "commands": [
+        { "name": "forever", "summary": "永远不返回（验 PLUGIN_TIMEOUT）" },
+        { "name": "quick", "summary": "正常返回，用来证明超时逻辑没误伤普通命令" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>dialog fixture</title>
+  </head>
+  <body>
+    <h1>对话框</h1>
+    <button id="alert">alert</button>
+    <button id="confirm">confirm</button>
+    <button id="prompt">prompt</button>
+    <p id="result">未操作</p>
+    <script>
+      document.getElementById('alert').onclick = () => alert('这是一条 alert');
+      document.getElementById('confirm').onclick = () => {
+        document.getElementById('result').textContent = confirm('继续吗？') ? 'confirmed' : 'dismissed';
+      };
+      document.getElementById('prompt').onclick = () => {
+        const value = prompt('名字？', '默认值');
+        document.getElementById('result').textContent = value === null ? 'cancelled' : `prompt:${value}`;
+      };
+    </script>
+  </body>
+</html>

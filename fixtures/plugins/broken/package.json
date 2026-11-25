@@ -1,0 +1,20 @@
+{
+  "name": "warren-plugin-fixture-broken",
+  "version": "0.2.0",
+  "private": true,
+  "description": "故意渲染期抛异常的插件：验证坏插件不会白屏整个应用。",
+  "files": ["server.js", "app.js"],
+  "warren": {
+    "id": "com.example.broken",
+    "name": "Broken",
+    "apiVersion": "4",
+    "runtime": "sandbox",
+    "server": "server.js",
+    "app": "app.js",
+    "permissions": ["ui.mount"],
+    "contributes": {
+      "commands": [{ "name": "boom", "summary": "永远抛异常" }],
+      "surfaces": [{ "kind": "railPage", "id": "boom", "title": "坏插件", "icon": "Zap", "path": "boom" }]
+    }
+  }
+}

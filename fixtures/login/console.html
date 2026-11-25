@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Console Fixture</title>
+  </head>
+  <body>
+    <h1 id="ready">ready</h1>
+    <script>
+      console.log('fixture: 页面已加载');
+      console.warn('fixture: 这是一条警告');
+      console.error('fixture: 这是一条错误');
+      fetch('/api/ping').catch(() => {});
+      fetch('/api/missing').catch(() => {});
+    </script>
+  </body>
+</html>

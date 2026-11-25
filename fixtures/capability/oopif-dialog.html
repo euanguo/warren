@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>跨源 iframe 弹窗 fixture</title>
+  </head>
+  <body>
+    <h1>跨源 iframe 里的 dialog</h1>
+    <p>内层页面在另一个 site 里，它弹的 alert 走的是**子会话**事件。</p>
+    <iframe id="frame" src="http://localhost:8899/cap/alert.html" title="跨源内层页面" width="360" height="160"></iframe>
+    <p id="outer-result">未点击</p>
+  </body>
+</html>

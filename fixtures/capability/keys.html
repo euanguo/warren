@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>keys fixture</title>
+  </head>
+  <body>
+    <h1>键盘事件</h1>
+    <p><input id="input" type="text" /></p>
+    <p id="log">-</p>
+    <script>
+      const log = document.getElementById('log');
+      const events = [];
+      const push = (line) => { events.push(line); log.textContent = events.join(' '); };
+      const el = document.getElementById('input');
+      el.addEventListener('keydown', (e) => push(`keydown:${e.key}`));
+      el.addEventListener('keypress', (e) => push(`keypress:${e.key}`));
+      el.addEventListener('input', (e) => push(`input:${e.data ?? ''}`));
+      el.addEventListener('keyup', (e) => push(`keyup:${e.key}`));
+    </script>
+  </body>
+</html>

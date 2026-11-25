@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>selector renav 1</title>
+    <!-- 1 秒后自己跳走：模拟真实站点（passport / SPA 重定向）在 agent 操作期间自己换了文档 -->
+    <meta http-equiv="refresh" content="1; url=/cap/selector-renav-target.html" />
+    <style>
+      body {
+        font: 14px system-ui;
+        margin: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>第一页（会自己跳走）</h1>
+    <button data-testid="login-type-pwd" id="pwd">邮箱登录</button>
+    <p id="result">未点击</p>
+    <script>
+      document.getElementById('pwd').onclick = () => {
+        document.getElementById('result').textContent = 'page1 pwd clicked';
+      };
+    </script>
+  </body>
+</html>

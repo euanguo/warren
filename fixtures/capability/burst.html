@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>请求洪流 fixture</title>
+  </head>
+  <body>
+    <h1>请求洪流</h1>
+    <p id="state">未开始</p>
+    <script>
+      // 打一批并发请求，用来量「遥测每条写一次库」在主进程里的真实开销（见 docs/RELEASE.md 无关，
+      // 那条记录在 HANDOFF §6）。数量走 ?n=500，默认 200。
+      const n = Number(new URLSearchParams(location.search).get('n') ?? 200);
+      const started = performance.now();
+      const state = document.getElementById('state');
+      Promise.all(
+        Array.from({ length: n }, (_, i) =>
+          fetch(`/cap/api/user?i=${i}`, { cache: 'no-store' }).then((r) => r.status).catch(() => 0),
+        ),
+      ).then((codes) => {
+        const ms = Math.round(performance.now() - started);
+        state.textContent = `完成 ${codes.length} 个请求，用时 ${ms}ms`;
+        document.title = `burst ${codes.length} in ${ms}ms`;
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+# 构建产物 / 依赖
+node_modules
+.vite
+out
+shots
+logo-candidates
+.pi
+package-lock.json
+
+# 前身原型，不作为当前实现依据
+legacy
+
+# 测试页面：里面的紧凑 CSS / 故意写坏的插件是刻意的，展开成多行只有噪音
+fixtures
+
+# 文档是手写的长文与表格，重排只有噪音没有收益
+docs
+*.md
+
+# 镜像上游 web-next 的路径（AGENTS.md：目的是让组件库能低成本重新同步）。
+# 上游用双引号、本项目用单引号，格式化它们等于每次同步都多一份冲突。
+src/renderer/components/ui
+src/renderer/components/ui-reference
+src/renderer/components/icons.tsx
+src/renderer/theme
+src/renderer/lib/utils.ts
+src/renderer/lib/disclosure-motion.ts

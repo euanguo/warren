@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>actionability fixture</title>
+    <style>
+      body { font-family: system-ui, sans-serif; }
+      .row { margin: 12px 0; position: relative; }
+      #moving {
+        position: relative;
+        animation: slide 0.5s ease-out 1 forwards;
+      }
+      @keyframes slide {
+        from { left: 0; }
+        to { left: 200px; }
+      }
+      #jitter {
+        position: relative;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        animation: jitter 0.2s linear infinite alternate;
+      }
+      @keyframes jitter {
+        from { left: 0; }
+        to { left: 400px; }
+      }
+      #covered-wrap { position: relative; width: 160px; height: 40px; }
+      #mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+        z-index: 2;
+      }
+      #hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>动作可用性</h1>
+
+    <div class="row"><button id="moving">移动中的按钮</button></div>
+
+    <div class="row"><button id="jitter"></button></div>
+
+    <div class="row"><button id="disabled" disabled>禁用的按钮</button></div>
+
+    <div class="row" id="covered-wrap">
+      <button id="covered">被遮挡的按钮</button>
+      <div id="mask"></div>
+    </div>
+
+    <div class="row"><button id="hidden">隐藏的按钮</button></div>
+
+    <p id="result">未点击</p>
+
+    <script>
+      const result = document.getElementById('result');
+      for (const id of ['moving', 'disabled', 'covered', 'hidden']) {
+        document.getElementById(id).addEventListener('click', () => {
+          result.textContent = `${id} clicked`;
+        });
+      }
+      // 点击时把当时的位置写进 result：用来判定「是否等到动画停下才点」
+      document.getElementById('moving').addEventListener('click', (e) => {
+        result.textContent = `moving clicked at ${Math.round(e.currentTarget.getBoundingClientRect().left)}`;
+      });
+      document.getElementById('jitter').addEventListener('click', () => {
+        result.textContent = 'jitter clicked';
+      });
+    </script>
+  </body>
+</html>

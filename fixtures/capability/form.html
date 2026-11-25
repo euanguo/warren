@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>form fixture</title>
+  </head>
+  <body>
+    <h1>表单</h1>
+    <label for="name">姓名</label>
+    <input id="name" type="text" />
+    <label for="bio">简介</label>
+    <textarea id="bio"></textarea>
+    <label for="city">城市</label>
+    <select id="city">
+      <option value="bj">北京</option>
+      <option value="sh">上海</option>
+      <option value="gz">广州</option>
+    </select>
+    <label for="tags">标签（多选）</label>
+    <select id="tags" multiple>
+      <option value="a">A</option>
+      <option value="b">B</option>
+      <option value="c" disabled>C（禁用）</option>
+    </select>
+    <h2>偏好</h2>
+    <label for="remember">记住我</label>
+    <input id="remember" type="checkbox" />
+    <h2>分组</h2>
+    <ul>
+      <li>
+        第一组
+        <ul>
+          <li>子项一</li>
+          <li>子项二</li>
+        </ul>
+      </li>
+      <li>第二组</li>
+    </ul>
+    <button id="submit" type="button">提交</button>
+    <p id="result">未提交</p>
+    <script>
+      document.getElementById('submit').onclick = () => {
+        const city = document.getElementById('city');
+        const tags = [...document.getElementById('tags').selectedOptions].map((o) => o.value).join(',');
+        document.getElementById('result').textContent =
+          `${document.getElementById('name').value}|${document.getElementById('bio').value}|${city.value}|${tags}`;
+      };
+    </script>
+  </body>
+</html>

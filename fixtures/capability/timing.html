@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>timing fixture</title>
+    <style>
+      #rerender { padding: 4px 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>时序</h1>
+    <button id="no-nav">不导航</button>
+    <button id="to-form2">跳转到表单</button>
+    <div id="late-slot">（500ms 后出现按钮）</div>
+    <div id="rerender-slot">（每 300ms 换一次节点）</div>
+    <p id="result">未点击</p>
+    <script>
+      const result = document.getElementById('result');
+
+      // V1：500ms 后才插入的按钮
+      setTimeout(() => {
+        const late = document.createElement('button');
+        late.id = 'late';
+        late.textContent = '迟到的按钮';
+        late.onclick = () => { result.textContent = 'late clicked'; };
+        document.getElementById('late-slot').replaceChildren(late);
+      }, 500);
+
+      // V2：每 300ms 把按钮换成新节点（模拟框架重渲染）
+      const tick = () => {
+        const fresh = document.createElement('button');
+        fresh.id = 'rerender';
+        fresh.textContent = '会重渲染的按钮';
+        fresh.onclick = () => { result.textContent = 'rerender clicked'; };
+        document.getElementById('rerender-slot').replaceChildren(fresh);
+      };
+      tick();
+      setInterval(tick, 300);
+
+      document.getElementById('to-form2').onclick = () => { location.href = '/cap/form.html'; };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "manifest_version": 2,
+  "name": "Warren DevTools Panel",
+  "version": "1.0.0",
+  "description": "最小 DevTools 扩展 fixture：只做一件事 —— 注册一个面板。用来区分「Electron 完全不支持 DevTools 面板」和「某个具体扩展不兼容」。",
+  "devtools_page": "devtools.html"
+}

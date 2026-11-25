@@ -1,0 +1,67 @@
+# 静态门：AGENTS.md「修改后校验（强制）」的那五条（lint / format / typecheck / test / 构建）。
+#
+# **GUI 回归套件**：`gui-regression` job 跑 scripts/regress/run-all.sh。
+# 它以前跑不了 CI —— 要求窗口在前台拿焦点。2026-10-17 实测推翻了那个前提
+# （失焦时 CDP 输入照样落地，见 scripts/verify/batch1-focus.mjs），守卫也删了。
+# 本地已验证「非 TTY 启动」可行（nohup npm start < /dev/null，4 秒起来）。
+# **仍未验证**：macOS runner 有没有可用的窗口会话、safeStorage 能不能用。
+# 所以这个 job 暂时 continue-on-error —— 第一次绿了之后把它去掉。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx vite build --config vite.renderer.config.mjs
+
+  gui-regression:
+    # 2026-10-19 本地全量回归 146 PASS / 0 FAIL；不再 continue-on-error。
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+
+      - name: 起 fixture（8899）
+        run: |
+          nohup node scripts/serve-fixture.mjs 8899 > /tmp/fixture.log 2>&1 &
+          for i in $(seq 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8899/cap/form.html)" = "200" ] && exit 0
+            sleep 1
+          done
+          echo "fixture 没起来"; cat /tmp/fixture.log; exit 1
+
+      - name: 起 Warren（非 TTY）
+        run: |
+          nohup npm start < /dev/null > /tmp/warren.log 2>&1 &
+          for i in $(seq 60); do
+            [ -S "$HOME/.warren/envd.sock" ] && exit 0
+            sleep 2
+          done
+          echo "应用没起来"; tail -40 /tmp/warren.log; exit 1
+
+      - name: 全量回归
+        run: bash scripts/regress/run-all.sh
+
+      - name: 失败时留下日志
+        if: failure()
+        run: tail -80 /tmp/warren.log /tmp/fixture.log || true

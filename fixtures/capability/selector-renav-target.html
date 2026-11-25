@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>selector renav 2</title>
+    <style>
+      body {
+        font: 14px system-ui;
+        margin: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>第二页（跳转后的落地页）</h1>
+    <button data-testid="login-type-pwd" id="pwd">邮箱登录</button>
+    <p id="result">未点击</p>
+    <script>
+      document.getElementById('pwd').onclick = () => {
+        document.getElementById('result').textContent = 'page2 pwd clicked';
+      };
+    </script>
+  </body>
+</html>

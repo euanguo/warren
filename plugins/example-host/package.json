@@ -1,0 +1,31 @@
+{
+  "name": "warren-plugin-example-host",
+  "version": "0.2.0",
+  "private": true,
+  "description": "host 运行时示例：独立 Node 进程里可以使用 fs、child_process 和第三方依赖。",
+  "type": "module",
+  "files": [
+    "host.mjs"
+  ],
+  "warren": {
+    "id": "com.example.hosty",
+    "name": "Hosty",
+    "apiVersion": "4",
+    "runtime": "host",
+    "host": "host.mjs",
+    "engines": {
+      "warren": ">=0.1.0"
+    },
+    "permissions": [
+      "environment.read"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "name": "probe",
+          "summary": "报告子进程里的 Node 能力（版本 / 当前目录 / 环境变量）"
+        }
+      ]
+    }
+  }
+}

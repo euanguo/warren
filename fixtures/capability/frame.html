@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>frame</title>
+  </head>
+  <body>
+    <button id="inner">内层按钮</button>
+    <p id="inner-result">未点击</p>
+    <script>
+      document.getElementById('inner').onclick = () => {
+        document.getElementById('inner-result').textContent = 'inner clicked';
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>upload-hidden fixture</title>
+    <style>
+      #file { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>隐藏文件输入</h1>
+    <input id="file" type="file" />
+    <button id="pick">选择文件</button>
+    <p id="names">未选择</p>
+    <script>
+      document.getElementById('pick').onclick = () => { document.getElementById('file').click(); };
+      document.getElementById('file').addEventListener('change', (event) => {
+        const names = [...event.target.files].map((f) => f.name).join(', ');
+        document.getElementById('names').textContent = names || '未选择';
+      });
+    </script>
+  </body>
+</html>

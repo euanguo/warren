@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="title">
+  <title id="title">Warren</title>
+  <defs>
+    <mask id="warren-rabbit" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect x="0" y="0" width="1024" height="1024" fill="#fff"/>
+      <g fill="#000">
+        <circle cx="512" cy="815" r="190"/>
+        <ellipse cx="394" cy="541" rx="56" ry="158" transform="rotate(-10 394 541)"/>
+        <ellipse cx="630" cy="541" rx="56" ry="158" transform="rotate(10 630 541)"/>
+      </g>
+    </mask>
+  </defs>
+  <path d="M198 815L198 523A314 314 0 0 1 826 523L826 815Z" fill="#8F92F2" mask="url(#warren-rabbit)"/>
+</svg>

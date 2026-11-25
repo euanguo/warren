@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>跨源 alert fixture</title>
+  </head>
+  <body>
+    <h1>内层 alert 页</h1>
+    <button id="alert-btn" onclick="document.getElementById('state').textContent = '已弹出'; alert('来自跨源 iframe');">
+      弹窗
+    </button>
+    <p id="state">未弹</p>
+  </body>
+</html>

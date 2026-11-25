@@ -1,0 +1,16 @@
+{
+  "name": "@warren/plugin-sdk",
+  "version": "4.0.0",
+  "description": "Warren plugin package contract and authoring types.",
+  "type": "module",
+  "types": "./index.d.ts",
+  "files": [
+    "index.d.ts",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts"
+    }
+  }
+}

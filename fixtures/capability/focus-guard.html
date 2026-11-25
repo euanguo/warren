@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>focus guard fixture</title>
+<style>body{font:14px -apple-system,sans-serif;padding:20px}button{margin:4px}</style>
+</head>
+<body>
+<h1>focus guard</h1>
+<p>模拟真实站点里常见的守卫：编辑器 / 拖拽库 / canvas 应用都会写
+<code>if (!document.hasFocus()) return;</code>。</p>
+<button id="guarded" type="button">有焦点才生效</button>
+<p>guarded: <span id="guarded-state">未点</span></p>
+<button id="plain" type="button">不检查焦点</button>
+<p>plain: <span id="plain-state">未点</span></p>
+<script>
+  document.getElementById('guarded').addEventListener('click', function () {
+    if (!document.hasFocus()) return;
+    document.getElementById('guarded-state').textContent = '已点';
+  });
+  document.getElementById('plain').addEventListener('click', function () {
+    document.getElementById('plain-state').textContent = '已点';
+  });
+</script>
+</body>
+</html>

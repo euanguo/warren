@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>网络拦截 fixture</title>
+    <style>
+      body { font: 14px system-ui; padding: 12px; }
+      #pic { display: block; width: 8px; height: 8px; background: #ddd; }
+      button { padding: 4px 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>网络拦截</h1>
+    <img id="pic" src="/cap/pixel.png" alt="像素" />
+    <button id="btn">点我</button>
+    <p id="result">未操作</p>
+    <script>
+      // 页面自己的行为要能在被拦截的情况下照常跑（V19 判据）
+      document.getElementById('btn').onclick = () => {
+        document.getElementById('result').textContent = 'alive clicked';
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>shadow fixture</title>
+  </head>
+  <body>
+    <h1>Shadow DOM</h1>
+    <div id="host"></div>
+    <p id="result">未点击</p>
+    <script>
+      const root = document.getElementById('host').attachShadow({ mode: 'open' });
+      root.innerHTML = '<button id="inner">影子按钮</button>';
+      root.getElementById('inner').addEventListener('click', () => {
+        document.getElementById('result').textContent = 'shadow clicked';
+      });
+    </script>
+  </body>
+</html>

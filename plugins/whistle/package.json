@@ -1,0 +1,247 @@
+{
+  "name": "warren-plugin-whistle",
+  "version": "0.3.0",
+  "description": "为每个环境托管独立的 Whistle 实例：代理、规则、预设与抓包面板。",
+  "type": "module",
+  "files": [
+    "host.mjs",
+    "app.js",
+    "presets.mjs",
+    "preflight.mjs",
+    "agent-api.mjs",
+    "README.md"
+  ],
+  "dependencies": {
+    "whistle": "2.10.12"
+  },
+  "bundleDependencies": [
+    "whistle"
+  ],
+  "warren": {
+    "id": "com.warren.whistle",
+    "name": "Whistle 代理",
+    "apiVersion": "4",
+    "runtime": "host",
+    "host": "host.mjs",
+    "app": "app.js",
+    "engines": {
+      "warren": ">=0.1.0"
+    },
+    "permissions": [
+      "environment.read",
+      "environment.write",
+      "storage.write",
+      "rpc.serve",
+      "ui.mount",
+      "browser.navigate"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "name": "list",
+          "summary": "列出所有代理实例：端口、存活、绑定的环境、规则"
+        },
+        {
+          "name": "fork",
+          "summary": "起一个新实例：--input='{\"storage\":\"a\",\"hostPattern\":\"app.example.com/static/\",\"targetPort\":5199}'"
+        },
+        {
+          "name": "start",
+          "summary": "把 list 里 alive:false 的已登记实例按原端口原 storage 拉起：--input='{\"storage\":\"a\"}'"
+        },
+        {
+          "name": "stop",
+          "summary": "停掉一个实例：--input='{\"storage\":\"a\"}'"
+        },
+        {
+          "name": "remove",
+          "summary": "停掉并忘掉一个实例（Whistle 的规则文件留在磁盘上）：--input='{\"storage\":\"a\"}'"
+        },
+        {
+          "name": "bind",
+          "summary": "把实例绑到环境（写 proxy + 信任它的根证书，环境在跑就重启）：--env=<环境> --input='{\"storage\":\"a\"}'"
+        },
+        {
+          "name": "unbind",
+          "summary": "解除环境的代理绑定（清 proxy + trustedCa，环境在跑就重启）：--env=<环境>"
+        },
+        {
+          "name": "open",
+          "summary": "只打开当前环境绑定实例的 Web UI，不启动服务；实例没跑时请先 start：--env=<环境>"
+        },
+        {
+          "name": "presetList",
+          "summary": "列出用户已导入的预设与 online/test/local/preview 场景"
+        },
+        {
+          "name": "presetGet",
+          "summary": "读取用户预设 revision：--input='{\"id\":\"<preset-id>\"}'"
+        },
+        {
+          "name": "presetPreview",
+          "summary": "合成预设并返回 rules/hash/warnings；--input 可带 scenario"
+        },
+        {
+          "name": "presetApply",
+          "summary": "按 scenario 组合应用预设；expectedHash 防覆盖，失败自动回滚"
+        },
+        {
+          "name": "presetSave",
+          "summary": "保存自定义预设：--input='{\"definition\":{...}}'"
+        },
+        {
+          "name": "presetDelete",
+          "summary": "删除自定义预设：--input='{\"id\":\"...\"}'"
+        },
+        {
+          "name": "presetImport",
+          "summary": "把规则文本导入为 draft：--input='{\"text\":\"...\"}'"
+        },
+        {
+          "name": "presetExport",
+          "summary": "导出预设 JSON：--input='{\"id\":\"...\"}'"
+        },
+        {
+          "name": "profileGet",
+          "summary": "读取实例当前预设 profile：--input='{\"storage\":\"...\"}'"
+        },
+        {
+          "name": "profileClear",
+          "summary": "清除实例 profile，不改 Whistle 规则"
+        },
+        {
+          "name": "ruleGet",
+          "summary": "读取单个规则组：--input='{\"storage\":\"...\",\"name\":\"warren\"}'"
+        },
+        {
+          "name": "rules",
+          "summary": "读取实例的规则组、selected 与多选开关：--input='{\"storage\":\"...\"}'"
+        },
+        {
+          "name": "ruleSet",
+          "summary": "写入并选中一组规则（写后回读 hash/selected，失败回滚）：--input='{\"storage\":\"...\",\"name\":\"warren\",\"rules\":\"...\"}'"
+        },
+        {
+          "name": "ruleToggle",
+          "summary": "启用/停用一组规则，正文 hash 不变：--input='{\"storage\":\"...\",\"name\":\"warren\",\"enabled\":true}'"
+        },
+        {
+          "name": "ruleRemove",
+          "summary": "删除一组规则：--input='{\"storage\":\"...\",\"name\":\"warren\"}'"
+        },
+        {
+          "name": "ruleValidate",
+          "summary": "校验规则文本：--input='{\"rules\":\"...\"}'"
+        },
+        {
+          "name": "ruleDiff",
+          "summary": "对比实例当前规则与目标文本"
+        },
+        {
+          "name": "traffic",
+          "summary": "读取实例实时请求/响应：--input='{\"storage\":\"a\",\"urls\":[\"/cgi/capi\"],\"methods\":[\"POST\"]}'"
+        },
+        {
+          "name": "compose",
+          "summary": "经实例主动发请求并返回响应：--input='{\"storage\":\"a\",\"url\":\"https://...\",\"method\":\"POST\",\"data\":\"...\"}'"
+        },
+        {
+          "name": "doctor",
+          "summary": "检查实例存活、HTTPS 解密、HTTP2、多选规则与根证书"
+        },
+        {
+          "name": "agent",
+          "summary": "调用 Whistle 2.10.7+ 官方 Local Agent API：--input='{\"storage\":\"a\",\"method\":\"rules.getList\",\"args\":[]}'"
+        },
+        {
+          "name": "agentStatus",
+          "summary": "读取官方 Agent API 状态：network/rules/plugins/HTTPS"
+        },
+        {
+          "name": "frames",
+          "summary": "读取 WebSocket/流式帧：--input='{\"storage\":\"a\",\"reqId\":\"...\",\"lastFrameId\":\"...\"}'"
+        },
+        {
+          "name": "export",
+          "summary": "导出规则/session：--input='{\"storage\":\"a\",\"type\":\"har\",\"directory\":\"/abs\"}'"
+        }
+      ],
+      "settings": [
+        {
+          "key": "w2Path",
+          "type": "string",
+          "label": "外部 w2 路径",
+          "description": "留空 = 使用插件内置的 Whistle；填了就用你指定的 fork"
+        },
+        {
+          "key": "portBase",
+          "type": "string",
+          "label": "端口起始值",
+          "default": "8900",
+          "description": "新实例从这往后找第一个能用的端口；8899 被本地 fixture 占用，已跳过"
+        },
+        {
+          "key": "whistlePath",
+          "type": "string",
+          "label": "WHISTLE_PATH",
+          "description": "留空 = 用 WARREN_HOME/whistle，所有实例共用一张根证书"
+        }
+      ],
+      "surfaces": [
+        {
+          "kind": "railPage",
+          "id": "proxy",
+          "title": "代理",
+          "icon": "Globe",
+          "path": "proxy"
+        },
+        {
+          "kind": "settingsSection",
+          "id": "about",
+          "title": "Whistle 使用说明"
+        },
+        {
+          "kind": "envAction",
+          "id": "open",
+          "title": "打开代理实例",
+          "icon": "Globe",
+          "command": "open"
+        }
+      ],
+      "rpc": [
+        "list",
+        "fork",
+        "start",
+        "stop",
+        "remove",
+        "rules",
+        "ruleGet",
+        "ruleSet",
+        "ruleToggle",
+        "ruleRemove",
+        "ruleValidate",
+        "ruleDiff",
+        "traffic",
+        "compose",
+        "doctor",
+        "agent",
+        "agentStatus",
+        "frames",
+        "export",
+        "presetList",
+        "presetGet",
+        "presetPreview",
+        "presetApply",
+        "presetSave",
+        "presetDelete",
+        "presetImport",
+        "presetExport",
+        "profileGet",
+        "profileClear",
+        "bind",
+        "unbind",
+        "open"
+      ]
+    }
+  }
+}

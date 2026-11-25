@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>selector scope fixture</title>
+    <style>
+      body {
+        font: 14px system-ui;
+        margin: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>各种内嵌上下文</h1>
+    <button data-testid="scope-target">目标按钮</button>
+    <p id="result">未点击</p>
+    <iframe id="oopif" src="http://localhost:8899/cap/frame.html" width="200" height="60"></iframe>
+    <iframe id="sandboxed" sandbox="allow-scripts" src="http://localhost:8899/cap/frame.html" width="200" height="60"></iframe>
+    <iframe id="sandboxed-srcdoc" sandbox="allow-scripts" srcdoc="<button>srcdoc</button>" width="200" height="60"></iframe>
+    <object id="obj" data="http://localhost:8899/cap/frame.html" width="200" height="60"></object>
+    <div id="host"></div>
+    <script>
+      document.querySelector('[data-testid="scope-target"]').onclick = () => {
+        document.getElementById('result').textContent = 'scope clicked';
+      };
+      document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML =
+        '<button data-testid="shadow-target">影子按钮</button>';
+    </script>
+  </body>
+</html>

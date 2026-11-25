@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <title>iframe fixture</title>
+  </head>
+  <body>
+    <h1>iframe</h1>
+    <button id="outer">外层按钮</button>
+    <iframe id="frame" src="/cap/frame.html" title="内层页面" width="360" height="160"></iframe>
+    <p id="result">未点击</p>
+    <script>
+      document.getElementById('outer').onclick = () => {
+        document.getElementById('result').textContent = 'outer clicked';
+      };
+    </script>
+  </body>
+</html>
