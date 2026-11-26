@@ -87,6 +87,8 @@ export class EnvironmentManager {
       attachTabTelemetry: (envId, tabId, wc) => this.#sessions.attachTabTelemetry(envId, tabId, wc),
       detachTabTelemetry: (tabId) => this.#sessions.detachTabTelemetry(tabId),
       lastActivityAt: (tabId) => this.#sessions.lastActivityAt(tabId),
+      inFlightCount: (tabId) => this.#sessions.inFlightCount(tabId),
+      lastNavigationError: (tabId) => this.#sessions.lastNavigationError(tabId),
       syncShield: (id, syncOptions) => this.#leases.syncShield(id, syncOptions),
       detachShieldOnly: (id) => this.#leases.detachShieldOnly(id),
       repositionShield: (id, bounds) => this.#leases.repositionShield(id, bounds),
@@ -297,6 +299,9 @@ export class EnvironmentManager {
   }
   networkEntries(id: string): NetworkEntry[] {
     return this.#sessions.networkEntries(id);
+  }
+  networkEntriesSince(id: string, afterId: number, limit?: number): NetworkEntry[] {
+    return this.#sessions.networkEntriesSince(id, afterId, limit);
   }
   netRules(id: string) {
     return this.#sessions.netRules(id);

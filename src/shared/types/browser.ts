@@ -18,10 +18,30 @@ export interface AxNode {
   selected?: boolean;
   pressed?: boolean | 'mixed';
   level?: number;
+  /** 语义树真实缩进深度（从 0 起算，区分于 heading `level`）。 */
+  depth?: number;
   readonly?: boolean;
   required?: boolean;
   focused?: boolean;
   valuetext?: string;
+  /** `urls: true` 时为链接节点补充的真实 href。 */
+  url?: string;
+  /** 同 `(role, name)` 重复项的 0-based 消歧序号（仅重复时设置）。 */
+  nth?: number;
+  /** 由 DOM 补盲发现的 cursor:pointer / onclick / tabindex 可点击元素。 */
+  cursorInteractive?: boolean;
+  /** 被隐藏但救回的可操作控件（如隐藏的 `<input type="file">`）。 */
+  hiddenInput?: boolean;
+  /** `<select>` 等下拉控件的选项摘要。 */
+  optionsSummary?: string[];
+  /** 密码或敏感输入字段标记：value 一律以固定宽度脱敏占位展示。 */
+  sensitive?: boolean;
+  /** 跨快照稳定引用对比中，本次新出现的节点。 */
+  isNew?: boolean;
+  /** 所属文档的 `loaderId`，用于按 frame 精确失效旧 ref。 */
+  loaderId?: string;
+  /** `boxes: true` 时附带的视口坐标盒。 */
+  box?: { x: number; y: number; width: number; height: number };
   /** `includeActionMarks` 打开时按 role 标注的可执行动作。 */
   actions?: Array<'click' | 'fill' | 'select' | 'focus'>;
   /** `includeStableLocator` 打开时的稳定定位串（`loc=role:…` 或 `@ref` 回退）。 */
@@ -37,6 +57,8 @@ export interface SnapshotResult {
 }
 
 export interface ConsoleEntry {
+  /** SQLite 自增游标（增量读取用）。 */
+  id?: number;
   level: string;
   message: string;
   line: number;
@@ -47,6 +69,8 @@ export interface ConsoleEntry {
 }
 
 export interface NetworkEntry {
+  /** SQLite 自增游标（增量读取用，避免 300 条上限后 slice 错位）。 */
+  id?: number;
   method: string;
   url: string;
   status: number;
@@ -54,6 +78,8 @@ export interface NetworkEntry {
   at: string;
   /** 哪条标签记的（加法，老数据没有）。 */
   tabId?: string;
+  /** 失败请求的网络错误码（如 `net::ERR_CONNECTION_REFUSED`）。 */
+  error?: string;
 }
 
 /** 页面导航状态。工具栏据此决定前进/后退是否可用。 */
@@ -104,6 +130,27 @@ export interface SnapshotOptions {
   roles?: string[];
   /** CSS 选择器范围：返回该元素所在 AX 子树的节点。 */
   selector?: string;
+  /** 为链接节点附加真实 `href`。 */
+  urls?: boolean;
+  /** 扫描 `cursor:pointer` / `onclick` / `tabindex>=0` / `[contenteditable]` 补盲节点。 */
+  includeCursor?: boolean;
+  /** 为可交互节点附加视口包围盒。 */
+  boxes?: boolean;
+  /** 语义树最大缩进深度（从 0 起算）。 */
+  maxDepth?: number;
+  /** 分层输出 Token 预算上限（按 4 字符 ≈ 1 token 估算）。 */
+  maxTokens?: number;
+  /** 按子串或 `/regex/` 过滤节点（保留祖先链）。 */
+  filter?: string;
+  /** 限定只采集某个 frameId（为空时按当前激活 frame 或全部 frame）。 */
+  frame?: string;
+}
+
+export interface ScreenshotAnnotation {
+  ref: string;
+  role: string;
+  name: string;
+  box: { x: number; y: number; width: number; height: number };
 }
 
 export interface ScreenshotOptions {
@@ -114,6 +161,8 @@ export interface ScreenshotOptions {
   path?: string;
   /** 显式要求把内容带回调用方。默认 false，避免 agent 输出几十万 token。 */
   encoding?: 'base64';
+  /** 在截屏前叠加临时 `@N` 编号标签框，拍完立刻清除，并返回标注坐标清单。 */
+  annotate?: boolean;
 }
 
 export interface ScreenshotResult {
@@ -126,6 +175,8 @@ export interface ScreenshotResult {
   base64?: string;
   /** 实际取图通道；老调用方可忽略。 */
   source?: 'cdp' | 'electron';
+  /** `annotate: true` 时返回的元素编号标注表。 */
+  annotations?: ScreenshotAnnotation[];
 }
 
 export type WaitUntil = 'commit' | 'domcontentloaded' | 'load' | 'networkidle';
@@ -169,6 +220,17 @@ export interface ClickOptions {
   noWaitAfter?: boolean;
   /** 等待导航提交的上限；只在 noWaitAfter=false 时生效。 */
   navigationTimeoutMs?: number;
+  /** 是否开启拟人化鼠标曲线移动（默认直达，避免后台 tab 多步移动拖慢）。 */
+  humanize?: boolean;
+  /** 在新标签页中打开（带 Meta/Control 修饰键点击）。 */
+  newTab?: boolean;
+}
+
+export type DragPlacement = 'center' | 'before' | 'after';
+
+export interface DragOptions extends ClickOptions {
+  /** 放置落点相对于目标中心的位置：`before`（前 15%）、`after`（后 85%）、`center`。 */
+  placement?: DragPlacement;
 }
 
 export type NavigationReceipt = 'none' | 'started' | 'navigated' | 'timeout';
@@ -176,6 +238,38 @@ export type NavigationReceipt = 'none' | 'started' | 'navigated' | 'timeout';
 export interface FillOptions {
   clearFirst?: boolean;
   timeoutMs?: number;
+  /** 填完后立即按 Enter 提交。 */
+  submit?: boolean;
+}
+
+export interface FillWarning {
+  kind: 'truncated' | 'formatted';
+  expectedLength: number;
+  actualLength: number;
+  message: string;
+}
+
+export interface SavedFlowSpec {
+  /** 固定为只读 GET，安全边界禁止保存写请求。 */
+  method: 'GET';
+  /** 允许使用 `{{param}}` 占位符的 URL 模板。 */
+  urlTemplate: string;
+  /** 仅允许安全非认证请求头（如 Accept）。 */
+  headers?: Record<string, string>;
+  /** 可选提取数组路径（点分路径，如 `data.items`）。 */
+  extractPath?: string;
+  /** 默认导出字段列表，同时用于漂移检测。 */
+  fields?: string[];
+  /** 说明文字。 */
+  description?: string;
+}
+
+export interface SavedFlowRecord {
+  name: string;
+  site: string;
+  spec: SavedFlowSpec;
+  updatedBy: string;
+  updatedAt: string;
 }
 
 export type SelectValue =

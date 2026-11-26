@@ -2,6 +2,13 @@
 import { detectCallerLabel } from './caller.mjs';
 import { parseCliFlags, usageOf } from './commands.mjs';
 import { createEmitResult, createExecSandbox, createPageApi, describeCapabilities } from './exec-runtime.mjs';
+import {
+  applyOutputBudget,
+  computeRpcTimeoutMs,
+  stripTerminalEscapes,
+  toCsv,
+  wrapUntrustedContent,
+} from './output-guard.mjs';
 // warren —— Agent 的操作入口。形态参考 ego-browser：一次调用可以跑一整段脚本。
 //
 //   warren env list
@@ -143,11 +150,12 @@ function call(method, params = {}) {
     const socket = net.connect(info.socketPath);
     let buffer = '';
     const id = String(++seq);
-    // 没有超时的话，一个卡住的页面调用会把 agent 永久挂死
+    const timeoutMs = computeRpcTimeoutMs(method, params, CALL_TIMEOUT_MS);
+    // 动态超时预算：多步 batch / 显式 --timeout 自动拉长客户端等待上限，避免掐断服务端诊断历史
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(Object.assign(new Error(`RPC 超时 ${CALL_TIMEOUT_MS}ms: ${method}`), { code: 'TIMEOUT' }));
-    }, CALL_TIMEOUT_MS);
+      reject(Object.assign(new Error(`RPC 超时 ${timeoutMs}ms: ${method}`), { code: 'TIMEOUT' }));
+    }, timeoutMs);
     const done = (fn) => (value) => {
       clearTimeout(timer);
       fn(value);
@@ -174,9 +182,9 @@ function call(method, params = {}) {
           reject(
             Object.assign(new Error(message.error.message), {
               code: message.error.code,
-              // lease 类错误的原因（expired / never_leased / superseded / user_takeover / wrong_space）
               reason: message.error.reason,
               expiredAt: message.error.expiredAt,
+              details: message.error.details,
             }),
           );
       }),
@@ -591,6 +599,39 @@ const formatNoteLine = (item) =>
   `[${item.site}] (${item.updatedBy}, ${String(item.updatedAt ?? '').slice(0, 19)})\n  ${item.content.replace(/\n/g, '\n  ')}`;
 const formatSkillLine = (item) =>
   `${item.installed ? (item.upToDate ? '✓' : '!') : '○'} ${item.id.padEnd(8)} ${item.label.padEnd(24)} ${item.path}`;
+const formatFlowLine = (item) =>
+  `${String(item.name).padEnd(22)} ${String(item.site).padEnd(26)} ${item.spec?.urlTemplate ?? ''}`;
+const formatFlowStepLine = (item) => `GET ${String(item.status).padEnd(4)} ${item.suggestedTemplate}`;
+const formatFrameLine = (item) =>
+  `${item.active ? '●' : '○'} [${item.index}] ${item.frameId}${item.crossOrigin ? ' [OOPIF]' : ''}  ${item.url}`;
+
+/** 对网页来源文本执行终端转义净化、可选 IDPI 边界包裹与 `--max-output` 预算裁剪。 */
+function emitUntrustedText(rawText, meta = {}) {
+  const maxOutput = typeof flags['max-output'] === 'string' ? Number(flags['max-output']) : undefined;
+  const guarded = applyOutputBudget(rawText, {
+    maxChars: Number.isFinite(maxOutput) ? maxOutput : undefined,
+    full: Boolean(flags.full),
+    label: meta.source ?? 'page',
+  });
+  const finalText = flags['content-boundaries']
+    ? wrapUntrustedContent(guarded.text, { source: meta.source, url: meta.url })
+    : guarded.text;
+  console.log(finalText);
+}
+
+/** 解析重复传入的 `--param k=v` / `--where k=v` 为键值对对象。 */
+function parseKvFlags(raw) {
+  if (!raw) return undefined;
+  const list = Array.isArray(raw) ? raw : [raw];
+  const out = {};
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const eq = item.indexOf('=');
+    if (eq <= 0) continue;
+    out[item.slice(0, eq).trim()] = item.slice(eq + 1);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 const group = args[0];
 const sub = args[1];
@@ -654,10 +695,120 @@ try {
         console.error(usageOf('notes', ' <site> [content]'));
         process.exit(1);
     }
+  } else if (group === 'flow') {
+    switch (sub) {
+      case 'steps': {
+        const envId = args[2] ?? process.env.WARREN_ENV;
+        if (!envId) {
+          console.error('用法: warren flow steps <env>');
+          process.exit(1);
+        }
+        print(await call('flow.steps', { id: envId }), asJson, formatFlowStepLine);
+        break;
+      }
+      case 'list':
+        print(await call('flow.list'), asJson, formatFlowLine);
+        break;
+      case 'show':
+        if (!args[2]) {
+          console.error('用法: warren flow show <name>');
+          process.exit(1);
+        }
+        print(await call('flow.show', { name: args[2] }), asJson);
+        break;
+      case 'save': {
+        const name = args[2];
+        const urlTemplate = args[3];
+        if (!name || !urlTemplate) {
+          console.error(
+            '用法: warren flow save <name> <urlTemplate> [--extract=data.items] [--fields=a,b] [--desc=说明]',
+          );
+          process.exit(1);
+        }
+        const fields =
+          typeof flags.fields === 'string'
+            ? flags.fields
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : undefined;
+        print(
+          await call('flow.save', {
+            name,
+            spec: {
+              method: 'GET',
+              urlTemplate,
+              ...(typeof flags.extract === 'string' ? { extractPath: flags.extract } : {}),
+              ...(fields?.length ? { fields } : {}),
+              ...(typeof flags.desc === 'string' ? { description: flags.desc } : {}),
+            },
+            updatedBy: CALLER_LABEL,
+          }),
+          asJson,
+        );
+        break;
+      }
+      case 'rm':
+        if (!args[2]) {
+          console.error('用法: warren flow rm <name>');
+          process.exit(1);
+        }
+        print(await call('flow.rm', { name: args[2] }), asJson);
+        break;
+      case 'run': {
+        const envId = args[2];
+        const name = args[3];
+        if (!envId || !name) {
+          console.error(
+            '用法: warren flow run <env> <name> [--param=k=v] [--fields=a,b] [--where=k=v] [--limit=N] [--out=file.csv]',
+          );
+          process.exit(1);
+        }
+        const fields =
+          typeof flags.fields === 'string'
+            ? flags.fields
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : undefined;
+        const res = await call('flow.run', {
+          id: envId,
+          name,
+          params: parseKvFlags(flags.param),
+          where: parseKvFlags(flags.where),
+          fields,
+          limit: typeof flags.limit === 'string' ? Number(flags.limit) : undefined,
+        });
+        if (typeof flags.out === 'string' && flags.out.trim()) {
+          const dest = path.resolve(flags.out.trim());
+          mkdirSync(path.dirname(dest), { recursive: true });
+          const body =
+            dest.endsWith('.csv') && Array.isArray(res.rows) ? toCsv(res.rows) : JSON.stringify(res, null, 2);
+          writeFileSync(dest, body + '\n', 'utf8');
+          print(
+            {
+              out: dest,
+              count: res.count,
+              flow: res.flow,
+              ...(res.schemaDrift ? { schemaDrift: res.schemaDrift } : {}),
+            },
+            asJson,
+          );
+        } else {
+          print(res, asJson);
+        }
+        break;
+      }
+      default:
+        console.error(usageOf('flow', ' ...'));
+        process.exit(1);
+    }
   } else if (group === 'batch') {
-    const environmentId = args[1];
+    const environmentId = args[1] ?? process.env.WARREN_ENV;
     if (!environmentId) {
-      console.error("用法: warren batch <env> [--bail] [--json] <<'EOF' ... EOF");
+      console.error(
+        "用法: warren batch <env> [--bail] [--no-changes] [--auto-dialog=accept|dismiss] [--json] <<'EOF' ... EOF",
+      );
       process.exit(1);
     }
     const raw = (await readStdin()).trim();
@@ -671,6 +822,8 @@ try {
         id: environmentId,
         leaseId,
         bail: Boolean(flags.bail),
+        noChanges: Boolean(flags['no-changes']),
+        ...(typeof flags['auto-dialog'] === 'string' ? { autoDialog: flags['auto-dialog'] } : {}),
         ...params,
       }),
     );
@@ -1498,22 +1651,34 @@ try {
         process.exit(1);
     }
   } else if (group === 'browser') {
-    const environmentId = args[2];
+    const environmentId = args[2] ?? process.env.WARREN_ENV;
+    const autoDialogOpt = typeof flags['auto-dialog'] === 'string' ? { autoDialog: flags['auto-dialog'] } : {};
+    const commonTimeout = typeof flags.timeout === 'string' ? { timeoutMs: Number(flags.timeout) } : {};
     switch (sub) {
-      case 'open':
-        print(
-          await withLease(environmentId, flags, 'warren browser open', (leaseId) =>
-            call('browser.navigate', {
-              id: environmentId,
-              leaseId,
-              url: args[3],
-              waitUntil: typeof flags['wait-until'] === 'string' ? flags['wait-until'] : undefined,
-              timeoutMs: typeof flags.timeout === 'string' ? Number(flags.timeout) : undefined,
-            }),
-          ),
-          asJson,
+      case 'open': {
+        const navRes = await withLease(environmentId, flags, 'warren browser open', (leaseId) =>
+          call('browser.navigate', {
+            id: environmentId,
+            leaseId,
+            url: args[3],
+            waitUntil: typeof flags['wait-until'] === 'string' ? flags['wait-until'] : undefined,
+            ...commonTimeout,
+          }),
         );
+        if (flags.read) {
+          const readRes = await call('browser.read', {
+            id: environmentId,
+            selector: typeof flags.selector === 'string' ? flags.selector : undefined,
+            outline: Boolean(flags.outline),
+            filter: typeof flags.filter === 'string' ? flags.filter : undefined,
+          });
+          if (asJson) print({ navigation: navRes, read: readRes }, true);
+          else emitUntrustedText(readRes.text ?? '', { source: 'read', url: readRes.url });
+        } else {
+          print(navRes, asJson);
+        }
         break;
+      }
       case 'back':
         print(
           await withLease(environmentId, flags, 'warren browser back', (leaseId) =>
@@ -1530,6 +1695,543 @@ try {
           asJson,
         );
         break;
+      case 'reload':
+        print(
+          await withLease(environmentId, flags, 'warren browser reload', (leaseId) =>
+            call('browser.reload', {
+              id: environmentId,
+              leaseId,
+              waitUntil: typeof flags['wait-until'] === 'string' ? flags['wait-until'] : undefined,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      case 'click': {
+        const target = args[3];
+        if (!target) {
+          console.error('用法: warren browser click <env> <target> [--new-tab] [--humanize] [--no-wait]');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser click', (leaseId) =>
+            call('browser.click', {
+              id: environmentId,
+              leaseId,
+              target,
+              button: typeof flags.button === 'string' ? flags.button : undefined,
+              newTab: Boolean(flags['new-tab']),
+              humanize: flags.humanize ? true : undefined,
+              noWaitAfter: Boolean(flags['no-wait']),
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'dblclick': {
+        const target = args[3];
+        if (!target) {
+          console.error('用法: warren browser dblclick <env> <target>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser dblclick', (leaseId) =>
+            call('browser.dblclick', {
+              id: environmentId,
+              leaseId,
+              target,
+              humanize: flags.humanize ? true : undefined,
+              noWaitAfter: Boolean(flags['no-wait']),
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'hover': {
+        const target = args[3];
+        if (!target) {
+          console.error('用法: warren browser hover <env> <target>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser hover', (leaseId) =>
+            call('browser.hover', {
+              id: environmentId,
+              leaseId,
+              target,
+              humanize: flags.humanize ? true : undefined,
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'focus': {
+        const target = args[3];
+        if (!target) {
+          console.error('用法: warren browser focus <env> <target>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser focus', (leaseId) =>
+            call('browser.focus', { id: environmentId, leaseId, target, ...autoDialogOpt, ...commonTimeout }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'fill': {
+        const target = args[3];
+        const value = args[4];
+        if (!target || value === undefined) {
+          console.error('用法: warren browser fill <env> <target> <value> [--submit] [--clear=false]');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser fill', (leaseId) =>
+            call('browser.fill', {
+              id: environmentId,
+              leaseId,
+              target,
+              value,
+              submit: Boolean(flags.submit),
+              clearFirst: flags.clear === 'false' ? false : undefined,
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'type': {
+        const target = args[3];
+        const text = args[4];
+        if (!target || text === undefined) {
+          console.error('用法: warren browser type <env> <target> <text> [--delay=30]');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser type', async (leaseId) => {
+            await call('browser.focus', { id: environmentId, leaseId, target, ...autoDialogOpt, ...commonTimeout });
+            return call('browser.keyboardType', {
+              id: environmentId,
+              leaseId,
+              text,
+              delay: typeof flags.delay === 'string' ? Number(flags.delay) : undefined,
+              ...autoDialogOpt,
+            });
+          }),
+          asJson,
+        );
+        break;
+      }
+      case 'press': {
+        const hasTarget = args.length >= 5;
+        const target = hasTarget ? args[3] : undefined;
+        const key = hasTarget ? args[4] : args[3];
+        if (!key) {
+          console.error('用法: warren browser press <env> [target] <chord>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser press', (leaseId) =>
+            call('browser.press', {
+              id: environmentId,
+              leaseId,
+              ...(target ? { target, chord: key } : { key }),
+              delay: typeof flags.delay === 'string' ? Number(flags.delay) : undefined,
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'check':
+      case 'uncheck': {
+        const target = args[3];
+        if (!target) {
+          console.error(`用法: warren browser ${sub} <env> <target>`);
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, `warren browser ${sub}`, (leaseId) =>
+            call(`browser.${sub}`, { id: environmentId, leaseId, target, ...autoDialogOpt, ...commonTimeout }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'select': {
+        const target = args[3];
+        const value = args[4];
+        if (!target || value === undefined) {
+          console.error('用法: warren browser select <env> <target> <value> [--by=auto|value|label|index]');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser select', (leaseId) =>
+            call('browser.selectOption', {
+              id: environmentId,
+              leaseId,
+              target,
+              value,
+              by: typeof flags.by === 'string' ? flags.by : undefined,
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'drag': {
+        const source = args[3];
+        const target = args[4];
+        if (!source || !target) {
+          console.error('用法: warren browser drag <env> <source> <target> [--placement=center|before|after]');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser drag', (leaseId) =>
+            call('browser.drag', {
+              id: environmentId,
+              leaseId,
+              source,
+              target,
+              placement: typeof flags.placement === 'string' ? flags.placement : undefined,
+              steps: typeof flags.steps === 'string' ? Number(flags.steps) : undefined,
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'drop': {
+        const target = args[3];
+        const files = args.slice(4).map((p) => path.resolve(p));
+        if (!target || files.length === 0) {
+          console.error('用法: warren browser drop <env> <target> <file...>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser drop', (leaseId) =>
+            call('browser.drop', {
+              id: environmentId,
+              leaseId,
+              target,
+              paths: files,
+              ...autoDialogOpt,
+              ...commonTimeout,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'scroll': {
+        const dirRaw = (args[3] ?? 'down').toLowerCase();
+        const isDir = dirRaw === 'up' || dirRaw === 'down' || dirRaw === 'left' || dirRaw === 'right';
+        const amount = Number(isDir ? (args[4] ?? 500) : (args[3] ?? 500));
+        const px = Number.isFinite(amount) ? amount : 500;
+        const deltaX = dirRaw === 'left' ? -px : dirRaw === 'right' ? px : 0;
+        const deltaY = dirRaw === 'up' ? -px : dirRaw === 'down' || !isDir ? px : 0;
+        print(
+          await withLease(environmentId, flags, 'warren browser scroll', (leaseId) =>
+            call('browser.mouseWheel', { id: environmentId, leaseId, deltaX, deltaY, ...autoDialogOpt }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'scrollintoview': {
+        const target = args[3];
+        if (!target) {
+          console.error('用法: warren browser scrollintoview <env> <target>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser scrollintoview', (leaseId) =>
+            call('browser.scrollIntoView', { id: environmentId, leaseId, target, ...autoDialogOpt }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'upload': {
+        const target = args[3];
+        const files = args.slice(4).map((p) => path.resolve(p));
+        if (!target || files.length === 0) {
+          console.error('用法: warren browser upload <env> <target> <file...>');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser upload', (leaseId) =>
+            call('browser.setInputFiles', { id: environmentId, leaseId, target, paths: files, ...autoDialogOpt }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'download': {
+        const action = args[3];
+        const downloadId = args[4];
+        if (!action || !downloadId) {
+          console.error('用法: warren browser download <env> <status|save|cancel> <downloadId> [destPath]');
+          process.exit(1);
+        }
+        if (action === 'status') {
+          print(await call('browser.downloadStatus', { id: environmentId, downloadId }), asJson);
+        } else if (action === 'save') {
+          const dest = args[5] ? path.resolve(args[5]) : undefined;
+          if (!dest) {
+            console.error('用法: warren browser download <env> save <downloadId> <destPath>');
+            process.exit(1);
+          }
+          print(
+            await withLease(environmentId, flags, 'warren browser download save', (leaseId) =>
+              call('browser.downloadSaveAs', { id: environmentId, leaseId, downloadId, path: dest }),
+            ),
+            asJson,
+          );
+        } else if (action === 'cancel') {
+          print(
+            await withLease(environmentId, flags, 'warren browser download cancel', (leaseId) =>
+              call('browser.downloadCancel', { id: environmentId, leaseId, downloadId }),
+            ),
+            asJson,
+          );
+        } else {
+          console.error('用法: warren browser download <env> <status|save|cancel> <downloadId> [destPath]');
+          process.exit(1);
+        }
+        break;
+      }
+      case 'wait': {
+        const arg3 = args[3];
+        if (typeof flags.text === 'string') {
+          print(
+            await call('browser.waitFor', { id: environmentId, predicate: { text: flags.text }, ...commonTimeout }),
+            asJson,
+          );
+        } else if (typeof flags.url === 'string') {
+          print(await call('browser.waitForURL', { id: environmentId, matcher: flags.url, ...commonTimeout }), asJson);
+        } else if (typeof flags.load === 'string') {
+          print(
+            await call('browser.waitForLoadState', { id: environmentId, state: flags.load, ...commonTimeout }),
+            asJson,
+          );
+        } else if (typeof flags.fn === 'string') {
+          print(await call('browser.waitForFunction', { id: environmentId, fn: flags.fn, ...commonTimeout }), asJson);
+        } else if (typeof flags.event === 'string') {
+          print(await call('browser.waitForEvent', { id: environmentId, kind: flags.event, ...commonTimeout }), asJson);
+        } else if (arg3 && /^\d+$/.test(arg3)) {
+          print(await call('browser.waitForTimeout', { id: environmentId, ms: Number(arg3) }), asJson);
+        } else if (arg3) {
+          print(
+            await call('browser.waitForSelector', {
+              id: environmentId,
+              target: arg3,
+              state: typeof flags.state === 'string' ? flags.state : undefined,
+              ...commonTimeout,
+            }),
+            asJson,
+          );
+        } else {
+          console.error(
+            '用法: warren browser wait <env> <ms|selector> [--state=visible] [--text=...] [--url=...] [--load=networkidle] [--fn=...] [--event=download]',
+          );
+          process.exit(1);
+        }
+        break;
+      }
+      case 'dialog': {
+        const action = args[3];
+        if (action === 'accept') {
+          print(
+            await withLease(environmentId, flags, 'warren browser dialog accept', (leaseId) =>
+              call('browser.acceptDialog', { id: environmentId, leaseId, prompt: args[4] }),
+            ),
+            asJson,
+          );
+        } else if (action === 'dismiss') {
+          print(
+            await withLease(environmentId, flags, 'warren browser dialog dismiss', (leaseId) =>
+              call('browser.dismissDialog', { id: environmentId, leaseId }),
+            ),
+            asJson,
+          );
+        } else if (action === 'policy') {
+          const policy = args[4] ?? 'none';
+          print(
+            await withLease(environmentId, flags, 'warren browser dialog policy', (leaseId) =>
+              call('browser.dialogPolicy', { id: environmentId, leaseId, policy }),
+            ),
+            asJson,
+          );
+        } else {
+          console.error('用法: warren browser dialog <env> <accept [prompt]|dismiss|policy <none|accept|dismiss>>');
+          process.exit(1);
+        }
+        break;
+      }
+      case 'eval': {
+        const expr = args.slice(3).join(' ') || (await readStdin()).trim();
+        if (!expr) {
+          console.error('用法: warren browser eval <env> <jsExpr>');
+          process.exit(1);
+        }
+        const fn = /^\s*(?:async\s*)?(?:\(|[A-Za-z_$][\w$]*\s*=>|function\b)/.test(expr) ? expr : `() => (${expr})`;
+        print(
+          await withLease(environmentId, flags, 'warren browser eval', (leaseId) =>
+            call('browser.evaluate', { id: environmentId, leaseId, fn, ...commonTimeout }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'frame': {
+        const action = args[3] ?? 'list';
+        if (action === 'list') {
+          print(await call('browser.frame.list', { id: environmentId }), asJson, formatFrameLine);
+        } else {
+          const target = action === 'select' ? args[4] : action;
+          if (!target) {
+            console.error('用法: warren browser frame <env> <list|main|index|frameId|urlSubstr>');
+            process.exit(1);
+          }
+          print(
+            await withLease(environmentId, flags, 'warren browser frame', (leaseId) =>
+              call('browser.frame.select', { id: environmentId, leaseId, target }),
+            ),
+            asJson,
+          );
+        }
+        break;
+      }
+      case 'pdf': {
+        const outPath = args[3] ?? (typeof flags.output === 'string' ? flags.output : undefined);
+        if (!outPath) {
+          console.error('用法: warren browser pdf <env> <output.pdf> [--landscape] [--no-background] [--scale=1]');
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, 'warren browser pdf', (leaseId) =>
+            call('browser.pdf', {
+              id: environmentId,
+              leaseId,
+              path: path.resolve(outPath),
+              landscape: Boolean(flags.landscape),
+              printBackground: !flags['no-background'],
+              scale: typeof flags.scale === 'string' ? Number(flags.scale) : undefined,
+            }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'set': {
+        const kind = args[3];
+        let setting;
+        if (kind === 'viewport') {
+          setting = {
+            kind: 'viewport',
+            width: Number(args[4]),
+            height: Number(args[5]),
+            dpr: typeof flags.dpr === 'string' ? Number(flags.dpr) : undefined,
+            mobile: Boolean(flags.mobile),
+          };
+        } else if (kind === 'device') {
+          setting = { kind: 'device', device: args[4] ?? '' };
+        } else if (kind === 'geo') {
+          setting = {
+            kind: 'geo',
+            latitude: Number(args[4]),
+            longitude: Number(args[5]),
+            accuracy: args[6] ? Number(args[6]) : undefined,
+          };
+        } else if (kind === 'offline') {
+          setting = { kind: 'offline', offline: args[4] !== 'off' && args[4] !== 'false' };
+        } else if (kind === 'headers') {
+          setting = { kind: 'headers', headers: JSON.parse(args[4] ?? '{}') };
+        } else if (kind === 'media') {
+          const val = (args[4] ?? '').toLowerCase();
+          setting = {
+            kind: 'media',
+            ...(val === 'dark' || val === 'light' || val === 'no-preference' ? { colorScheme: val } : {}),
+            ...(val === 'reduced-motion' || val === 'reduce' ? { reducedMotion: 'reduce' } : {}),
+          };
+        } else if (kind === 'tz') {
+          setting = { kind: 'tz', timezoneId: args[4] ?? '' };
+        } else if (kind === 'locale') {
+          setting = { kind: 'locale', locale: args[4] ?? '' };
+        } else if (kind === 'reset') {
+          setting = { kind: 'reset' };
+        } else {
+          console.error(
+            '用法: warren browser set <env> <viewport <w> <h>|device <name>|geo <lat> <lng>|offline <on|off>|headers <json>|media <dark|light|reduced-motion>|tz <iana>|locale <tag>|reset>',
+          );
+          process.exit(1);
+        }
+        print(
+          await withLease(environmentId, flags, `warren browser set ${kind}`, (leaseId) =>
+            call('browser.set', { id: environmentId, leaseId, setting }),
+          ),
+          asJson,
+        );
+        break;
+      }
+      case 'webmcp': {
+        const action = args[3] ?? 'list';
+        if (action === 'list') {
+          print(await call('browser.webmcp.list', { id: environmentId }), asJson);
+        } else if (action === 'call') {
+          const tool = args[4];
+          if (!tool) {
+            console.error("用法: warren browser webmcp <env> call <tool> [--args='{}']");
+            process.exit(1);
+          }
+          const toolArgs = typeof flags.args === 'string' ? JSON.parse(flags.args) : {};
+          print(
+            await withLease(environmentId, flags, `warren browser webmcp call ${tool}`, (leaseId) =>
+              call('browser.webmcp.call', { id: environmentId, leaseId, tool, args: toolArgs }),
+            ),
+            asJson,
+          );
+        } else {
+          console.error("用法: warren browser webmcp <env> <list|call <tool> [--args='{}']>");
+          process.exit(1);
+        }
+        break;
+      }
+      case 'vitals':
+        print(await call('browser.vitals', { id: environmentId }), asJson);
+        break;
+      case 'a11y':
+        print(await call('browser.a11y', { id: environmentId }), asJson);
+        break;
+      case 'react':
+        print(
+          await call('browser.react', {
+            id: environmentId,
+            maxNodes: typeof flags['max-nodes'] === 'string' ? Number(flags['max-nodes']) : undefined,
+          }),
+          asJson,
+        );
+        break;
       case 'snapshot': {
         const compact = Boolean(flags.interactive || flags.compact) && !asJson;
         const res = await call('browser.snapshot', {
@@ -1537,27 +2239,60 @@ try {
           scope: typeof flags.scope === 'string' ? flags.scope : undefined,
           limit: typeof flags.limit === 'string' ? Number(flags.limit) : undefined,
           maxDepth: typeof flags.depth === 'string' ? Number(flags.depth) : undefined,
+          maxTokens: typeof flags['max-tokens'] === 'string' ? Number(flags['max-tokens']) : undefined,
           compact: Boolean(flags.interactive || flags.compact),
+          urls: Boolean(flags.urls),
+          boxes: Boolean(flags.boxes),
+          includeCursor: flags.cursor ? true : undefined,
+          filter: typeof flags.filter === 'string' ? flags.filter : undefined,
           includeActionMarks: Boolean(flags['action-marks']),
           includeStableLocator: Boolean(flags.locator),
           interactiveOnly: Boolean(flags.interactive),
           selector: typeof flags.selector === 'string' ? flags.selector : undefined,
         });
         if (compact && typeof res.compact === 'string') {
-          console.log(res.compact);
+          emitUntrustedText(res.compact, { source: 'snapshot', url: res.url });
         } else {
           print(res, asJson);
         }
         break;
       }
       case 'read': {
-        const res = await call('browser.read', {
-          id: environmentId,
+        const extraUrls = args.slice(3).filter((u) => /^https?:\/\//i.test(u));
+        const readOpts = {
           selector: typeof flags.selector === 'string' ? flags.selector : undefined,
           data: Boolean(flags.data),
           links: flags.links,
           scroll: Boolean(flags.scroll),
-        });
+          match: typeof flags.match === 'string' ? flags.match : undefined,
+          outline: Boolean(flags.outline),
+          filter: typeof flags.filter === 'string' ? flags.filter : undefined,
+          llms: typeof flags.llms === 'string' ? flags.llms : undefined,
+        };
+        if (extraUrls.length > 0) {
+          // 多 URL 顺序/后台并发阅读（复用当前环境隔离会话）
+          const items = await withLease(environmentId, flags, 'warren browser read urls', async (leaseId) => {
+            const collected = [];
+            for (const u of extraUrls) {
+              await call('browser.navigate', { id: environmentId, leaseId, url: u, ...commonTimeout });
+              collected.push(await call('browser.read', { id: environmentId, ...readOpts }));
+            }
+            return collected;
+          });
+          if (typeof flags.out === 'string' && flags.out.trim()) {
+            const dest = path.resolve(flags.out.trim());
+            mkdirSync(path.dirname(dest), { recursive: true });
+            const body = dest.endsWith('.csv')
+              ? toCsv(items.map((r) => ({ url: r.url, title: r.title, text: r.text })))
+              : JSON.stringify(items, null, 2);
+            writeFileSync(dest, body + '\n', 'utf8');
+            print({ out: dest, pages: items.length }, asJson);
+          } else {
+            print(items, asJson);
+          }
+          break;
+        }
+        const res = await call('browser.read', { id: environmentId, ...readOpts });
         const textOut =
           res.siteNotes?.length && !asJson
             ? `# site-notes\n${res.siteNotes.map((n) => `- [${n.site}] ${n.content}`).join('\n')}\n\n${res.text}`
@@ -1565,13 +2300,23 @@ try {
         if (typeof flags.out === 'string' && flags.out.trim()) {
           const dest = path.resolve(flags.out.trim());
           mkdirSync(path.dirname(dest), { recursive: true });
-          const body = asJson || flags.data || flags.links ? JSON.stringify(res, null, 2) : textOut;
+          const body = dest.endsWith('.csv')
+            ? toCsv(
+                Array.isArray(res.links)
+                  ? res.links
+                  : Array.isArray(res.outline)
+                    ? res.outline
+                    : [{ url: res.url, title: res.title, text: res.text }],
+              )
+            : asJson || flags.data || flags.links
+              ? JSON.stringify(res, null, 2)
+              : textOut;
           writeFileSync(dest, body + '\n', 'utf8');
           print({ out: dest, bytes: Buffer.byteLength(body), url: res.url, title: res.title }, asJson);
         } else if (asJson || flags.data || flags.links) {
           print(res, asJson);
         } else {
-          console.log(textOut);
+          emitUntrustedText(textOut, { source: 'read', url: res.url });
         }
         break;
       }
@@ -1595,6 +2340,7 @@ try {
             value: val,
             name: typeof flags.name === 'string' ? flags.name : undefined,
             attr: typeof flags.attr === 'string' ? flags.attr : val,
+            ...autoDialogOpt,
           });
         const out = readActions.has(action)
           ? await execFind(undefined)
@@ -1636,7 +2382,9 @@ try {
           const a = args[4];
           const b = args[5];
           if (!a || !b) {
-            console.error('用法: warren browser diff <env> screenshot <a.png> <b.png>');
+            console.error(
+              '用法: warren browser diff <env> screenshot <a.png> <b.png> [--threshold=0.05] [--output=diff.png]',
+            );
             process.exit(1);
           }
           const res = await call('browser.diff', {
@@ -1644,9 +2392,30 @@ try {
             kind: 'screenshot',
             a: path.resolve(a),
             b: path.resolve(b),
+            threshold: typeof flags.threshold === 'string' ? Number(flags.threshold) : undefined,
+            outputPath: typeof flags.output === 'string' ? path.resolve(flags.output) : undefined,
           });
           print(res, asJson);
           if (!res.match) process.exit(1);
+        } else if (kind === 'urls') {
+          const a = args[4];
+          const b = args[5];
+          if (!a || !b) {
+            console.error('用法: warren browser diff <env> urls <urlA> <urlB> [-i]');
+            process.exit(1);
+          }
+          print(
+            await withLease(environmentId, flags, 'warren browser diff urls', (leaseId) =>
+              call('browser.diffUrls', {
+                id: environmentId,
+                leaseId,
+                a,
+                b,
+                interactiveOnly: Boolean(flags.interactive),
+              }),
+            ),
+            asJson,
+          );
         } else {
           print(
             await call('browser.diff', {
@@ -1679,13 +2448,13 @@ try {
             format: typeof flags.format === 'string' ? flags.format : undefined,
             fullPage: Boolean(flags['full-page']),
             encoding: flags.base64 === true ? 'base64' : undefined,
+            annotate: Boolean(flags.annotate),
           }),
           asJson,
           formatScreenshotLine,
         );
         break;
       case 'highlight': {
-        // 不传目标就是清除。返回的矩形是主 frame 视口坐标，可以拿去裁截图。
         const target = args[3] ? { kind: 'selector', selector: args[3] } : undefined;
         print(await call('browser.highlight', { id: environmentId, target }), asJson);
         break;
@@ -1724,24 +2493,41 @@ try {
   warren group remove <分组ID>       # 环境保留，只移出分组
   warren group collapse <分组ID> [--expand]
 
-  warren browser open <env> <url>
-  warren browser back <env>                 # 后退（写操作）
-  warren browser forward <env>              # 前进（写操作）
-  warren browser snapshot <env> [-i] [-d=<N>] [--scope=...] [--json]   # -i 极简交互树并注入 site-notes
-  warren browser read <env> [-s <sel>] [--data] [--links] [--scroll] [--out=<file>]
+  warren browser open <env> <url> [--wait-until=load|networkidle] [--read]
+  warren browser back|forward|reload <env>         # 导航历史 / 刷新（写操作）
+  warren browser click|dblclick|hover|focus <env> <target> [--new-tab] [--humanize] [--auto-dialog=accept|dismiss]
+  warren browser fill|type <env> <target> <value> [--submit]
+  warren browser press <env> [target] <chord>
+  warren browser check|uncheck <env> <target>      # 幂等勾选 / 取消勾选
+  warren browser select <env> <target> <value> [--by=auto|value|label|index]
+  warren browser drag|drop <env> <targetOrSrc> <destOrFiles...> [--placement=center|before|after]
+  warren browser scroll|scrollintoview <env> <dirOrTarget> [px]
+  warren browser upload <env> <target> <file...>
+  warren browser download <env> <status|save|cancel> <downloadId> [destPath]
+  warren browser wait <env> <ms|selector> [--text=...] [--url=...] [--load=networkidle] [--event=download]
+  warren browser dialog <env> <accept|dismiss|policy> [promptOrPolicy]
+  warren browser eval <env> <jsExpr>
+  warren browser frame <env> <list|main|index|frameId>
+  warren browser pdf <env> <output.pdf> [--landscape] [--scale=1]
+  warren browser set <env> <viewport|device|geo|offline|headers|media|tz|locale|reset> ...
+  warren browser webmcp <env> <list|call> [tool] [--args='{}']
+  warren browser vitals|a11y|react <env>           # 性能指标 / 无障碍审计 / React Fiber 检视
+  warren browser snapshot <env> [-i] [-u] [-d=<N>] [--filter=...] [--max-tokens=N] [--boxes] [--content-boundaries] [--json]
+  warren browser read <env> [url...] [-s <sel>] [--outline] [--filter=...] [--data] [--links] [--scroll] [--match=...] [--llms=index|full] [--out=<file>]
   warren browser find <env> <by> <spec> <action> [val]   # 语义一步定位与动作
   warren browser get <env> <url|title|text|html|value|attr|box> [target]
   warren browser is <env> <visible|enabled|checked> <target>
-  warren browser diff <env> <snapshot|screenshot> [a] [b]
-  warren browser screenshot <env> [--output=<path>] [--full-page] [--format=png|jpeg] [--base64]
+  warren browser diff <env> <snapshot|screenshot|urls> [a] [b] [--threshold=0.05] [--output=diff.png]
+  warren browser screenshot <env> [--output=<path>] [--full-page] [--annotate] [--format=png|jpeg] [--base64]
   warren browser highlight <env> [选择器]   # 高亮元素给人看（不传选择器 = 清除）
-  warren browser info <env>          # url/title/loading/dialog/标签
+  warren browser info <env>          # url/title/loading/dialog/标签/最近导航错因
   warren browser events <env>        # 读并清空 dialog/popup/download/fileChooser
   warren browser console <env>       # 页面 console 摘要
   warren browser network <env>       # 页面请求摘要
 
-  warren batch <env> [--bail] [--json] <<'EOF'   # 多步命令批处理 + Delta Receipt
+  warren batch <env> [--bail] [--no-changes] [--auto-dialog=accept|dismiss] [--json] <<'EOF'   # 多步批处理 + 带 @ref 的 Delta Receipt
   warren notes get|set|append|list|rm [site] [text]   # 站点记忆（自动注入 snapshot/read）
+  warren flow steps|save|run|list|show|rm ...         # 只读参数化 GET API Flow（严禁凭据与写请求）
   warren methods [name] [--json]                 # 实时反射全部 RPC 方法与参数
   warren --skill                                 # 输出内置 SKILL.md 手册
   warren skills install|status|refresh [target]  # 本地 Skill 校验戳管理（不依赖启动应用）
@@ -1811,15 +2597,30 @@ try {
   const reason = error.reason
     ? ` [reason=${error.reason}${error.expiredAt === undefined ? '' : ` expiredAt=${new Date(error.expiredAt).toISOString()}`}]`
     : '';
+  const details = error.details;
   const payload = {
     ok: false,
     error: {
       code: error.code ?? 'ERROR',
-      message: error.message,
+      message: stripTerminalEscapes(String(error.message ?? error)),
       ...(error.reason ? { reason: error.reason } : {}),
       ...(error.expiredAt === undefined ? {} : { expiredAt: error.expiredAt }),
+      ...(details ? { details } : {}),
     },
   };
-  console.error(asJson ? JSON.stringify(payload) : `${payload.error.code}: ${payload.error.message}${reason}`);
+  if (asJson) {
+    console.error(JSON.stringify(payload));
+  } else {
+    console.error(`${payload.error.code}: ${payload.error.message}${reason}`);
+    if (details?.hint) console.error(`  提示: ${stripTerminalEscapes(details.hint)}`);
+    if (details?.remedy) console.error(`  建议: ${stripTerminalEscapes(details.remedy)}`);
+    if (details?.data?.availableOptions && Array.isArray(details.data.availableOptions)) {
+      const opts = details.data.availableOptions
+        .slice(0, 10)
+        .map((o) => `${o.label || o.value}${o.disabled ? '(disabled)' : ''}`)
+        .join(', ');
+      if (opts) console.error(`  可用选项: ${opts}`);
+    }
+  }
   process.exit(1);
 }

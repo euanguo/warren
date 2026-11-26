@@ -24,7 +24,16 @@ import {
 import { RefTable } from './refs.ts';
 import { normalizeTarget, pickNth, assertUnique, type NormalizedTarget } from './target.ts';
 import type { MouseButton } from './input.ts';
-import { assignRefs, frameOfBackendId, invalidateAxCache, readAxNodes, screenshot, snapshot } from './snapshot.ts';
+import { clearPendingRelease, setPendingRelease } from './mouse-state.ts';
+import {
+  assignRefs,
+  frameOfBackendId,
+  invalidateAxCache,
+  readAxFrames,
+  readAxNodes,
+  screenshot,
+  snapshot,
+} from './snapshot.ts';
 import {
   ACTION_TIMEOUT_DEFAULT,
   assertNoDialog,
@@ -38,12 +47,17 @@ import {
   clearHighlight,
   highlightElement,
   resolveTarget,
+  scrollIntoView,
 } from './page-helpers.ts';
 import type { PageContext, PendingSink } from './ctx.ts';
 import { checkTargetState, readTargetProperty, type InspectProp, type InspectState } from './ops/inspector.ts';
+import { applyEmulationSetting, type EmulationSetting } from './ops/emulation.ts';
+import { callWebMcpTool, listWebMcpTools } from './ops/webmcp.ts';
+import { auditAccessibility, collectVitals, inspectReactTree, printPdf, type PdfOptions } from './ops/diagnostics.ts';
 import {
   awaitLoad,
   readyState,
+  smartSettle,
   waitFor,
   waitForEvent,
   waitForFunction,
@@ -62,11 +76,13 @@ import {
   downloadSaveAs,
   downloadStatus,
   drag,
+  dropFiles,
   fill,
   focus,
   hover,
   press,
   selectOption,
+  setChecked,
   setInputFiles,
 } from './actions.ts';
 import {
@@ -94,6 +110,7 @@ import type {
   WaitPredicate,
   WaitEventKind,
   ClickOptions,
+  DragOptions,
   FillOptions,
   SelectValue,
   PressOptions,
@@ -115,6 +132,8 @@ interface Ctx {
   tabIndex: () => number;
   pending: PendingSink;
   lastActivityAt: () => number;
+  inFlightCount: () => number;
+  lastNavigationError: () => { url: string; error: string; at: string } | null;
   noteActivity: () => void;
   downloadById: (id: string) => { item: Electron.DownloadItem; url: string; filename: string; path: string } | null;
   record: (type: string, message: string) => void;
@@ -199,8 +218,12 @@ export class BrowserController {
   #pageCtx?: PageContext;
   #refs = new RefTable();
   #holding = false;
-  /** 隔离世界上下文；导航会让它失效（Page.createIsolatedWorld 是按文档创建的）。 */
-  #worldCtx?: number;
+  /** 按会话缓存隔离世界上下文（`''` 表示主会话，其余为 OOPIF `sessionId`）。 */
+  #worldCtxMap = new Map<string, number>();
+  /** 当前限定的活动 frameId（空表示全部/主文档）。 */
+  #activeFrameId?: string;
+  /** 自动弹窗处理策略（`none` 默认显式报错由调用方处理；`accept`/`dismiss` 自动应答）。 */
+  #dialogPolicy: 'none' | 'accept' | 'dismiss' = 'none';
 
   constructor(wc: WebContents, ctx?: Partial<Ctx>) {
     this.#wc = wc;
@@ -210,31 +233,22 @@ export class BrowserController {
       tabIndex: ctx?.tabIndex ?? (() => 0),
       pending: ctx?.pending ?? emptyPending(),
       lastActivityAt: ctx?.lastActivityAt ?? (() => 0),
+      inFlightCount: ctx?.inFlightCount ?? (() => 0),
+      lastNavigationError: ctx?.lastNavigationError ?? (() => null),
       noteActivity: ctx?.noteActivity ?? (() => {}),
       downloadById: ctx?.downloadById ?? (() => null),
       record: ctx?.record ?? (() => {}),
     };
-    /*
-     * 主 frame 一开始导航就丢掉跨源子会话。
-     *
-     * 时机很关键：子 frame 是在**导航过程中** attach 上来的（`Target.attachedToTarget`），
-     * 等导航结束再清会把刚拿到的会话一起丢掉——实测症状是「AX 里始终没有跨源内容」。
-     * 顺手把 AX 缓存也清了：页面自己发起的导航（点链接 / pushState）以前要等 TTL 才失效。
-     */
     wc.on('did-start-navigation', ((_event: unknown, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
       if (!isMainFrame) return;
       clearChildSessions(wc);
+      clearPendingRelease(wc.id);
       invalidateAxCache(wc.id);
-      // 隔离世界也是按文档创建的：页面自己导航（meta refresh / SSO 重定向）后旧的 contextId 直接失效，
-      // 不清的话下一次 CSS 查询会拿死 id 去 evaluate，报出来的却是「CSS 非法」（实测某跨源登录页）
-      this.#worldCtx = undefined;
+      this.#worldCtxMap.clear();
+      this.#activeFrameId = undefined;
     }) as never);
   }
 
-  /**
-   * 页面级上下文，交给 snapshot / waits / actions / escape / keymouse 用。
-   * 惰性构造一次——`backendIdFor` 要引用回本类的方法。
-   */
   #page(): PageContext {
     this.#pageCtx ??= {
       wc: this.#wc,
@@ -252,6 +266,9 @@ export class BrowserController {
       pending: this.#ctx.pending,
       tabIndex: this.#ctx.tabIndex,
       lastActivityAt: this.#ctx.lastActivityAt,
+      inFlightCount: this.#ctx.inFlightCount,
+      lastNavigationError: this.#ctx.lastNavigationError,
+      activeFrameId: () => this.#activeFrameId,
       record: this.#ctx.record,
     };
     return this.#pageCtx;
@@ -335,7 +352,18 @@ export class BrowserController {
         if (typeof outcome === 'string') return;
         throw outcome;
       }
-      if (this.#peekDialog()) return;
+      if (this.#peekDialog()) {
+        // mousePressed 触发 JS Dialog 时记录未闭合按压态，待弹窗处理完毕自动补发 mouseReleased
+        if (method === 'Input.dispatchMouseEvent' && params.type === 'mousePressed') {
+          setPendingRelease(this.#wc.id, {
+            x: Number(params.x ?? 0),
+            y: Number(params.y ?? 0),
+            button: String(params.button ?? 'left'),
+            clickCount: Number(params.clickCount ?? 1),
+          });
+        }
+        return;
+      }
       if (Date.now() > deadline) return;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -364,7 +392,7 @@ export class BrowserController {
     }
     markDialogHandled(this.#wc); // 新文档不可能还挂着旧 dialog
     invalidateAxCache(this.#wc.id); // 上一页的 AX 结构不能喂给下一步
-    this.#worldCtx = undefined; // 隔离世界跟着文档走
+    this.#worldCtxMap.clear(); // 隔离世界跟着文档走
     this.#refs.bump();
     return { url: loaded.url || wc.getURL() };
   }
@@ -383,7 +411,7 @@ export class BrowserController {
     }
     markDialogHandled(this.#wc);
     invalidateAxCache(this.#wc.id);
-    this.#worldCtx = undefined;
+    this.#worldCtxMap.clear();
     this.#refs.bump();
     return { url: wc.getURL() };
   }
@@ -402,7 +430,7 @@ export class BrowserController {
     }
     markDialogHandled(this.#wc);
     invalidateAxCache(this.#wc.id);
-    this.#worldCtx = undefined;
+    this.#worldCtxMap.clear();
     this.#refs.bump();
     return { url: wc.getURL() };
   }
@@ -479,7 +507,10 @@ export class BrowserController {
     return screenshot(this.#page(), opts, this.#ctx.envId);
   }
 
-  async info(): Promise<PageInfo> {
+  async info(): Promise<
+    PageInfo & { lastNavigationError?: { url: string; error: string; at: string } | null; activeFrameId?: string }
+  > {
+    const navError = this.#ctx.lastNavigationError();
     return {
       url: this.#wc.getURL(),
       title: this.#wc.getTitle(),
@@ -487,7 +518,77 @@ export class BrowserController {
       dialog: this.#ctx.pending.dialogOpen(),
       tab: { id: this.#ctx.tabId, index: this.#ctx.tabIndex() },
       env: this.#ctx.envId,
+      ...(navError ? { lastNavigationError: navError } : {}),
+      ...(this.#activeFrameId ? { activeFrameId: this.#activeFrameId } : {}),
     };
+  }
+
+  /** 列出当前页面的所有 frame（主文档 + 同源 iframe + OOPIF 跨源子会话）。 */
+  async listFrames(): Promise<
+    Array<{ index: number; frameId: string; url: string; name?: string; crossOrigin: boolean; active: boolean }>
+  > {
+    const frames = await readAxFrames(this.#page());
+    return frames.map((f, index) => ({
+      index,
+      frameId: f.frameId,
+      url: f.url ?? '',
+      ...(f.name ? { name: f.name } : {}),
+      crossOrigin: Boolean(f.sessionId),
+      active: this.#activeFrameId ? f.frameId === this.#activeFrameId : index === 0,
+    }));
+  }
+
+  /** 切换当前聚焦的 frame 作用域（`main` / 序号 / `frameId` / URL 子串）。 */
+  async selectFrame(ref: string): Promise<{ activeFrameId: string | null; url?: string }> {
+    const trimmed = ref.trim();
+    if (!trimmed || trimmed.toLowerCase() === 'main' || trimmed === '0') {
+      this.#activeFrameId = undefined;
+      return { activeFrameId: null, url: this.#wc.getURL() };
+    }
+    const frames = await readAxFrames(this.#page());
+    let picked = frames.find((f) => f.frameId === trimmed);
+    if (!picked && /^\d+$/.test(trimmed)) {
+      picked = frames[Number(trimmed)];
+    }
+    if (!picked) {
+      const lower = trimmed.toLowerCase();
+      picked = frames.find(
+        (f) => (f.name && f.name.toLowerCase() === lower) || (f.url && f.url.toLowerCase().includes(lower)),
+      );
+    }
+    if (!picked) {
+      throw err('TARGET_NOT_FOUND', `找不到 frame：${ref}（可用 browser frame <env> list 查看）`);
+    }
+    this.#activeFrameId = picked.frameId;
+    return { activeFrameId: picked.frameId, url: picked.url };
+  }
+
+  get activeFrameId(): string | undefined {
+    return this.#activeFrameId;
+  }
+
+  setDialogPolicy(policy: 'none' | 'accept' | 'dismiss'): { policy: 'none' | 'accept' | 'dismiss' } {
+    this.#dialogPolicy = policy;
+    return { policy };
+  }
+
+  get dialogPolicy(): 'none' | 'accept' | 'dismiss' {
+    return this.#dialogPolicy;
+  }
+
+  /** 若启用了 `--auto-dialog`，自动处理当前阻塞弹窗并返回处理结果。 */
+  async handleAutoDialogIfNeeded(): Promise<{ handled: boolean; action?: 'accept' | 'dismiss'; type?: string }> {
+    if (this.#dialogPolicy === 'none' || !this.#peekDialog()) return { handled: false };
+    if (this.#dialogPolicy === 'accept') {
+      const r = await acceptDialog(this.#page());
+      return { handled: true, action: 'accept', type: r.type };
+    }
+    const r = await dismissDialog(this.#page());
+    return { handled: true, action: 'dismiss', type: r.type };
+  }
+
+  async smartSettle(opts?: { maxWaitMs?: number; quietMs?: number }) {
+    return smartSettle(this.#page(), opts);
   }
 
   /** 读并清空本 tab 缓冲：dialog/popup/download。 */
@@ -581,7 +682,21 @@ export class BrowserController {
   async #backendIdFor(target: TargetInput): Promise<number> {
     const norm: NormalizedTarget = normalizeTarget(target);
     if (norm.kind === 'ref') {
-      return this.#refs.resolve(norm.ref).backendId;
+      const resolved = this.#refs.resolve(norm.ref);
+      // 校验节点是否仍附着于 DOM；若因 React 局部重绘脱离，尝试按 (frameId, role, name) 唯一自愈
+      const sessionId =
+        resolved.entry?.sessionId ??
+        (await frameOfBackendId(this.#page(), resolved.backendId).catch(() => undefined))?.sessionId;
+      const alive = await this.#page()
+        .sendOn<{ node?: { backendNodeId?: number } }>(sessionId, 'DOM.describeNode', {
+          backendNodeId: resolved.backendId,
+        })
+        .catch(() => null);
+      if (alive?.node?.backendNodeId) return resolved.backendId;
+      const freshNodes = await readAxNodes(this.#page(), 2000).catch(() => []);
+      const healed = this.#refs.tryHeal(norm.ref, freshNodes);
+      if (healed) return healed.backendId;
+      return resolved.backendId;
     }
     if (norm.kind === 'xpath') {
       return this.#backendIdForXpath(norm.xpath, norm.nth);
@@ -640,44 +755,127 @@ export class BrowserController {
   }
 
   /**
-   * CSS 选择器 → backendNodeId 列表。
-   *
-   * 两条硬要求：
-   * 1. **不用 `DOM.querySelectorAll`**：它不穿透 open shadow root，而现代站点大量用 web component；
-   * 2. **跑在隔离世界**：页面脚本看不到 `window.__warrenMatches`，也改不坏它
-   *    （实测：页面上定义一个同名存取器就能让我们的 CSS 定位整个失效）。
-   *
-   * **错误归类**比遍历本身更重要：以前任何异常都压成 `-1` 再统一报「CSS 非法」，
-   * 于是合法的 `[data-testid="login-type-pwd"]` 在「页面自己导航过 / 匹配数太多」的页面上
-   * 也报 `BAD_SELECTOR`，agent 只能去换选择器（治不了根因，也把真实错误吃掉了）。
-   * 现在只有 `document.querySelector` 抛 **SyntaxError** 才是 `BAD_SELECTOR`；
-   * shadowRoot / contentDocument 取不到就跳过这个子树；其余异常报 `SELECTOR_EVAL_FAILED` 并带原文。
+   * 枚举当前要搜索的会话列表：
+   * - 未限定 `#activeFrameId` 时搜索主会话 + 全部 OOPIF 跨源子会话；
+   * - 限定 `#activeFrameId` 时优先只搜目标 frame 所属会话。
    */
-  async #backendIdsBySelector(selector: string): Promise<number[]> {
-    const { contextId, count } = await this.#runSelectorWalk(selector, true);
-    return this.#backendIdsFromWorldArray(contextId, '__warrenMatches', count);
+  #targetSessions(): Array<string | undefined> {
+    const children = childSessions(this.#wc);
+    if (this.#activeFrameId) {
+      const matchedChild = children.find((c) => c.frameId === this.#activeFrameId);
+      if (matchedChild) return [matchedChild.sessionId];
+      return [undefined];
+    }
+    return [undefined, ...children.map((c) => c.sessionId)];
   }
 
   /**
-   * 跑一次选择器遍历，返回命中数与**实际用的** contextId（重试过就不是原来那个）。
-   *
-   * 会重试一次的唯一情形：隔离世界失效。它按文档创建，而页面自己发起的导航
-   * （meta refresh / `location.href` / SSO 重定向）不会走本类的 `navigate()`，命中就是要重来。
+   * CSS 选择器 → backendNodeId 列表。
+   * 覆盖主文档、Open Shadow Root、同源 iframe、全部 OOPIF 跨源子会话，
+   * 并在常规遍历 0 命中时通过 `DOM.getDocument({ depth: -1, pierce: true })` 兜底搜索 Closed Shadow Root。
    */
-  async #runSelectorWalk(selector: string, allowRetry: boolean): Promise<{ contextId: number; count: number }> {
-    const contextId = await this.#isolatedContext();
+  async #backendIdsBySelector(selector: string): Promise<number[]> {
+    const all: number[] = [];
+    let firstSyntaxError: unknown;
+    for (const sessionId of this.#targetSessions()) {
+      try {
+        const { contextId, count } = await this.#runSelectorWalk(selector, true, sessionId);
+        if (count > 0) {
+          const ids = await this.#backendIdsFromWorldArray(contextId, '__warrenMatches', count, sessionId);
+          all.push(...ids);
+        }
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code === 'BAD_SELECTOR') {
+          firstSyntaxError = error;
+          break;
+        }
+        // 单个 OOPIF 会话销毁不影响主文档或其他会话
+        if (!sessionId) throw error;
+      }
+    }
+    if (firstSyntaxError) throw firstSyntaxError;
+    if (all.length === 0) {
+      const pierced = await this.#pierceClosedShadowSelector(selector);
+      all.push(...pierced);
+    }
+    return all;
+  }
+
+  /**
+   * Closed Shadow Root 兜底检索：利用 CDP `DOM.getDocument({ depth: -1, pierce: true })`
+   * 遍历包含 `shadowRoots`（含 closed）的完整节点树，支持 `#id`、`.class`、`[attr="val"]` 与标签名匹配。
+   */
+  async #pierceClosedShadowSelector(selector: string): Promise<number[]> {
+    const trimmed = selector.trim();
+    if (!trimmed || /[\s>+~:,]/.test(trimmed)) return [];
+    const idMatch = trimmed.match(/^#([A-Za-z0-9_-]+)$/);
+    const classMatch = trimmed.match(/^\.([A-Za-z0-9_-]+)$/);
+    const attrMatch = trimmed.match(/^\[([A-Za-z0-9_:-]+)(?:=(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]$/);
+    const tagMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9-]*)$/);
+    if (!idMatch && !classMatch && !attrMatch && !tagMatch) return [];
+
+    const out: number[] = [];
+    for (const sessionId of this.#targetSessions()) {
+      const doc = await this.#page()
+        .sendOn<{ root?: Record<string, unknown> }>(sessionId, 'DOM.getDocument', { depth: -1, pierce: true })
+        .catch(() => null);
+      if (!doc?.root) continue;
+      const walk = (node: Record<string, unknown> | undefined) => {
+        if (!node || out.length >= 20) return;
+        const nodeType = Number(node.nodeType ?? 0);
+        if (nodeType === 1) {
+          const nodeName = String(node.nodeName ?? '').toLowerCase();
+          const attrs = Array.isArray(node.attributes) ? (node.attributes as string[]) : [];
+          const getAttr = (k: string): string | undefined => {
+            for (let i = 0; i < attrs.length - 1; i += 2) {
+              if (attrs[i]?.toLowerCase() === k.toLowerCase()) return attrs[i + 1];
+            }
+            return undefined;
+          };
+          let matched = false;
+          if (idMatch) matched = getAttr('id') === idMatch[1];
+          else if (classMatch) matched = (getAttr('class') ?? '').split(/\s+/).includes(classMatch[1]!);
+          else if (tagMatch) matched = nodeName === tagMatch[1]!.toLowerCase();
+          else if (attrMatch) {
+            const val = getAttr(attrMatch[1]!);
+            const expected = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4];
+            matched = expected === undefined ? val !== undefined : val === expected;
+          }
+          if (matched && typeof node.backendNodeId === 'number') {
+            out.push(node.backendNodeId);
+          }
+        }
+        const children = Array.isArray(node.children) ? (node.children as Array<Record<string, unknown>>) : [];
+        for (const c of children) walk(c);
+        const shadows = Array.isArray(node.shadowRoots) ? (node.shadowRoots as Array<Record<string, unknown>>) : [];
+        for (const s of shadows) walk(s);
+        if (node.contentDocument && typeof node.contentDocument === 'object') {
+          walk(node.contentDocument as Record<string, unknown>);
+        }
+      };
+      walk(doc.root);
+    }
+    return out;
+  }
+
+  async #runSelectorWalk(
+    selector: string,
+    allowRetry: boolean,
+    sessionId?: string,
+  ): Promise<{ contextId: number; count: number }> {
+    const contextId = await this.#isolatedContext(sessionId);
     let result: SelectorWalkResult;
     try {
-      result = await this.#evalInWorld<SelectorWalkResult>(contextId, selectorWalkScript(selector));
+      result = await this.#evalInWorld<SelectorWalkResult>(contextId, selectorWalkScript(selector), sessionId);
     } catch (error) {
       const message = String((error as Error)?.message ?? error);
       if (allowRetry && /context|destroyed|cannot find|target closed|session closed/i.test(message)) {
-        this.#worldCtx = undefined;
-        return await this.#runSelectorWalk(selector, false);
+        this.#worldCtxMap.delete(sessionId ?? '');
+        return await this.#runSelectorWalk(selector, false, sessionId);
       }
       throw err('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；原始错误：${message}`);
     }
-    // 先看 error：语法错的结果里**没有** count，先查 count 会把语法错也压成 SELECTOR_EVAL_FAILED
     if (typeof result?.error === 'string') {
       if (result.errorKind === 'syntax') throw err('BAD_SELECTOR', `CSS 非法: ${selector}（${result.error}）`);
       throw err('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；原始错误：${result.error}`);
@@ -689,7 +887,6 @@ export class BrowserController {
   }
 
   async #backendIdForXpath(xpath: string, nth?: number): Promise<number> {
-    // 在页面内给匹配元素打标 data-warren-xpath-idx，再用 CSS 反查 nodeId -> backendId
     const ids = await this.#xpathBackendIds(xpath);
     if (ids.length === 0) throw err('TARGET_NOT_FOUND', `xpath not found: ${xpath}`);
     if (ids.length > 1 && nth === undefined) {
@@ -700,74 +897,113 @@ export class BrowserController {
     return pickNth(ids, nth, xpath);
   }
 
-  /** XPath → backendNodeId 列表。同样在隔离世界里跑，不再往页面元素上打标记属性。 */
+  /** XPath → backendNodeId 列表。跨主会话与 OOPIF 子会话在隔离世界内求值。 */
   async #xpathBackendIds(xpath: string): Promise<number[]> {
-    const contextId = await this.#isolatedContext();
-    const count = await this.#evalInWorld<number>(
-      contextId,
-      `(() => {
-         const xp = ${JSON.stringify(xpath)};
-         try {
-           const it = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-           const out = [];
-           for (let i = 0; i < Math.min(it.snapshotLength, 50); i++) {
-             const el = it.snapshotItem(i);
-             if (el instanceof Element) out.push(el);
-           }
-           window.__warrenXpath = out;
-           return out.length;
-         } catch { return -1; }
-       })()`,
-    ).catch(() => -1);
-    if (typeof count !== 'number' || count < 0) throw err('BAD_SELECTOR', `xpath 非法: ${xpath}`);
-    return this.#backendIdsFromWorldArray(contextId, '__warrenXpath', count);
+    const all: number[] = [];
+    for (const sessionId of this.#targetSessions()) {
+      let contextId: number;
+      try {
+        contextId = await this.#isolatedContext(sessionId);
+      } catch {
+        if (!sessionId) throw err('BAD_SELECTOR', `xpath 非法: ${xpath}`);
+        continue;
+      }
+      const count = await this.#evalInWorld<number>(
+        contextId,
+        `(() => {
+           const xp = ${JSON.stringify(xpath)};
+           try {
+             const it = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+             const out = [];
+             for (let i = 0; i < Math.min(it.snapshotLength, 50); i++) {
+               const el = it.snapshotItem(i);
+               if (el instanceof Element) out.push(el);
+             }
+             window.__warrenXpath = out;
+             return out.length;
+           } catch { return -1; }
+         })()`,
+        sessionId,
+      ).catch(() => -1);
+      if (typeof count !== 'number' || count < 0) {
+        if (!sessionId) throw err('BAD_SELECTOR', `xpath 非法: ${xpath}`);
+        continue;
+      }
+      if (count > 0) {
+        const ids = await this.#backendIdsFromWorldArray(contextId, '__warrenXpath', count, sessionId);
+        all.push(...ids);
+      }
+    }
+    return all;
   }
 
   /** 隔离世界里的一个 JS 元素数组 → backendNodeId 列表。 */
-  async #backendIdsFromWorldArray(contextId: number, name: string, count: number): Promise<number[]> {
+  async #backendIdsFromWorldArray(
+    contextId: number,
+    name: string,
+    count: number,
+    sessionId?: string,
+  ): Promise<number[]> {
     const out: number[] = [];
     for (let i = 0; i < count; i++) {
-      const ref = await this.#send<{ result: { objectId?: string } }>('Runtime.evaluate', {
-        contextId,
-        expression: `window.${name}[${i}]`,
-        returnByValue: false,
-      }).catch(() => null);
+      const ref = await this.#page()
+        .sendOn<{ result: { objectId?: string } }>(sessionId, 'Runtime.evaluate', {
+          contextId,
+          expression: `window.${name}[${i}]`,
+          returnByValue: false,
+        })
+        .catch(() => null);
       const objectId = ref?.result?.objectId;
       if (!objectId) continue;
       try {
-        const node = await this.#send<{ node: { backendNodeId: number } }>('DOM.describeNode', {
-          objectId,
-        }).catch(() => null);
+        const node = await this.#page()
+          .sendOn<{ node: { backendNodeId: number } }>(sessionId, 'DOM.describeNode', {
+            objectId,
+          })
+          .catch(() => null);
         if (node?.node.backendNodeId) out.push(node.node.backendNodeId);
       } finally {
-        await this.#send('Runtime.releaseObject', { objectId }).catch(() => {});
+        await this.#page()
+          .sendOn(sessionId, 'Runtime.releaseObject', { objectId })
+          .catch(() => {});
       }
     }
-    await this.#send('Runtime.evaluate', {
-      contextId,
-      expression: `delete window.${name}`,
-      returnByValue: true,
-    }).catch(() => {});
+    await this.#page()
+      .sendOn(sessionId, 'Runtime.evaluate', {
+        contextId,
+        expression: `delete window.${name}`,
+        returnByValue: true,
+      })
+      .catch(() => {});
     return out;
   }
 
-  /** 隔离世界（页面脚本看不见）的执行上下文。导航后失效，所以要跟着导航清掉。 */
-  async #isolatedContext(): Promise<number> {
-    if (this.#worldCtx !== undefined) return this.#worldCtx;
-    const { frameTree } = await this.#send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree');
-    const { executionContextId } = await this.#send<{ executionContextId: number }>('Page.createIsolatedWorld', {
-      frameId: frameTree.frame.id,
-      worldName: 'warren',
-    });
-    this.#worldCtx = executionContextId;
+  /** 按会话缓存隔离世界上下文。导航后失效，所以要跟着导航清掉。 */
+  async #isolatedContext(sessionId?: string): Promise<number> {
+    const key = sessionId ?? '';
+    const cached = this.#worldCtxMap.get(key);
+    if (cached !== undefined) return cached;
+    const { frameTree } = await this.#page().sendOn<{ frameTree: { frame: { id: string } } }>(
+      sessionId,
+      'Page.getFrameTree',
+    );
+    const { executionContextId } = await this.#page().sendOn<{ executionContextId: number }>(
+      sessionId,
+      'Page.createIsolatedWorld',
+      {
+        frameId: frameTree.frame.id,
+        worldName: 'warren',
+      },
+    );
+    this.#worldCtxMap.set(key, executionContextId);
     return executionContextId;
   }
 
-  async #evalInWorld<T>(contextId: number, expression: string): Promise<T> {
-    const r = await this.#send<{
+  async #evalInWorld<T>(contextId: number, expression: string, sessionId?: string): Promise<T> {
+    const r = await this.#page().sendOn<{
       result: { value: T };
       exceptionDetails?: { text?: string; exception?: { description?: string } };
-    }>('Runtime.evaluate', { contextId, expression, returnByValue: true, awaitPromise: true });
+    }>(sessionId, 'Runtime.evaluate', { contextId, expression, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails) throw err('BAD_REQUEST', `页面内求值抛错: ${pageError(r.exceptionDetails)}`);
     return r.result?.value;
   }
@@ -858,16 +1094,66 @@ export class BrowserController {
     return hover(this.#page(), target, opts);
   }
 
-  async drag(source: TargetInput, target: TargetInput, opts: ClickOptions & { steps?: number } = {}) {
+  async drag(source: TargetInput, target: TargetInput, opts: DragOptions = {}) {
     return drag(this.#page(), source, target, opts);
+  }
+
+  async dropFiles(target: TargetInput, paths: string | string[], opts: { timeoutMs?: number } = {}) {
+    return dropFiles(this.#page(), target, paths, opts);
   }
 
   async fill(target: TargetInput, value: string, opts: FillOptions = {}) {
     return fill(this.#page(), target, value, opts);
   }
 
-  async selectOption(target: TargetInput, value: SelectValue, opts: { timeoutMs?: number } = {}) {
+  async selectOption(
+    target: TargetInput,
+    value: SelectValue,
+    opts: { timeoutMs?: number; by?: 'auto' | 'value' | 'label' | 'index' } = {},
+  ) {
     return selectOption(this.#page(), target, value, opts);
+  }
+
+  async check(target: TargetInput, opts: { timeoutMs?: number } = {}) {
+    return setChecked(this.#page(), target, true, opts);
+  }
+
+  async uncheck(target: TargetInput, opts: { timeoutMs?: number } = {}) {
+    return setChecked(this.#page(), target, false, opts);
+  }
+
+  async scrollIntoView(target: TargetInput): Promise<{ ok: true }> {
+    const { backendNodeId, sessionId } = await resolveTarget(this.#page(), target);
+    await scrollIntoView(this.#page(), backendNodeId, 1, sessionId);
+    return { ok: true };
+  }
+
+  async applySetting(setting: EmulationSetting) {
+    return applyEmulationSetting(this.#page(), setting);
+  }
+
+  async listWebMcp() {
+    return listWebMcpTools(this.#page());
+  }
+
+  async callWebMcp(toolName: string, args?: Record<string, unknown>) {
+    return callWebMcpTool(this.#page(), toolName, args);
+  }
+
+  async printPdf(opts: PdfOptions) {
+    return printPdf(this.#page(), opts);
+  }
+
+  async vitals() {
+    return collectVitals(this.#page());
+  }
+
+  async a11y() {
+    return auditAccessibility(this.#page());
+  }
+
+  async reactTree(opts?: { maxNodes?: number }) {
+    return inspectReactTree(this.#page(), opts);
   }
 
   async focus(target: TargetInput, opts: { timeoutMs?: number } = {}) {

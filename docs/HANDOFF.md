@@ -248,6 +248,31 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
+### Agent CLI & Browser Ops v3 全面增强（P0 → P2，2026-11-26）
+
+完整调研与施工计划见 `docs/AGENT-CLI-AND-BROWSER-OPS-DEEP-RESEARCH.md` 与 `docs/CLI-AND-BROWSER-OPS-V3-PLAN.md`，涵盖 34 项缺口修复与全量 P0–P2 增强：
+
+- **P0-A 输入内核与几何点击点**：
+  - `src/main/browser/input.ts`：完整 US 键盘 `VK_OEM_*` 映射（修掉 `.` 错映 `VK_DELETE(46)`）、命名键 VK/`text`（`Enter`/`Tab`/`Space`/`Escape`/`Backspace`/`Delete`/`Arrow*` 等）、别名（`Esc`/`Return`/`Up`/`Ctrl`/`Cmd`）、左右修饰键 `location`，组合快捷键（`Alt|Control|Meta`）禁发 `text`；
+  - `src/main/browser/click-point.ts`：新增 `DOM.getContentQuads` 最大面积多边形内部整点计算 + CDP `DOM.getNodeForLocation` 命中测试 + `<label>`/Shadow DOM 归属校验；
+  - `actions.ts` / `mouse-state.ts` / `controller.ts`：真实两连击 `dblclick` 状态机、`PendingRelease` 弹窗断键自动补发 `mouseReleased`、`click --new-tab` / `--humanize`（默认直达防后台多步停顿）、`drag --placement=before|after|center` + HTML5 DnD 降级、`drop` 本地文件拖放。
+- **P0-B 可用性与遮挡诊断**：
+  - `scrollIntoView` 四态轮转绕开 Sticky Header/Footer；Portal 浮层菜单项（Radix/Base UI/MUI）视口内免滚动直点；`checkVisibility` + `display:contents` + `inert` + `<fieldset disabled>` + DOM Clobbering 防护 + 顶层模态 5 点探测 + `Accessibility.getPartialAXTree` 语义遮挡描述。
+- **P0-C 现代 SPA 表单引擎**：
+  - `fill` 先滚动并自动解包 `<label>`/包装器、原生 `HTMLInputElement.prototype` setter 兼容 React 受控 `date/time/color/range`、CDP `rawKeyDown` `selectAll`、Shadow-piercing 焦点转移检查、`insertText + 末字符真实按键` 混合输入、`--submit` 与分级回读确认（密码跳过绝不回显、maxlength/格式化返回 `warning`）；
+  - `selectOption` 同时支持原生 `<select>`（检查 `option.disabled`、失败返回 `availableOptions`）与 ARIA `combobox`/`listbox`；新增幂等 `check`/`uncheck`（radio 拒绝 `uncheck`、隐藏 checkbox 走 label/DOM click）。
+- **P0-D 语义缩进快照树、稳定自愈 Ref 与 OOPIF/Closed Shadow**：
+  - `snapshot.ts` & `ops/snapshot-compact.ts`：按 `childIds` 还原真实 2 空格缩进 `depth`（修复 `-d` 误比 heading `level`）、合并相邻 `StaticText`、剪除同名子文本、折叠 `MenuListPopup` 选项摘要；隔离世界 DOM 补盲（密码定宽 `"••••••••"` 脱敏、幽灵节点剔除、`cursor:pointer`/`onclick`/`tabindex>=0`/隐藏 `input[type=file]` 救回、`-u` 链接 URL）、3 态 `unchecked`、同名 `nth=N` 消歧、`--filter` 保留祖先链与分层 Token 预算 80/20 首尾截断；
+  - `refs.ts`：新增 `registerStable` 跨快照复用 `@N` + per-frame `loaderId` 精准失效 + `tryHeal` 唯一重绘自愈；
+  - `controller.ts`：CSS/XPath 覆盖全部 OOPIF 子会话 + Closed Shadow Root `DOM.getDocument({ depth: -1, pierce: true })` 兜底 + `browser.frame` 作用域切换。
+- **P1 原子 CLI、遥测在途请求、事件收敛与安全输出治理**：
+  - `telemetry.ts`：挂 `onBeforeRequest` / `onCompleted` / `onErrorOccurred`（零 CDP `Network.enable`）提供真实 `inFlightCount`、主文档失败错因 `lastNavigationError` 及 SQLite 自增 `id` 游标（彻底修复满 300 条后 `batch` 网络增量恒空 bug）；
+  - `waits.ts` & `ops/batch.ts`：真实 `networkidle` + 事件驱动 `smartSettle`（过滤 `oldValue===newValue` 与 >200ms 动画循环）；`batch` 末尾改用 `snapshotWithRefs` 使 Delta 自带 `@N` 并支持全量新动词与 `--no-changes`；
+  - `ops/reader.ts` & `ops/diff.ts`：实时 Shadow DOM 正文提取（`--outline`/`--filter`/`--match`/`--llms`/`.csv`）；去 ref 行级统一 Diff + 零依赖纯 JS PNG 逐像素 RGBA 差分与差异图输出；
+  - `ops/remedy.ts` / `ops/output-guard.ts` / `ops/budget.ts` & `bin/{commands,output-guard,warren,exec-runtime}.mjs`：补齐全部原子 `warren browser` 命令（`click/dblclick/fill/type/press/hover/focus/check/uncheck/select/drag/drop/scroll/scrollintoview/upload/download/wait/dialog/eval/frame/pdf/set/webmcp/vitals/a11y/react`）、POSIX `--` 终止符、动态 RPC 超时预算、终端转义净化、IDPI `--content-boundaries`、`--max-output` 溢出落盘及结构化 `details.remedy` 自愈建议。
+- **P2 标注截图、设备仿真、WebMCP、只读 Saved Flows 与诊断工具箱**：
+  - `browser screenshot --annotate` 临时隔离世界编号框标注；`browser set` 全套设备/视口/地理/离线/请求头/媒体/时区/语言仿真；`browser webmcp list|call`（untrusted 约束）；`db.ts`/`store.ts`/`ops/flow.ts` 增量 `saved_flows` 表（严格仅允许只读 GET、剥离认证头/凭据、参数渲染与 `schemaDrift` 检测）；`browser pdf/vitals/a11y/react` 与 `--auto-dialog` 策略。
+
 ### Warren 2.0 架构重构与实机验收（2026-11-26）
 
 完整设计蓝图见 `docs/WARREN-2.0-ARCHITECTURE-PLAN.md`，Wave 0–4 与 Phase 5 实机闭环已全部落地并通过 `npm run check`（`367/367 PASS`，`oxlint` / `prettier` / `tsc --noEmit` / `vite build` 全绿）及 8 张真机截图双轮视觉验收：

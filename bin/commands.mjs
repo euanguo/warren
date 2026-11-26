@@ -1,7 +1,8 @@
 /**
  * 各命令组的子命令清单与统一 Flag 解析器 —— **唯一来源**。
  *
- * `help`、`default:` 用法提示以及 `tests/skill-contract.test.ts` 的文档防漂移校验都从这里取。
+ * `help`、`default:` 用法提示、`tests/cli-help.test.ts`、`tests/skill-contract.test.ts`
+ * 以及 `remedy` 自愈命令防漂移测试全部从这里取。
  */
 export const SUBS = {
   env: [
@@ -27,12 +28,39 @@ export const SUBS = {
     'open',
     'back',
     'forward',
+    'reload',
     'snapshot',
     'read',
     'find',
     'get',
     'is',
     'diff',
+    'click',
+    'dblclick',
+    'fill',
+    'type',
+    'press',
+    'hover',
+    'focus',
+    'check',
+    'uncheck',
+    'select',
+    'drag',
+    'drop',
+    'scroll',
+    'scrollintoview',
+    'upload',
+    'download',
+    'wait',
+    'dialog',
+    'eval',
+    'frame',
+    'pdf',
+    'set',
+    'webmcp',
+    'vitals',
+    'a11y',
+    'react',
     'info',
     'events',
     'console',
@@ -45,6 +73,7 @@ export const SUBS = {
   extension: ['list', 'add', 'remove'],
   shot: ['diff'],
   notes: ['get', 'set', 'append', 'list', 'rm'],
+  flow: ['steps', 'save', 'run', 'list', 'show', 'rm'],
   skills: ['install', 'status', 'refresh'],
   plugin: [
     'list',
@@ -75,6 +104,7 @@ export const BOOLEAN_FLAGS = new Set([
   'data',
   'scroll',
   'interactive',
+  'compact',
   'full',
   'follow',
   'skill',
@@ -91,14 +121,31 @@ export const BOOLEAN_FLAGS = new Set([
   'no-screenshot',
   'regex',
   'silent',
+  'urls',
+  'boxes',
+  'cursor',
+  'annotate',
+  'outline',
+  'read',
+  'submit',
+  'humanize',
+  'new-tab',
+  'no-changes',
+  'no-wait',
+  'content-boundaries',
+  'mobile',
+  'landscape',
+  'no-background',
 ]);
 
 /** 各组 `default:` 的用法提示，从 SUBS 生成，格式统一成 `[a|b|c]`。 */
 export const usageOf = (group, tail = '') => `用法: warren ${group} [${SUBS[group].join('|')}]${tail}`;
 
 /**
- * 统一命令行 flag 解析：支持 `--flag=val`、`--flag val`、纯布尔 flag、
- * 以及短参 `-i` (`interactive`)、`-d <N>` (`depth`)、`-s <selector>` (`selector`)、`-h` (`help`)。
+ * 统一命令行 flag 解析：
+ * - 支持 `--flag=val`、`--flag val`、纯布尔 flag；
+ * - 支持短参 `-i` (`interactive`)、`-u` (`urls`)、`-d <N>` (`depth`)、`-s <selector>` (`selector`)、`-h` (`help`)；
+ * - 支持 POSIX `--` 终止符：`--` 之后所有参数按原样作为位置参数（避免 `fill @1 -- "--dashed"` 被误解析为 flag）。
  */
 export function parseCliFlags(args) {
   const flags = {};
@@ -108,10 +155,23 @@ export function parseCliFlags(args) {
     else flags[key] = value;
   };
 
+  let literalOnly = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (literalOnly) {
+      rest.push(arg);
+      continue;
+    }
+    if (arg === '--') {
+      literalOnly = true;
+      continue;
+    }
     if (arg === '-i') {
       pushFlag('interactive', true);
+      continue;
+    }
+    if (arg === '-u') {
+      pushFlag('urls', true);
       continue;
     }
     if (arg === '-h') {
@@ -129,7 +189,6 @@ export function parseCliFlags(args) {
       continue;
     }
     if (arg.startsWith('--')) {
-      // 只按第一个 `=` 切：值里带 `=` 很常见（`--response-header=a=b`、JSON 值）
       const eq = arg.indexOf('=');
       const key = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
       const inline = eq < 0 ? undefined : arg.slice(eq + 1);
@@ -151,7 +210,7 @@ export function parseCliFlags(args) {
   return { flags, rest };
 }
 
-/** 校验一条 CLI 参数向量是否命中合法命令组与子命令（供文档防漂移测试使用）。 */
+/** 校验一条 CLI 参数向量是否命中合法命令组与子命令（供文档与 Remedy 防漂移测试使用）。 */
 export function validateCliInvocation(argv) {
   const { flags, rest } = parseCliFlags(argv);
   if (flags.skill || flags.help || rest.length === 0) return { ok: true, group: flags.skill ? '--skill' : 'help' };

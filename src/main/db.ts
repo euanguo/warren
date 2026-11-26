@@ -185,6 +185,15 @@ CREATE TABLE IF NOT EXISTS site_notes (
   updated_by TEXT NOT NULL DEFAULT 'human',
   updated_at TEXT NOT NULL
 );
+
+-- 只读参数化 API Flow（严禁保存写请求、Cookie、Authorization 或任何明文凭据）
+CREATE TABLE IF NOT EXISTS saved_flows (
+  name TEXT PRIMARY KEY,
+  site TEXT NOT NULL,
+  spec_json TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT 'agent',
+  updated_at TEXT NOT NULL
+);
 `;
 
 /** 一个文件一条连接。 */
