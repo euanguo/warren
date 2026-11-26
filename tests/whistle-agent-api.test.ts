@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AGENT_ENDPOINTS, agentApiFor, isAgentApiVersion } from '../plugins/whistle/agent-api.mjs';
+import { AGENT_ENDPOINTS, agentApiFor, isAgentApiVersion, resolveAgentMethod } from '../plugins/whistle/agent-api.mjs';
 import { requireLiveAgentInstance } from '../plugins/whistle/host.mjs';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -17,12 +17,15 @@ test('Whistle Agent API 版本门槛与隔离寻址存在', async () => {
   assert.match(source, /isAgentApiVersion/);
   assert.match(source, /instance\.pidFile|startingDataDir/);
   assert.match(source, /127\.0\.0\.1/);
+  const pkg = JSON.parse(await readFile(manifest, 'utf8'));
+  assert.equal(pkg.dependencies.whistle, '2.10.15');
 });
 
-test('官方能力清单覆盖 network/rules/values/plugins/HTTPS', () => {
+test('官方能力清单覆盖 network/rules/values/plugins/HTTPS 与 2.10.15 createUrl', () => {
   assert.equal(isAgentApiVersion('2.10.6'), false);
   assert.equal(isAgentApiVersion('2.10.7'), true);
   assert.equal(isAgentApiVersion('2.10.12'), true);
+  assert.equal(isAgentApiVersion('2.10.15'), true);
   for (const method of [
     'network.getStatus',
     'network.getSessions',
@@ -38,6 +41,8 @@ test('官方能力清单覆盖 network/rules/values/plugins/HTTPS', () => {
     'values.getList',
     'values.get',
     'values.add',
+    'values.remove',
+    'values.rename',
     'plugins.getStatus',
     'plugins.getList',
     'plugins.get',
@@ -46,9 +51,37 @@ test('官方能力清单覆盖 network/rules/values/plugins/HTTPS', () => {
     'getRootCA',
     'createFile',
     'getFile',
+    'createUrl',
   ]) {
     assert.ok(AGENT_ENDPOINTS[method], method);
   }
+});
+
+test('resolveAgentMethod 支持无点平铺写法与命名空间别名路由', async () => {
+  for (const [input, canonical, group] of [
+    ['isEnabledHTTPS', 'isEnabledHTTPS', 'https'],
+    ['https.isEnabled', 'isEnabledHTTPS', 'https'],
+    ['setEnableHTTPS', 'setEnableHTTPS', 'https'],
+    ['https.setEnabled', 'setEnableHTTPS', 'https'],
+    ['getRootCA', 'getRootCA', 'https'],
+    ['https.getRootCA', 'getRootCA', 'https'],
+    ['createFile', 'createFile', 'files'],
+    ['files.create', 'createFile', 'files'],
+    ['getFile', 'getFile', 'files'],
+    ['files.get', 'getFile', 'files'],
+    ['createUrl', 'createUrl', 'network'],
+    ['network.createUrl', 'createUrl', 'network'],
+    ['values.remove', 'values.remove', 'values'],
+    ['values.rename', 'values.rename', 'values'],
+  ]) {
+    const resolved = resolveAgentMethod(input);
+    assert.ok(resolved, `无法解析方法 ${input}`);
+    assert.equal(resolved.canonical, canonical);
+    assert.equal(resolved.group, group);
+  }
+  assert.equal(resolveAgentMethod('nonExistentMethod'), null);
+  const hostSource = await readFile(host, 'utf8');
+  assert.match(hostSource, /resolveAgentMethod/);
 });
 
 test('官方 Agent API 只通过实例端口调用，不回落到 8899', async () => {

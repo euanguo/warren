@@ -73,3 +73,43 @@ test('仓库不内置真实预设，预设由用户导入', async () => {
   assert.ok(presetCommands.includes('presetPreview'));
   assert.ok(presetCommands.includes('presetApply'));
 });
+
+test('Whistle 插件注册 Phase 3A 全量 AI 与 Values 能力及 Skill 清单', async () => {
+  const pkg = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const warren = pkg.warren;
+  assert.equal(pkg.dependencies.whistle, '2.10.15');
+  assert.ok(pkg.files.includes('intents.mjs'));
+  assert.ok(pkg.files.includes('SKILL.md'));
+  assert.equal(warren.skill?.entry, 'SKILL.md');
+  assert.ok(Array.isArray(warren.skill?.triggers) && warren.skill.triggers.length > 0);
+
+  const commands = new Set(warren.contributes.commands.map((item: { name: string }) => item.name));
+  const rpc = new Set(warren.contributes.rpc);
+  const hostSource = await readFile(hostPath, 'utf8');
+  for (const name of [
+    'valueList',
+    'valueGet',
+    'valueSet',
+    'valueRemove',
+    'valueRename',
+    'ruleTest',
+    'clearDnsCache',
+    'quickMock',
+    'injectFault',
+    'mapLocal',
+    'clearIntents',
+    'replay',
+    'toCurl',
+    'captureLink',
+  ]) {
+    assert.equal(commands.has(name), true, `缺命令 ${name}`);
+    assert.equal(rpc.has(name), true, `缺 rpc ${name}`);
+    assert.match(hostSource, new RegExp(`async ${name}\\(`), `host.mjs 缺导出 ${name}`);
+  }
+  assert.match(hostSource, /notifyChanged/);
+  assert.match(hostSource, /computeTimings/);
+  assert.match(hostSource, /extractMatchedRules/);
+  assert.match(hostSource, /\/cgi-bin\/rules\/clear-dns-cache/);
+  assert.match(hostSource, /\/cgi-bin\/values\/remove/);
+  assert.match(hostSource, /\/cgi-bin\/values\/rename/);
+});
