@@ -92,6 +92,9 @@ export function SidebarEnvRow({
       <ListRow selected={selected}>
         <ListRowMain
           onClick={() => onSelect(env.id)}
+          onDoubleClick={() => {
+            if (env.status !== 'running') onStart(env.id);
+          }}
           onContextMenu={(event) => onContextMenu(event, env)}
           title={rowTitle(env)}
         >

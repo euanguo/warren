@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
+import { PluginSurfaceHost } from '@/app/plugin-surfaces';
+import { Icon } from '@/components/icons';
+import { Button, IconButton } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Kbd } from '@/components/ui/kbd';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { EnvironmentAddressBar } from './environment-address-bar';
 import { EnvironmentInspector } from './environment-inspector';
-import type { PluginInspectorTab } from '@/lib/plugin-runtime';
+import { egressLabel } from './sidebar-env-row';
+import type { PluginInspectorTab, PluginPopoverSurface } from '@/lib/plugin-runtime';
 import { WarrenMark } from '@/components/warren-mark';
 import { setInspectorOpen, setInspectorTab, useNavigationState } from '@/state/navigation-store';
 import type {
@@ -38,7 +43,9 @@ interface Props {
   netHits: NetHit[];
   onNetRuleToggle: (id: string, ruleId: string, enabled: boolean) => void;
   stageRef: RefObject<HTMLDivElement | null>;
-  sidebarCollapsed: boolean;
+  stageReplaced?: boolean;
+  onStart: (id: string) => void;
+  onStartAndNavigate: (id: string, space: SpaceId, url: string) => void;
   onTabSelect: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabClose: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabCreate: (id: string, space: SpaceId) => void;
@@ -46,6 +53,7 @@ interface Props {
   nav?: NavigationState | null;
   onNavigate: (action: NavigationAction) => void;
   pluginTabs?: PluginInspectorTab[];
+  pluginPopovers?: PluginPopoverSurface[];
 }
 
 const INSPECTOR_WIDTH = { default: 360, min: 260, max: 720 };
@@ -66,6 +74,9 @@ export function EnvironmentStage({
   netHits,
   onNetRuleToggle,
   stageRef,
+  stageReplaced = false,
+  onStart,
+  onStartAndNavigate,
   onTabSelect,
   onTabClose,
   onTabCreate,
@@ -73,7 +84,7 @@ export function EnvironmentStage({
   nav,
   onNavigate,
   pluginTabs = [],
-  sidebarCollapsed,
+  pluginPopovers = [],
 }: Props) {
   const running = current?.status === 'running';
   const activeSpaceId: SpaceId = current?.activeSpaceId ?? 'person';
@@ -82,7 +93,12 @@ export function EnvironmentStage({
   const activeTabId = activeSpace?.activeTabId ?? current?.activeTabId;
   const locked = activeSpaceId === 'agent' && activeSpace?.owner !== 'human';
   const canNavigate = running && (activeSpaceId === 'person' || activeSpace?.owner === 'human');
+  const canStartOnSubmit = Boolean(current && !running && activeSpaceId === 'person');
   const [addressFocusToken, setAddressFocusToken] = useState(0);
+  const [activePopoverKey, setActivePopoverKey] = useState<string | null>(null);
+  const activePopover = activePopoverKey
+    ? pluginPopovers.find((pop) => `${pop.pluginId}:${pop.id}` === activePopoverKey)
+    : undefined;
 
   const [pagePrefs, setPagePrefs] = useState<{
     envId: string;
@@ -324,6 +340,33 @@ export function EnvironmentStage({
     return () => observer.disconnect();
   }, []);
 
+  // 未启动环境时按 Enter 快速拉起（不在输入框/按钮/弹窗中时触发）
+  useEffect(() => {
+    if (!current || running || stageReplaced) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [role="dialog"]')) return;
+      event.preventDefault();
+      onStart(current.id);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [current, running, stageReplaced, onStart]);
+
+  const openPluginSurface = useCallback(
+    (kind: 'popover' | 'inspectorTab', pluginId: string, surfaceId: string) => {
+      if (kind === 'popover') {
+        setActivePopoverKey(`${pluginId}:${surfaceId}`);
+      } else {
+        setActivePopoverKey(null);
+        setInspectorTab(`plugin:${pluginId}:${surfaceId}`);
+      }
+      inspectorPanelRef.current?.expand();
+    },
+    [inspectorPanelRef],
+  );
+
   const showTargetUrl = running && current?.id === hoverTarget.envId && Boolean(hoverTarget.url);
 
   return (
@@ -333,8 +376,9 @@ export function EnvironmentStage({
         spaceId={activeSpaceId}
         url={nav?.url || current?.currentUrl || ''}
         loading={nav?.loading ?? false}
-        editable={canNavigate}
-        running={running}
+        editable={Boolean(canNavigate)}
+        canStartOnSubmit={canStartOnSubmit}
+        running={Boolean(running)}
         canGoBack={nav?.canGoBack ?? false}
         canGoForward={nav?.canGoForward ?? false}
         inspectorOpen={inspectorOpen}
@@ -344,7 +388,12 @@ export function EnvironmentStage({
         viewportPreset={viewportPreset}
         hasActiveDownload={hasActiveDownload}
         focusToken={addressFocusToken}
-        onToggleInspector={toggleInspector}
+        pluginPopovers={pluginPopovers}
+        pluginInspectorTabs={pluginTabs}
+        onToggleInspector={() => {
+          setActivePopoverKey(null);
+          toggleInspector();
+        }}
         onToggleDevTools={toggleDevTools}
         onChangeDevToolsDock={changeDevToolsDock}
         onResetZoom={() => {
@@ -367,6 +416,10 @@ export function EnvironmentStage({
           )
         }
         onNavigate={onNavigate}
+        onStartAndNavigate={(targetUrl) => {
+          if (current) onStartAndNavigate(current.id, activeSpaceId, targetUrl);
+        }}
+        onOpenPluginSurface={openPluginSurface}
       />
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
@@ -383,17 +436,53 @@ export function EnvironmentStage({
                     <EmptyMedia>
                       <WarrenMark className="size-12" />
                     </EmptyMedia>
-                    <EmptyTitle>{!current ? '未选择环境' : running ? '这个空间还没有标签' : '环境未启动'}</EmptyTitle>
+                    <EmptyTitle>
+                      {!current ? '还没有选择环境' : running ? '这个空间还没有标签' : `环境「${current.name}」未启动`}
+                    </EmptyTitle>
                     <EmptyDescription>
                       {!current
-                        ? '左侧选择一个环境，页面会显示在这里。'
+                        ? '新建或从左侧选择一个隔离环境，页面会在这里显示。'
                         : running
-                          ? '点标签行右侧的 + 新建一个。'
-                          : sidebarCollapsed
-                            ? '这个环境还没有启动。点左上角 ☰ 展开侧栏，再点环境行上的 ▶。'
-                            : '点击左侧「启动」拉起这个环境的浏览器。'}
+                          ? '新建标签页开始浏览，或在上方地址栏直接输入网址。'
+                          : `${egressLabel(current.proxy)}${current.startUrl ? ` · 默认打开 ${current.startUrl}` : ''}`}
                     </EmptyDescription>
                   </EmptyHeader>
+                  {!current ? (
+                    <Button
+                      data-slot="stage-create-env-button"
+                      onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
+                    >
+                      <Icon name="Plus" />
+                      新建环境
+                    </Button>
+                  ) : running ? (
+                    !locked && (
+                      <Button onClick={() => onTabCreate(current.id, activeSpaceId)}>
+                        <Icon name="Plus" />
+                        新建标签页
+                      </Button>
+                    )
+                  ) : (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Button data-slot="stage-start-button" onClick={() => onStart(current.id)}>
+                          <Icon name="Play" />
+                          启动「{current.name}」
+                        </Button>
+                        <Button
+                          variant="outline"
+                          data-slot="stage-edit-button"
+                          onClick={() => void window.envApi.openOverlay({ kind: 'edit-env', environment: current })}
+                        >
+                          <Icon name="Pencil" />
+                          编辑配置
+                        </Button>
+                      </div>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        按 <Kbd>Enter</Kbd> 直接启动，或在上方地址栏输入网址回车自动启动
+                      </span>
+                    </div>
+                  )}
                 </Empty>
               )}
               {showTargetUrl && (
@@ -424,26 +513,56 @@ export function EnvironmentStage({
           collapsedSize={0}
           className="min-w-0"
         >
-          <EnvironmentInspector
-            current={current}
-            events={events}
-            snapshot={snapshot}
-            snapshotLoading={snapshotLoading}
-            consoleEntries={consoleEntries}
-            networkEntries={networkEntries}
-            netRules={netRules}
-            netHits={netHits}
-            onNetRuleToggle={(ruleId, enabled) => current && onNetRuleToggle(current.id, ruleId, enabled)}
-            activeTab={activeInspectorTab}
-            onTabChange={(tab) => {
-              setInspectorTab(tab);
-              if (tab === 'storage' && current) onReadCookies(current.id);
-            }}
-            onRefreshSnapshot={() => current && onRefreshSnapshot(current.id)}
-            cookies={cookies}
-            pluginTabs={pluginTabs}
-            environmentId={current?.id}
-          />
+          {activePopover ? (
+            <div data-slot="plugin-popover-drawer" className="flex h-full flex-col bg-background">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+                <span className="truncate text-xs font-medium">{activePopover.title}</span>
+                <div className="flex items-center gap-1">
+                  <Button size="xs" variant="ghost" onClick={() => setActivePopoverKey(null)}>
+                    返回检查器
+                  </Button>
+                  <IconButton
+                    title="收起工作台"
+                    onClick={() => {
+                      setActivePopoverKey(null);
+                      inspectorPanelRef.current?.collapse();
+                    }}
+                  >
+                    <Icon name="X" />
+                  </IconButton>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-3">
+                <PluginSurfaceHost
+                  pluginId={activePopover.pluginId}
+                  title={activePopover.title}
+                  Component={activePopover.component}
+                  props={{ pluginId: activePopover.pluginId, environmentId: current?.id }}
+                />
+              </div>
+            </div>
+          ) : (
+            <EnvironmentInspector
+              current={current}
+              events={events}
+              snapshot={snapshot}
+              snapshotLoading={snapshotLoading}
+              consoleEntries={consoleEntries}
+              networkEntries={networkEntries}
+              netRules={netRules}
+              netHits={netHits}
+              onNetRuleToggle={(ruleId, enabled) => current && onNetRuleToggle(current.id, ruleId, enabled)}
+              activeTab={activeInspectorTab}
+              onTabChange={(tab) => {
+                setInspectorTab(tab);
+                if (tab === 'storage' && current) onReadCookies(current.id);
+              }}
+              onRefreshSnapshot={() => current && onRefreshSnapshot(current.id)}
+              cookies={cookies}
+              pluginTabs={pluginTabs}
+              environmentId={current?.id}
+            />
+          )}
         </ResizablePanel>
       </ResizablePanelGroup>
     </main>

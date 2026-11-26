@@ -324,6 +324,9 @@ export function App() {
                         void telemetryActions.toggleNetRule(id, ruleId, enabled)
                       }
                       stageRef={stageRef}
+                      stageReplaced={stageReplaced}
+                      onStart={(id) => void environmentActions.start(id)}
+                      onStartAndNavigate={(id, space, url) => void environmentActions.startAndNavigate(id, space, url)}
                       onTabSelect={(id, space, ref) => void environmentActions.tabSelect(id, space, ref)}
                       onTabClose={(id, space, ref) => void environmentActions.tabClose(id, space, ref)}
                       onTabCreate={(id, space) => void environmentActions.tabCreate(id, space)}
@@ -331,7 +334,7 @@ export function App() {
                       nav={nav}
                       onNavigate={navigate}
                       pluginTabs={registry.inspectorTabs}
-                      sidebarCollapsed={sidebarCollapsed}
+                      pluginPopovers={registry.popovers}
                     />
                   </ResizablePanel>
                 </ResizablePanelGroup>

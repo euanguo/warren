@@ -4,8 +4,16 @@ import { Icon } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { addressSecurity, resolveAddressInput } from '@/lib/address-input';
+import type { PluginInspectorTab, PluginPopoverSurface } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
-import type { DevToolsDockMode, NavigationAction, SpaceId, UrlHistoryEntry, ViewportPresetId } from '@shared/types';
+import type {
+  DevToolsDockMode,
+  NativeMenuItem,
+  NavigationAction,
+  SpaceId,
+  UrlHistoryEntry,
+  ViewportPresetId,
+} from '@shared/types';
 
 const SECURITY_ICON = {
   secure: { name: 'Lock', className: 'text-[var(--success)]', label: '连接安全（https）' },
@@ -30,6 +38,8 @@ interface Props {
   url: string;
   loading: boolean;
   editable: boolean;
+  /** 环境停机但在「我的」空间时，允许输入网址回车自动先启动环境再跳转。 */
+  canStartOnSubmit?: boolean;
   running: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
@@ -40,6 +50,8 @@ interface Props {
   viewportPreset: ViewportPresetId;
   hasActiveDownload?: boolean;
   focusToken?: number;
+  pluginPopovers?: PluginPopoverSurface[];
+  pluginInspectorTabs?: PluginInspectorTab[];
   onToggleInspector: () => void;
   onToggleDevTools: () => void;
   onChangeDevToolsDock: (dock: DevToolsDockMode) => void;
@@ -47,6 +59,8 @@ interface Props {
   onOpenFind: () => void;
   onViewportPresetChanged?: (preset: ViewportPresetId) => void;
   onNavigate: (action: NavigationAction) => void;
+  onStartAndNavigate?: (url: string) => void;
+  onOpenPluginSurface?: (kind: 'popover' | 'inspectorTab', pluginId: string, surfaceId: string) => void;
 }
 
 /**
@@ -58,6 +72,7 @@ export function EnvironmentAddressBar({
   url,
   loading,
   editable,
+  canStartOnSubmit = false,
   running,
   canGoBack,
   canGoForward,
@@ -68,6 +83,8 @@ export function EnvironmentAddressBar({
   viewportPreset,
   hasActiveDownload = false,
   focusToken = 0,
+  pluginPopovers = [],
+  pluginInspectorTabs = [],
   onToggleInspector,
   onToggleDevTools,
   onChangeDevToolsDock,
@@ -75,7 +92,10 @@ export function EnvironmentAddressBar({
   onOpenFind,
   onViewportPresetChanged,
   onNavigate,
+  onStartAndNavigate,
+  onOpenPluginSurface,
 }: Props) {
+  const inputEditable = editable || canStartOnSubmit;
   const [draft, setDraft] = useState(url);
   const [editing, setEditing] = useState(false);
   const [historyQuery, setHistoryQuery] = useState('');
@@ -90,20 +110,20 @@ export function EnvironmentAddressBar({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'l') return;
-      if (!editable) return;
+      if (!inputEditable) return;
       event.preventDefault();
       inputRef.current?.focus();
       inputRef.current?.select();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editable]);
+  }, [inputEditable]);
 
   useEffect(() => {
-    if (!focusToken || !editable) return;
+    if (!focusToken || !inputEditable) return;
     inputRef.current?.focus();
     inputRef.current?.select();
-  }, [focusToken, editable]);
+  }, [focusToken, inputEditable]);
 
   useEffect(() => {
     if (!editing || !historyOpen) {
@@ -168,7 +188,11 @@ export function EnvironmentAddressBar({
       });
       return;
     }
-    if (target !== url) onNavigate({ kind: 'goto', url: target });
+    if (!running && canStartOnSubmit) {
+      onStartAndNavigate?.(target);
+    } else if (target !== url) {
+      onNavigate({ kind: 'goto', url: target });
+    }
     setHistoryOpen(false);
     void window.envApi.closePopover('address-suggest');
     inputRef.current?.blur();
@@ -270,11 +294,46 @@ export function EnvironmentAddressBar({
     });
   };
 
+  const openPluginQuickMenu = async (event: MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const items: NativeMenuItem[] = [];
+    if (pluginPopovers.length > 0) {
+      items.push({ label: '插件快捷浮卡', enabled: false });
+      for (const pop of pluginPopovers) {
+        items.push({ id: `popover:${pop.pluginId}:${pop.id}`, label: pop.title });
+      }
+    }
+    if (pluginInspectorTabs.length > 0) {
+      if (items.length > 0) items.push({ type: 'separator' });
+      items.push({ label: '随页工作台面板', enabled: false });
+      for (const tab of pluginInspectorTabs) {
+        items.push({ id: `inspectorTab:${tab.pluginId}:${tab.id}`, label: tab.title });
+      }
+    }
+    if (items.length === 0) return;
+    const picked = await window.envApi.popupMenu(items, {
+      x: Math.round(rect.left),
+      y: Math.round(rect.bottom + 4),
+    });
+    if (!picked) return;
+    const firstSep = picked.indexOf(':');
+    const kind = picked.slice(0, firstSep) as 'popover' | 'inspectorTab';
+    const rest = picked.slice(firstSep + 1);
+    const secondSep = rest.indexOf(':');
+    if (secondSep > 0) {
+      onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1));
+    }
+  };
+
+  const hasPluginQuickSurfaces = pluginPopovers.length > 0 || pluginInspectorTabs.length > 0;
   const zoomPercent = Math.round(zoomFactor * 100);
   const presetLabel = PRESET_BADGE[viewportPreset];
 
   return (
-    <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 px-2">
+    <div
+      data-slot="address-bar"
+      className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 border-b border-divider bg-background px-2"
+    >
       <IconButton
         variant="ghost"
         title={title('后退')}
@@ -304,9 +363,9 @@ export function EnvironmentAddressBar({
       <div ref={boxRef} className="relative min-w-0 flex-1">
         <div
           className={cn(
-            'flex h-8 min-w-0 items-center gap-2 rounded-full border border-border/70 bg-[var(--input-fill)] px-3',
+            'flex h-7 min-w-0 items-center gap-2 rounded-full border border-border/70 bg-[var(--input-fill)] px-3',
             'focus-within:border-focus',
-            !editable && 'opacity-70',
+            !inputEditable && 'opacity-70',
           )}
         >
           <span title={security.label} className="flex shrink-0 items-center">
@@ -316,10 +375,18 @@ export function EnvironmentAddressBar({
             ref={inputRef}
             type="text"
             value={editing ? draft : url}
-            readOnly={!editable}
+            readOnly={!inputEditable}
             spellCheck={false}
             autoComplete="off"
-            placeholder={editable ? '输入地址，例如 example.com' : running ? '需要先接管才能改地址' : '环境未启动'}
+            placeholder={
+              editable
+                ? '输入地址，例如 example.com'
+                : canStartOnSubmit
+                  ? '输入地址并回车，将自动启动环境并打开…'
+                  : running
+                    ? 'Agent 空间只读 · 点右上「接管」后可改地址'
+                    : '未选择环境'
+            }
             aria-label="地址栏"
             role="combobox"
             aria-autocomplete="list"
@@ -328,14 +395,14 @@ export function EnvironmentAddressBar({
             aria-activedescendant={
               suggestionsVisible && highlighted >= 0 ? `address-history-${highlighted}` : undefined
             }
-            aria-disabled={!editable}
+            aria-disabled={!inputEditable}
             onChange={(event) => {
               setDraft(event.target.value);
               setHistoryQuery(event.target.value);
               setHistoryOpen(true);
             }}
             onFocus={(event) => {
-              if (!editable) {
+              if (!inputEditable) {
                 event.target.blur();
                 return;
               }
@@ -431,9 +498,12 @@ export function EnvironmentAddressBar({
         <Icon name="Copy" />
       </IconButton>
 
+      <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
+
       <IconButton
         variant="ghost"
-        title={editable ? '开发者工具（点击开关，右键切换停靠位置）' : title('开发者工具')}
+        data-slot="devtools-toggle"
+        title={editable ? 'Chrome 开发者工具（点击开关，右键切换停靠位置）' : title('开发者工具')}
         disabled={!editable}
         aria-pressed={devToolsOpen}
         onClick={onToggleDevTools}
@@ -443,9 +513,23 @@ export function EnvironmentAddressBar({
         <Icon name="Code" />
       </IconButton>
 
+      {hasPluginQuickSurfaces && (
+        <IconButton
+          variant="ghost"
+          data-slot="plugin-surfaces-trigger"
+          title="当前环境插件随行面板"
+          aria-label="当前环境插件随行面板"
+          disabled={!running}
+          onClick={(event) => void openPluginQuickMenu(event)}
+        >
+          <Icon name="Sparkles" />
+        </IconButton>
+      )}
+
       <IconButton
         variant="ghost"
-        title={inspectorOpen ? '收起检查器' : '展开检查器'}
+        data-slot="inspector-toggle"
+        title={inspectorOpen ? '收起 Warren 工作台抽屉' : '展开 Warren 工作台抽屉'}
         aria-expanded={inspectorOpen}
         onClick={onToggleInspector}
         className="aria-expanded:bg-surface-active aria-expanded:text-foreground"
