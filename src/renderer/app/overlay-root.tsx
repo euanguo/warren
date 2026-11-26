@@ -638,6 +638,40 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           });
           continue;
         }
+        if (surface.kind === 'popover') {
+          list.push({
+            id: `popover:${plugin.id}:${surface.id}`,
+            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
+            title: `${plugin.name} · ${surface.title}`,
+            subtitle: surface.shortcut || '快捷浮窗',
+            keywords: `plugin popover quick ${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''}`,
+            run: async () => {
+              await window.envApi.resolveOverlay({
+                command: 'openPluginPopover',
+                pluginId: plugin.id,
+                surfaceId: surface.id,
+              });
+            },
+          });
+          continue;
+        }
+        if (surface.kind === 'inspectorTab') {
+          list.push({
+            id: `inspector:${plugin.id}:${surface.id}`,
+            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'PanelRight',
+            title: `工作台 · ${plugin.name} · ${surface.title}`,
+            subtitle: '随页工作台',
+            keywords: `plugin inspector tab ${plugin.id} ${plugin.name} ${surface.title}`,
+            run: async () => {
+              await window.envApi.resolveOverlay({
+                command: 'openPluginInspectorTab',
+                pluginId: plugin.id,
+                surfaceId: surface.id,
+              });
+            },
+          });
+          continue;
+        }
         if (surface.kind !== 'commandBarAction' || !surface.command) continue;
         const iconName: IconName = surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug';
         list.push({
@@ -647,8 +681,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           subtitle: surface.shortcut || surface.description || plugin.id,
           keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin`,
           run: async () => {
-            if (!current) return;
-            await window.envApi.pluginRun(plugin.id, surface.command!, current.id);
+            await window.envApi.pluginRun(plugin.id, surface.command!, current?.id);
             await window.envApi.resolveOverlay({ command: 'pluginRun', pluginId: plugin.id, action: surface.id });
           },
         });

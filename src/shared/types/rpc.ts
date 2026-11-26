@@ -162,6 +162,7 @@ export interface EnvApi {
   revealDownload(downloadId: string): Promise<void>;
   printPage(id: string, space: SpaceId): Promise<void>;
   savePage(id: string, space: SpaceId): Promise<{ saved: boolean; path?: string }>;
+  highlightElement(id: string, space: SpaceId, target?: string): Promise<void>;
   popupMenu(items: NativeMenuItem[], position?: { x: number; y: number }): Promise<string | null>;
   openOverlay<T = unknown>(request: OverlayRequest): Promise<T | null>;
   getOverlayState(): Promise<OverlayRequest | null>;
@@ -233,7 +234,7 @@ export interface EnvApi {
   pluginRun(
     id: string,
     command: string,
-    environmentId: string,
+    environmentId?: string,
   ): Promise<{ pluginId: string; command: string; result: unknown }>;
   onPluginSignal(cb: (signal: PluginSignal) => void): () => void;
   setViewport(v: ViewportRect): Promise<void>;

@@ -157,4 +157,26 @@ export interface PluginContext<I = unknown> {
   host: PluginHost;
 }
 
+export interface PluginSurfaceProps {
+  pluginId: string;
+  environmentId?: string;
+  space?: 'person' | 'agent';
+  url?: string;
+  subPath?: string;
+  closePopover?: () => void;
+  openPluginPage?: (surfaceId?: string) => void;
+  openInspectorTab?: (surfaceId?: string) => void;
+}
+
+export interface PluginShellApi {
+  closePopover(): Promise<void>;
+  resizePopover(size: { width: number; height: number }): Promise<void>;
+  openPopover(surfaceId: string, options?: { width?: number; height?: number }): void;
+  openPage(surfaceId?: string): void;
+  openInspectorTab(surfaceId?: string): void;
+  openTab(environmentId: string, url: string, space?: 'person' | 'agent'): Promise<void>;
+  highlight(environmentId: string, selector?: string, space?: 'person' | 'agent'): Promise<void>;
+  notify(kind: 'success' | 'error' | 'info', title: string, description?: string): void;
+}
+
 export type PluginCommand<I = unknown, O = unknown> = (ctx: PluginContext<I>) => O | Promise<O>;

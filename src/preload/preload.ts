@@ -95,6 +95,8 @@ const api = {
   revealDownload: (downloadId: string) => ipcRenderer.invoke('browser:revealDownload', downloadId),
   printPage: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:printPage', id, space),
   savePage: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:savePage', id, space),
+  highlightElement: (id: string, space: SpaceId, target?: string) =>
+    ipcRenderer.invoke('browser:highlight', id, space, target),
   popupMenu: (items: NativeMenuItem[], position?: { x: number; y: number }) =>
     ipcRenderer.invoke('ui:popupMenu', items, position),
   openOverlay: <T = unknown>(request: OverlayRequest) =>
@@ -161,7 +163,7 @@ const api = {
   pluginRpc: (id: string, method: string, input?: unknown) => ipcRenderer.invoke('plugin:rpc', id, method, input),
   pluginHostRead: (id: string, method: string, environmentId?: string, args?: unknown[]) =>
     ipcRenderer.invoke('plugin:hostRead', id, method, environmentId, args),
-  pluginRun: (id: string, command: string, environmentId: string) =>
+  pluginRun: (id: string, command: string, environmentId?: string) =>
     ipcRenderer.invoke('plugin:run', id, command, environmentId),
   onPluginSignal: (callback: (signal: { pluginId: string; channel: string; payload: unknown }) => void) => {
     const listener = (

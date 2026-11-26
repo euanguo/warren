@@ -41,4 +41,10 @@ test('菜单里的加速键不重复（重复的话先注册的赢，另一个�
   const accelerators = BROWSER_MENU_SHORTCUTS.map((item) => item.accelerator);
   assert.equal(new Set(accelerators).size, accelerators.length);
   assert.equal(new Set(BROWSER_MENU_SHORTCUTS.map((item) => item.shortcut)).size, accelerators.length);
+  assert.ok(
+    BROWSER_MENU_SHORTCUTS.some(
+      (item) => item.shortcut === 'quickAutofill' && item.accelerator === 'CmdOrCtrl+Shift+L',
+    ),
+    '菜单应注册 CmdOrCtrl+Shift+L 快捷填充快捷键',
+  );
 });

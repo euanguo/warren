@@ -14,8 +14,22 @@ import { useEffect, useRef, type ComponentType } from 'react';
 import * as React from 'react';
 import { toast } from 'sonner';
 import { Icon } from '@/components/icons';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button, IconButton } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
+import { Kbd } from '@/components/ui/kbd';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { StatusDot, StatusMark } from '@/components/ui/status-dot';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -74,8 +88,14 @@ import {
   ListRowMain,
   ListRowMeta,
 } from '@/components/ui/list-row';
-import { cardSurfaceClass, controlFieldClass } from '@/theme/surface';
+import {
+  cardSurfaceClass,
+  controlFieldClass,
+  elevatedMenuSurfaceClass,
+  menuItemInteractiveClass,
+} from '@/theme/surface';
 import { cn } from '@/lib/utils';
+import { openPluginPage as navigateToPluginPage } from '@/state/navigation-store';
 import {
   beginPluginLoad,
   clearPluginBadgeSurface,
@@ -86,7 +106,15 @@ import {
   type PluginEnvBadgeSetter,
   type PluginEnvBadgeSurface,
 } from '@/lib/plugin-badges';
-import type { HostEnvironmentSummary, InstalledPlugin, PluginSettingValue, PluginSignal } from '@shared/types';
+import type { HostEnvironmentSummary, InstalledPlugin, PluginSettingValue, PluginSignal, SpaceId } from '@shared/types';
+
+export const OPEN_PLUGIN_POPOVER_EVENT = 'warren:open-plugin-popover';
+export const OPEN_PLUGIN_INSPECTOR_EVENT = 'warren:open-plugin-inspector';
+
+function isPopoverWindow(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('surface') === 'popover';
+}
 
 /**
  * 插件能用的宿主 UI —— **单一出口**。
@@ -108,6 +136,8 @@ export const PLUGIN_UI = {
   toast,
   cardSurfaceClass,
   controlFieldClass,
+  elevatedMenuSurfaceClass,
+  menuItemInteractiveClass,
   // 图标（`components/icons.tsx` 是图标单源，插件不引图标包）
   Icon,
   // 基础控件
@@ -118,8 +148,28 @@ export const PLUGIN_UI = {
   Switch,
   Checkbox,
   Badge,
+  Kbd,
+  StatusDot,
+  StatusMark,
   Separator,
   Spinner,
+  Alert,
+  AlertTitle,
+  AlertDescription,
+  // 卡片与分栏
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardAction,
+  CardContent,
+  CardFooter,
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
   // 表单
   Field,
   FieldLabel,
@@ -190,10 +240,20 @@ export type PluginUi = typeof PLUGIN_UI;
 
 export interface PluginSurfaceProps {
   pluginId: string;
-  /** inspectorTab / envAction 这类跟环境相关的面会拿到 */
+  /** inspectorTab / popover / envAction / statusBadge 这类跟环境相关的面会拿到 */
   environmentId?: string;
+  /** 当前环境激活的 Space（person / agent） */
+  space?: SpaceId;
+  /** 当前激活标签页的 URL */
+  url?: string;
   /** railPage 的子路径（`warren-plugin://<id>/<path>` 里 path 之后的部分） */
   subPath?: string;
+  /** popover 面用于主动关闭独立浮窗 */
+  closePopover?: () => void;
+  /** 跳转到本插件的全屏 railPage */
+  openPluginPage?: (surfaceId?: string) => void;
+  /** 打开右侧工作台并切到本插件的 inspectorTab */
+  openInspectorTab?: (surfaceId?: string) => void;
 }
 
 export interface PluginRailPage {
@@ -239,6 +299,8 @@ export interface PluginPopoverSurface {
   title: string;
   icon?: string;
   shortcut?: string;
+  width?: number;
+  height?: number;
   component: ComponentType<PluginSurfaceProps>;
 }
 
@@ -299,10 +361,29 @@ export interface PluginHostApi {
   environment: {
     list(): Promise<HostEnvironmentSummary[]>;
     get(id: string): Promise<HostEnvironmentSummary | null>;
+    activeContext(): Promise<{
+      environmentId: string | null;
+      space: SpaceId;
+      tabId: string | null;
+      url: string;
+      title: string;
+    }>;
   };
   browser: {
-    info(environmentId: string): Promise<{ url: string; title: string }>;
+    info(environmentId: string, options?: { space?: SpaceId }): Promise<{ url: string; title: string }>;
   };
+}
+
+/** 插件前端可用的外壳交互动作（统一兼容主窗与独立 PopoverHost 子窗）。 */
+export interface PluginShellApi {
+  closePopover(): Promise<void>;
+  resizePopover(size: { width: number; height: number }): Promise<void>;
+  openPopover(surfaceId: string, options?: { width?: number; height?: number }): void;
+  openPage(surfaceId?: string): void;
+  openInspectorTab(surfaceId?: string): void;
+  openTab(environmentId: string, url: string, space?: SpaceId): Promise<void>;
+  highlight(environmentId: string, selector?: string, space?: SpaceId): Promise<void>;
+  notify(kind: 'success' | 'error' | 'info', title: string, description?: string): void;
 }
 
 export interface PluginSettingsHook {
@@ -334,6 +415,8 @@ export interface PluginAppApi {
   rpc: { call<T = unknown>(method: string, input?: unknown): Promise<T> };
   /** 只读宿主能力；写操作和插件自己的数据走 `rpc`。 */
   host: PluginHostApi;
+  /** 宿主外壳协同能力（关闭/调整浮窗、切页、开标签、高亮页面元素、跨窗通知）。 */
+  shell: PluginShellApi;
   /** 当前插件自己的设置快照；secret 只有 configured，没有 value。 */
   settings: PluginSettingValue[];
   /** 便利 hook：返回 settings 快照，并可走现有 `plugins()` 刷新。 */
@@ -404,9 +487,78 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
       environment: {
         list: () => callHostRead(plugin.id, 'environment.list'),
         get: (id) => callHostRead(plugin.id, 'environment.get', undefined, [id]),
+        activeContext: () => callHostRead(plugin.id, 'environment.activeContext'),
       },
       browser: {
-        info: (environmentId) => callHostRead(plugin.id, 'browser.info', environmentId),
+        info: (environmentId, options) =>
+          callHostRead(plugin.id, 'browser.info', environmentId, options ? [options] : []),
+      },
+    },
+    shell: {
+      closePopover: () => window.envApi.closePopover('plugin-popover'),
+      resizePopover: (size) => window.envApi.updatePopover('plugin-popover', { size }),
+      openPopover: (surfaceId, options) => {
+        window.dispatchEvent(
+          new CustomEvent(OPEN_PLUGIN_POPOVER_EVENT, {
+            detail: { pluginId: plugin.id, surfaceId, ...options },
+          }),
+        );
+      },
+      openPage: (surfaceId) => {
+        const targetId = surfaceId ?? plugin.contributes.surfaces.find((s) => s.kind === 'railPage')?.id;
+        if (!targetId) return;
+        if (isPopoverWindow()) {
+          void window.envApi.dispatchPopoverAction({
+            id: 'plugin-popover',
+            action: 'openPluginPage',
+            payload: { pluginId: plugin.id, surfaceId: targetId },
+          });
+          void window.envApi.closePopover('plugin-popover');
+          return;
+        }
+        navigateToPluginPage(plugin.id, targetId);
+      },
+      openInspectorTab: (surfaceId) => {
+        const targetId = surfaceId ?? plugin.contributes.surfaces.find((s) => s.kind === 'inspectorTab')?.id;
+        if (!targetId) return;
+        if (isPopoverWindow()) {
+          void window.envApi.dispatchPopoverAction({
+            id: 'plugin-popover',
+            action: 'openInspectorTab',
+            payload: { pluginId: plugin.id, surfaceId: targetId },
+          });
+          void window.envApi.closePopover('plugin-popover');
+          return;
+        }
+        window.dispatchEvent(
+          new CustomEvent(OPEN_PLUGIN_INSPECTOR_EVENT, {
+            detail: { pluginId: plugin.id, surfaceId: targetId },
+          }),
+        );
+      },
+      openTab: async (environmentId, url, space = 'person') => {
+        try {
+          await window.envApi.tabCreate(environmentId, space, url, true);
+        } catch {
+          await window.envApi.start(environmentId);
+          await window.envApi.tabCreate(environmentId, space, url, true);
+        }
+      },
+      highlight: async (environmentId, selector, space = 'person') => {
+        await window.envApi.highlightElement(environmentId, space, selector);
+      },
+      notify: (kind, title, description) => {
+        if (isPopoverWindow()) {
+          void window.envApi.dispatchPopoverAction({
+            id: 'plugin-popover',
+            action: 'toast',
+            payload: { kind, title, description },
+          });
+          return;
+        }
+        if (kind === 'error') toast.error(title, description ? { description } : undefined);
+        else if (kind === 'info') toast.info(title, description ? { description } : undefined);
+        else toast.success(title, description ? { description } : undefined);
       },
     },
     settings: plugin.settings,

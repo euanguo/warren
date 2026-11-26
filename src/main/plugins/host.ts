@@ -196,7 +196,7 @@ export class PluginHost {
   async run(
     id: string,
     command: string,
-    options: { environmentId: string; input?: unknown; leaseId?: string },
+    options: { environmentId?: string; input?: unknown; leaseId?: string; caller?: PluginRpcCaller },
   ): Promise<RunResult> {
     return this.#invoker.run(id, command, options);
   }

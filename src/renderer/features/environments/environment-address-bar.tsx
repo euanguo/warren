@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { toast } from 'sonner';
-import { Icon } from '@/components/icons';
+import { PluginBoundary } from '@/app/plugin-surfaces';
+import { Icon, isIconName, type IconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { addressSecurity, resolveAddressInput } from '@/lib/address-input';
-import type { PluginInspectorTab, PluginPopoverSurface } from '@/lib/plugin-runtime';
+import type { PluginInspectorTab, PluginPopoverSurface, PluginRailPage, PluginStatusBadge } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
 import type {
   DevToolsDockMode,
@@ -13,6 +14,7 @@ import type {
   SpaceId,
   UrlHistoryEntry,
   ViewportPresetId,
+  ViewportRect,
 } from '@shared/types';
 
 const SECURITY_ICON = {
@@ -51,7 +53,10 @@ interface Props {
   hasActiveDownload?: boolean;
   focusToken?: number;
   pluginPopovers?: PluginPopoverSurface[];
+  pluginStatusBadges?: PluginStatusBadge[];
   pluginInspectorTabs?: PluginInspectorTab[];
+  pluginRailPages?: PluginRailPage[];
+  activePluginPopoverKey?: string | null;
   onToggleInspector: () => void;
   onToggleDevTools: () => void;
   onChangeDevToolsDock: (dock: DevToolsDockMode) => void;
@@ -60,7 +65,15 @@ interface Props {
   onViewportPresetChanged?: (preset: ViewportPresetId) => void;
   onNavigate: (action: NavigationAction) => void;
   onStartAndNavigate?: (url: string) => void;
-  onOpenPluginSurface?: (kind: 'popover' | 'inspectorTab', pluginId: string, surfaceId: string) => void;
+  onOpenPluginPopover?: (pluginId: string, surfaceId: string, anchorRect: ViewportRect) => void;
+  onOpenPluginPage?: (pluginId: string, surfaceId: string) => void;
+  onOpenPluginSurface?: (
+    kind: 'popover' | 'inspectorTab',
+    pluginId: string,
+    surfaceId: string,
+    anchorRect?: ViewportRect,
+  ) => void;
+  registerPluginAnchor?: (key: string, el: HTMLElement | null) => void;
 }
 
 /**
@@ -84,7 +97,10 @@ export function EnvironmentAddressBar({
   hasActiveDownload = false,
   focusToken = 0,
   pluginPopovers = [],
+  pluginStatusBadges = [],
   pluginInspectorTabs = [],
+  pluginRailPages = [],
+  activePluginPopoverKey = null,
   onToggleInspector,
   onToggleDevTools,
   onChangeDevToolsDock,
@@ -93,7 +109,10 @@ export function EnvironmentAddressBar({
   onViewportPresetChanged,
   onNavigate,
   onStartAndNavigate,
+  onOpenPluginPopover,
+  onOpenPluginPage,
   onOpenPluginSurface,
+  registerPluginAnchor,
 }: Props) {
   const inputEditable = editable || canStartOnSubmit;
   const [draft, setDraft] = useState(url);
@@ -321,10 +340,45 @@ export function EnvironmentAddressBar({
     const rest = picked.slice(firstSep + 1);
     const secondSep = rest.indexOf(':');
     if (secondSep > 0) {
-      onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1));
+      onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1), {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      });
     }
   };
 
+  const openQuickSlotContextMenu = async (event: MouseEvent<HTMLButtonElement>, pluginId: string) => {
+    event.preventDefault();
+    const tabsForPlugin = pluginInspectorTabs.filter((tab) => tab.pluginId === pluginId);
+    const pagesForPlugin = pluginRailPages.filter((page) => page.pluginId === pluginId);
+    const items: NativeMenuItem[] = [];
+    for (const tab of tabsForPlugin) {
+      items.push({ id: `inspector:${tab.id}`, label: `在右侧工作台打开「${tab.title}」` });
+    }
+    for (const page of pagesForPlugin) {
+      items.push({ id: `page:${page.id}`, label: `打开「${page.title}」全屏管理页` });
+    }
+    if (items.length === 0) return;
+    const picked = await window.envApi.popupMenu(items, {
+      x: Math.round(event.clientX),
+      y: Math.round(event.clientY),
+    });
+    if (!picked) return;
+    if (picked.startsWith('inspector:')) {
+      onOpenPluginSurface?.('inspectorTab', pluginId, picked.slice('inspector:'.length));
+    } else if (picked.startsWith('page:')) {
+      onOpenPluginPage?.(pluginId, picked.slice('page:'.length));
+    }
+  };
+
+  const statusBadgeByPlugin = new Map<string, PluginStatusBadge>();
+  for (const badge of pluginStatusBadges) {
+    if (!statusBadgeByPlugin.has(badge.pluginId)) statusBadgeByPlugin.set(badge.pluginId, badge);
+  }
+  const popoverPlugins = new Set(pluginPopovers.map((pop) => pop.pluginId));
+  const standaloneBadges = pluginStatusBadges.filter((badge) => !popoverPlugins.has(badge.pluginId));
   const hasPluginQuickSurfaces = pluginPopovers.length > 0 || pluginInspectorTabs.length > 0;
   const zoomPercent = Math.round(zoomFactor * 100);
   const presetLabel = PRESET_BADGE[viewportPreset];
@@ -506,6 +560,84 @@ export function EnvironmentAddressBar({
       </IconButton>
 
       <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
+
+      {pluginPopovers.map((pop) => {
+        const key = `${pop.pluginId}:${pop.id}`;
+        const badge = statusBadgeByPlugin.get(pop.pluginId);
+        const iconName: IconName = pop.icon && isIconName(pop.icon) ? pop.icon : 'Plug';
+        const isActive = activePluginPopoverKey === key;
+        const tooltipTitle = pop.shortcut ? `${pop.title} (${pop.shortcut})` : pop.title;
+        return (
+          <button
+            key={key}
+            ref={(el) => registerPluginAnchor?.(key, el)}
+            type="button"
+            data-slot="plugin-quick-button"
+            data-plugin-id={pop.pluginId}
+            data-surface-id={pop.id}
+            aria-expanded={isActive}
+            aria-label={pop.title}
+            title={tooltipTitle}
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              onOpenPluginPopover?.(pop.pluginId, pop.id, {
+                x: Math.round(rect.left),
+                y: Math.round(rect.top),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              });
+            }}
+            onContextMenu={(event) => void openQuickSlotContextMenu(event, pop.pluginId)}
+            className={cn(
+              'inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground',
+              isActive && 'bg-surface-active text-foreground',
+            )}
+          >
+            {badge?.component ? (
+              <PluginBoundary pluginId={badge.pluginId} title={badge.title}>
+                <badge.component pluginId={badge.pluginId} environmentId={envId} space={spaceId} url={url} />
+              </PluginBoundary>
+            ) : (
+              <Icon name={iconName} className="size-3.5" />
+            )}
+          </button>
+        );
+      })}
+
+      {standaloneBadges.map((badge) => {
+        const key = `badge:${badge.pluginId}:${badge.id}`;
+        const iconName: IconName = badge.icon && isIconName(badge.icon) ? badge.icon : 'Plug';
+        const firstTab = pluginInspectorTabs.find((tab) => tab.pluginId === badge.pluginId);
+        const firstPage = pluginRailPages.find((page) => page.pluginId === badge.pluginId);
+        return (
+          <button
+            key={key}
+            type="button"
+            data-slot="plugin-status-badge"
+            data-plugin-id={badge.pluginId}
+            data-surface-id={badge.id}
+            title={badge.title}
+            onClick={() => {
+              if (firstTab) onOpenPluginSurface?.('inspectorTab', badge.pluginId, firstTab.id);
+              else if (firstPage) onOpenPluginPage?.(badge.pluginId, firstPage.id);
+            }}
+            onContextMenu={(event) => void openQuickSlotContextMenu(event, badge.pluginId)}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+          >
+            {badge.component ? (
+              <PluginBoundary pluginId={badge.pluginId} title={badge.title}>
+                <badge.component pluginId={badge.pluginId} environmentId={envId} space={spaceId} url={url} />
+              </PluginBoundary>
+            ) : (
+              <Icon name={iconName} className="size-3.5" />
+            )}
+          </button>
+        );
+      })}
+
+      {(pluginPopovers.length > 0 || standaloneBadges.length > 0) && (
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
+      )}
 
       <IconButton
         variant="ghost"

@@ -1,18 +1,24 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { toast } from 'sonner';
-import { PluginSurfaceHost } from '@/app/plugin-surfaces';
 import { Icon } from '@/components/icons';
-import { Button, IconButton } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Kbd } from '@/components/ui/kbd';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { EnvironmentAddressBar } from './environment-address-bar';
 import { EnvironmentInspector } from './environment-inspector';
 import { egressLabel } from './sidebar-env-row';
-import type { PluginInspectorTab, PluginPopoverSurface } from '@/lib/plugin-runtime';
+import {
+  OPEN_PLUGIN_INSPECTOR_EVENT,
+  OPEN_PLUGIN_POPOVER_EVENT,
+  type PluginInspectorTab,
+  type PluginPopoverSurface,
+  type PluginRailPage,
+  type PluginStatusBadge,
+} from '@/lib/plugin-runtime';
 import { WarrenMark } from '@/components/warren-mark';
-import { setInspectorOpen, setInspectorTab, useNavigationState } from '@/state/navigation-store';
+import { openPluginPage, setInspectorOpen, setInspectorTab, useNavigationState } from '@/state/navigation-store';
 import { shouldExcludeRightPanels } from '@/state/workbench-layout';
 import type {
   ConsoleEntry,
@@ -29,6 +35,7 @@ import type {
   SpaceId,
   TabRef,
   ViewportPresetId,
+  ViewportRect,
 } from '@shared/types';
 
 interface Props {
@@ -56,6 +63,8 @@ interface Props {
   onNavigate: (action: NavigationAction) => void;
   pluginTabs?: PluginInspectorTab[];
   pluginPopovers?: PluginPopoverSurface[];
+  pluginStatusBadges?: PluginStatusBadge[];
+  pluginRailPages?: PluginRailPage[];
 }
 
 const INSPECTOR_WIDTH = { default: 360, min: 280, max: 520 };
@@ -87,6 +96,8 @@ export function EnvironmentStage({
   onNavigate,
   pluginTabs = [],
   pluginPopovers = [],
+  pluginStatusBadges = [],
+  pluginRailPages = [],
 }: Props) {
   const running = current?.status === 'running';
   const activeSpaceId: SpaceId = current?.activeSpaceId ?? 'person';
@@ -96,11 +107,14 @@ export function EnvironmentStage({
   const locked = activeSpaceId === 'agent' && activeSpace?.owner !== 'human';
   const canNavigate = running && (activeSpaceId === 'person' || activeSpace?.owner === 'human');
   const canStartOnSubmit = Boolean(current && !running && activeSpaceId === 'person');
+  const currentUrl = nav?.url || current?.currentUrl || '';
   const [addressFocusToken, setAddressFocusToken] = useState(0);
   const [activePopoverKey, setActivePopoverKey] = useState<string | null>(null);
-  const activePopover = activePopoverKey
-    ? pluginPopovers.find((pop) => `${pop.pluginId}:${pop.id}` === activePopoverKey)
-    : undefined;
+  const pluginAnchorsRef = useRef(new Map<string, HTMLElement>());
+  const registerPluginAnchor = useCallback((key: string, el: HTMLElement | null) => {
+    if (el) pluginAnchorsRef.current.set(key, el);
+    else pluginAnchorsRef.current.delete(key);
+  }, []);
 
   const [pagePrefs, setPagePrefs] = useState<{
     envId: string;
@@ -279,6 +293,59 @@ export function EnvironmentStage({
     [devToolsState.open, inspectorOpen, inspectorPanelRef, shouldExcludeRight, syncPagePrefs],
   );
 
+  const openPluginPopover = useCallback(
+    (
+      pluginId: string,
+      surfaceId: string,
+      anchorRect?: ViewportRect,
+      options?: { toggle?: boolean; width?: number; height?: number },
+    ) => {
+      const key = `${pluginId}:${surfaceId}`;
+      if (options?.toggle && activePopoverKey === key) {
+        setActivePopoverKey(null);
+        void window.envApi.closePopover('plugin-popover');
+        return;
+      }
+      const surface = pluginPopovers.find((pop) => pop.pluginId === pluginId && pop.id === surfaceId);
+      const anchorEl = pluginAnchorsRef.current.get(key);
+      let resolvedAnchor = anchorRect;
+      if (!resolvedAnchor && anchorEl) {
+        const rect = anchorEl.getBoundingClientRect();
+        resolvedAnchor = {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        };
+      }
+      if (!resolvedAnchor) {
+        const stageRect = stageRef.current?.getBoundingClientRect();
+        resolvedAnchor = stageRect
+          ? { x: Math.max(16, Math.round(stageRect.right - 24)), y: Math.round(stageRect.top), width: 1, height: 1 }
+          : { x: 400, y: 76, width: 1, height: 1 };
+      }
+      const width = options?.width ?? surface?.width ?? 360;
+      const height = options?.height ?? surface?.height ?? 420;
+      setActivePopoverKey(key);
+      void window.envApi.openPopover({
+        id: 'plugin-popover',
+        anchorRect: resolvedAnchor,
+        size: { width, height },
+        placement: 'bottom-end',
+        focusable: true,
+        beyondWindow: true,
+        props: {
+          pluginId,
+          surfaceId,
+          environmentId: current?.id,
+          space: activeSpaceId,
+          url: currentUrl,
+        },
+      });
+    },
+    [activePopoverKey, pluginPopovers, stageRef, current?.id, activeSpaceId, currentUrl],
+  );
+
   const openFindPopover = useCallback(() => {
     if (!current || !running || !stageRef.current) return;
     const rect = stageRef.current.getBoundingClientRect();
@@ -307,6 +374,14 @@ export function EnvironmentStage({
       }
       if (shortcut === 'inspector') {
         toggleInspector();
+        return;
+      }
+      if (shortcut === 'quickAutofill') {
+        const target =
+          pluginPopovers.find((pop) => pop.shortcut && /shift\+l|⇧⌘l/i.test(pop.shortcut)) ??
+          pluginPopovers.find((pop) => pop.pluginId === 'com.warren.accounts') ??
+          pluginPopovers[0];
+        if (target) openPluginPopover(target.pluginId, target.id, undefined, { toggle: true });
         return;
       }
       if (!current || !running) return;
@@ -375,6 +450,8 @@ export function EnvironmentStage({
     tabs.length,
     toggleDevTools,
     toggleInspector,
+    pluginPopovers,
+    openPluginPopover,
     openFindPopover,
     onTabCreate,
     onTabClose,
@@ -420,14 +497,9 @@ export function EnvironmentStage({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [current, running, stageReplaced, onStart]);
 
-  const openPluginSurface = useCallback(
-    (kind: 'popover' | 'inspectorTab', pluginId: string, surfaceId: string) => {
-      if (kind === 'popover') {
-        setActivePopoverKey(`${pluginId}:${surfaceId}`);
-      } else {
-        setActivePopoverKey(null);
-        setInspectorTab(`plugin:${pluginId}:${surfaceId}`);
-      }
+  const openInspectorPluginTab = useCallback(
+    (pluginId: string, surfaceId: string) => {
+      setInspectorTab(`plugin:${pluginId}:${surfaceId}`);
       if (!inspectorOpen && current && running && devToolsState.open && shouldExcludeRight(devToolsState.dock)) {
         void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
       }
@@ -448,6 +520,88 @@ export function EnvironmentStage({
     ],
   );
 
+  const openPluginSurface = useCallback(
+    (kind: 'popover' | 'inspectorTab', pluginId: string, surfaceId: string, anchorRect?: ViewportRect) => {
+      if (kind === 'popover') {
+        openPluginPopover(pluginId, surfaceId, anchorRect, { toggle: true });
+        return;
+      }
+      openInspectorPluginTab(pluginId, surfaceId);
+    },
+    [openPluginPopover, openInspectorPluginTab],
+  );
+
+  useEffect(() => {
+    const unsubDismissed = window.envApi.onPopoverDismissed((payload) => {
+      if (payload.id === 'plugin-popover') setActivePopoverKey(null);
+    });
+    const unsubAction = window.envApi.onPopoverAction((event) => {
+      if (event.id !== 'plugin-popover') return;
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      if (event.action === 'toast' && typeof payload.title === 'string') {
+        const description = typeof payload.description === 'string' ? payload.description : undefined;
+        if (payload.kind === 'error') toast.error(payload.title, description ? { description } : undefined);
+        else if (payload.kind === 'info') toast.info(payload.title, description ? { description } : undefined);
+        else toast.success(payload.title, description ? { description } : undefined);
+      } else if (
+        event.action === 'openPluginPage' &&
+        typeof payload.pluginId === 'string' &&
+        typeof payload.surfaceId === 'string'
+      ) {
+        openPluginPage(payload.pluginId, payload.surfaceId);
+      } else if (
+        event.action === 'openInspectorTab' &&
+        typeof payload.pluginId === 'string' &&
+        typeof payload.surfaceId === 'string'
+      ) {
+        openInspectorPluginTab(payload.pluginId, payload.surfaceId);
+      }
+    });
+    return () => {
+      unsubDismissed();
+      unsubAction();
+    };
+  }, [openInspectorPluginTab]);
+
+  useEffect(() => {
+    const onOpenPopoverEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ pluginId?: string; surfaceId?: string; width?: number; height?: number }>)
+        .detail;
+      if (!detail?.pluginId || !detail?.surfaceId) return;
+      openPluginPopover(detail.pluginId, detail.surfaceId, undefined, {
+        width: detail.width,
+        height: detail.height,
+      });
+    };
+    const onOpenInspectorEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ pluginId?: string; surfaceId?: string }>).detail;
+      if (!detail?.pluginId || !detail?.surfaceId) return;
+      openInspectorPluginTab(detail.pluginId, detail.surfaceId);
+    };
+    window.addEventListener(OPEN_PLUGIN_POPOVER_EVENT, onOpenPopoverEvent);
+    window.addEventListener(OPEN_PLUGIN_INSPECTOR_EVENT, onOpenInspectorEvent);
+    return () => {
+      window.removeEventListener(OPEN_PLUGIN_POPOVER_EVENT, onOpenPopoverEvent);
+      window.removeEventListener(OPEN_PLUGIN_INSPECTOR_EVENT, onOpenInspectorEvent);
+    };
+  }, [openPluginPopover, openInspectorPluginTab]);
+
+  // 切入全屏设置页/插件页时自动收起悬空浮窗；环境/空间/URL 变化时同步更新已打开的浮窗上下文
+  useEffect(() => {
+    if (stageReplaced) {
+      void window.envApi.closePopover('plugin-popover');
+      return;
+    }
+    if (!activePopoverKey) return;
+    void window.envApi.updatePopover('plugin-popover', {
+      props: {
+        environmentId: current?.id,
+        space: activeSpaceId,
+        url: currentUrl,
+      },
+    });
+  }, [stageReplaced, activePopoverKey, current?.id, activeSpaceId, currentUrl]);
+
   const showTargetUrl = running && current?.id === hoverTarget.envId && Boolean(hoverTarget.url);
 
   return (
@@ -455,7 +609,7 @@ export function EnvironmentStage({
       <EnvironmentAddressBar
         envId={current?.id}
         spaceId={activeSpaceId}
-        url={nav?.url || current?.currentUrl || ''}
+        url={currentUrl}
         loading={nav?.loading ?? false}
         editable={Boolean(canNavigate)}
         canStartOnSubmit={canStartOnSubmit}
@@ -470,11 +624,11 @@ export function EnvironmentStage({
         hasActiveDownload={hasActiveDownload}
         focusToken={addressFocusToken}
         pluginPopovers={pluginPopovers}
+        pluginStatusBadges={pluginStatusBadges}
         pluginInspectorTabs={pluginTabs}
-        onToggleInspector={() => {
-          setActivePopoverKey(null);
-          toggleInspector();
-        }}
+        pluginRailPages={pluginRailPages}
+        activePluginPopoverKey={activePopoverKey}
+        onToggleInspector={toggleInspector}
         onToggleDevTools={toggleDevTools}
         onChangeDevToolsDock={changeDevToolsDock}
         onResetZoom={() => {
@@ -500,7 +654,12 @@ export function EnvironmentStage({
         onStartAndNavigate={(targetUrl) => {
           if (current) onStartAndNavigate(current.id, activeSpaceId, targetUrl);
         }}
+        onOpenPluginPopover={(pluginId, surfaceId, anchorRect) =>
+          openPluginPopover(pluginId, surfaceId, anchorRect, { toggle: true })
+        }
+        onOpenPluginPage={(pluginId, surfaceId) => openPluginPage(pluginId, surfaceId)}
         onOpenPluginSurface={openPluginSurface}
+        registerPluginAnchor={registerPluginAnchor}
       />
 
       <div ref={stageContainerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -596,56 +755,29 @@ export function EnvironmentStage({
             collapsedSize={0}
             className="min-w-0"
           >
-            {activePopover ? (
-              <div data-slot="plugin-popover-drawer" className="flex h-full flex-col bg-background">
-                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
-                  <span className="truncate text-xs font-medium">{activePopover.title}</span>
-                  <div className="flex items-center gap-1">
-                    <Button size="xs" variant="ghost" onClick={() => setActivePopoverKey(null)}>
-                      返回检查器
-                    </Button>
-                    <IconButton
-                      title="收起工作台"
-                      onClick={() => {
-                        setActivePopoverKey(null);
-                        inspectorPanelRef.current?.collapse();
-                      }}
-                    >
-                      <Icon name="X" />
-                    </IconButton>
-                  </div>
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto p-3">
-                  <PluginSurfaceHost
-                    pluginId={activePopover.pluginId}
-                    title={activePopover.title}
-                    Component={activePopover.component}
-                    props={{ pluginId: activePopover.pluginId, environmentId: current?.id }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <EnvironmentInspector
-                current={current}
-                events={events}
-                snapshot={snapshot}
-                snapshotLoading={snapshotLoading}
-                consoleEntries={consoleEntries}
-                networkEntries={networkEntries}
-                netRules={netRules}
-                netHits={netHits}
-                onNetRuleToggle={(ruleId, enabled) => current && onNetRuleToggle(current.id, ruleId, enabled)}
-                activeTab={activeInspectorTab}
-                onTabChange={(tab) => {
-                  setInspectorTab(tab);
-                  if (tab === 'storage' && current) onReadCookies(current.id);
-                }}
-                onRefreshSnapshot={() => current && onRefreshSnapshot(current.id)}
-                cookies={cookies}
-                pluginTabs={pluginTabs}
-                environmentId={current?.id}
-              />
-            )}
+            <EnvironmentInspector
+              current={current}
+              events={events}
+              snapshot={snapshot}
+              snapshotLoading={snapshotLoading}
+              consoleEntries={consoleEntries}
+              networkEntries={networkEntries}
+              netRules={netRules}
+              netHits={netHits}
+              onNetRuleToggle={(ruleId, enabled) => current && onNetRuleToggle(current.id, ruleId, enabled)}
+              activeTab={activeInspectorTab}
+              onTabChange={(tab) => {
+                setInspectorTab(tab);
+                if (tab === 'storage' && current) onReadCookies(current.id);
+              }}
+              onRefreshSnapshot={() => current && onRefreshSnapshot(current.id)}
+              cookies={cookies}
+              pluginTabs={pluginTabs}
+              environmentId={current?.id}
+              space={activeSpaceId}
+              url={currentUrl}
+              onOpenPluginPage={(pluginId, surfaceId) => openPluginPage(pluginId, surfaceId)}
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

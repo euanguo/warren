@@ -483,6 +483,9 @@ function registerIpc(): void {
   handleShell('browser:revealDownload', (downloadId: string) => manager.revealDownload(downloadId));
   handleShell('browser:printPage', (id: string, space: SpaceId) => manager.printPage(id, space));
   handleShell('browser:savePage', (id: string, space: SpaceId) => manager.savePageAs(id, space));
+  handleShell('browser:highlight', async (id: string, space: SpaceId, target?: string) => {
+    await manager.controllerFor(id, undefined, space).highlight(target as never);
+  });
 
   handle('ui:popupMenu', (items: NativeMenuItem[], position?: { x: number; y: number }) => {
     if (!window) return null;
@@ -592,15 +595,15 @@ function registerIpc(): void {
     pluginsChanged(() => plugins.setSkillExposed(id, exposed)),
   );
   handle('plugin:readSkill', (id: string) => plugins.readSkill(id));
-  // 这条 IPC 只有渲染层（插件自己的 UI）用：caller=ui 才允许走「只给人看」的通道（如账号 reveal）
-  handle('plugin:rpc', (id: string, method: string, input?: unknown) =>
+  // 这条 IPC 只有渲染层（主窗与 PopoverHost 插件 UI）用：caller=ui 才允许走「只给人看」的通道（如账号 reveal / totpCode）
+  handleShell('plugin:rpc', (id: string, method: string, input?: unknown) =>
     plugins.rpc(id, method, input, { caller: 'ui' }),
   );
-  handle('plugin:hostRead', (id: string, method: string, environmentId?: string, args?: unknown[]) =>
+  handleShell('plugin:hostRead', (id: string, method: string, environmentId?: string, args?: unknown[]) =>
     plugins.hostRead(id, method, environmentId, args ?? []),
   );
-  handleShell('plugin:run', (id: string, command: string, environmentId: string) =>
-    pluginsChanged(() => plugins.run(id, command, { environmentId })),
+  handleShell('plugin:run', (id: string, command: string, environmentId?: string) =>
+    pluginsChanged(() => plugins.run(id, command, { environmentId: environmentId ?? '', caller: 'ui' })),
   );
   handle('plugin:installSource', async (source: string) => {
     const plugin = await pluginsChanged(() => plugins.install(source));
@@ -810,6 +813,7 @@ app.whenReady().then(async () => {
     appVersion: app.getVersion(),
     onSignal: (pluginId, channel, payload) => {
       window?.webContents.send('plugin:signal', { pluginId, channel, payload });
+      popoverHost?.broadcast('plugin:signal', { pluginId, channel, payload });
     },
     // CLI / agent 改的插件状态也要让界面知道，否则 rail 与设置分节会停在旧清单；同时自动同步已安装 Skill
     onChange: () => {
