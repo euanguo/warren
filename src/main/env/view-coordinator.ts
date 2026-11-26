@@ -1,4 +1,14 @@
-import { app, clipboard, dialog, screen, shell, webContents, type BrowserWindow, type Session } from 'electron';
+import {
+  app,
+  clipboard,
+  dialog,
+  screen,
+  shell,
+  webContents,
+  WebContentsView,
+  type BrowserWindow,
+  type Session,
+} from 'electron';
 import type { X509Certificate } from 'node:crypto';
 import { buildPageContextMenu } from '../browser-context-menu.ts';
 import { BrowserController } from '../browser/controller.ts';
@@ -83,7 +93,18 @@ export class EnvViewCoordinator {
     this.#deps = deps;
     this.#window = deps.window;
     this.#layers = deps.layers ?? new WindowLayerManager(deps.window);
-    this.#devtools = new DevToolsHost(this.#layers, () => this.#syncAfterDevToolsChange());
+    this.#devtools = new DevToolsHost(
+      this.#layers,
+      () => this.#syncAfterDevToolsChange(),
+      () =>
+        new WebContentsView({
+          webPreferences: {
+            contextIsolation: true,
+            sandbox: true,
+            nodeIntegration: false,
+          },
+        }),
+    );
   }
 
   get layers(): WindowLayerManager {

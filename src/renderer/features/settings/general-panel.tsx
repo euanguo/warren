@@ -96,7 +96,7 @@ export function GeneralPanel() {
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-sm font-medium">网页与 DevTools 视图圆角</span>
             <span className="text-xs text-muted-foreground">
-              为原生 `WebContentsView` 应用 8px 圆角裁切，与外框卡片融为一体。
+              为网页与开发者工具视图应用 8px 圆角裁切，与外框卡片融为一体。
             </span>
           </div>
           <Switch

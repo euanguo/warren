@@ -195,7 +195,8 @@ export function BrowserPanel() {
                 <span className="shrink-0 font-mono text-muted-foreground">{pref.envId}</span>
                 <span className="min-w-0 flex-1 truncate font-mono">{pref.origin}</span>
                 <span className="shrink-0 text-muted-foreground">
-                  {Math.round(pref.zoomFactor * 100)}%{pref.viewportPreset ? ` · ${pref.viewportPreset}` : ''}
+                  {Math.round(pref.zoomFactor * 100)}%
+                  {pref.viewportPreset ? ` · ${VIEWPORT_LABELS[pref.viewportPreset] ?? pref.viewportPreset}` : ''}
                 </span>
                 <IconButton
                   title="清除此偏好"

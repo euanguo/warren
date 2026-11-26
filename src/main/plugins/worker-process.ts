@@ -164,22 +164,32 @@ class NodeWorkerProcess extends EventEmitter implements WorkerProcess {
   }
 }
 
+export function buildForkEnv(env?: NodeJS.ProcessEnv): Record<string, string> | undefined {
+  if (!env) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
+
 export async function forkWorkerProcess(modulePath: string, options: WorkerProcessOptions): Promise<WorkerProcess> {
+  const cleanEnv = buildForkEnv(options.env);
   if (process.versions.electron) {
     // 懒加载：只在 Electron 主进程下引入，保证 node --test 可直接加载本模块
     const { utilityProcess } = await import('electron');
     const child = utilityProcess.fork(modulePath, [], {
       serviceName: options.serviceName,
       stdio: 'pipe',
-      env: options.env,
+      ...(cleanEnv ? { env: cleanEnv } : {}),
     });
     return new ElectronWorkerProcess(child);
   }
 
   const child = forkNode(modulePath, [], {
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    env: options.env,
     execArgv: [],
+    ...(cleanEnv ? { env: cleanEnv } : {}),
   });
   return new NodeWorkerProcess(child);
 }

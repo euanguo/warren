@@ -105,7 +105,7 @@ export function EnvironmentSidebar({
   const runningCount = environments.filter((env) => env.status === 'running').length;
 
   return (
-    <Sidebar collapsible="none" className="h-full" data-collapsed="false">
+    <Sidebar collapsible="none" className="h-full w-full min-w-0" data-collapsed="false">
       <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center px-2">
         <Button
           variant="ghost"
@@ -211,7 +211,7 @@ export function EnvironmentSidebar({
 
       <SidebarFooter>
         <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
-          <span className="tabular-nums">
+          <span className="min-w-0 truncate tabular-nums">
             {runningCount} 运行 / {environments.length} 环境
           </span>
           <div className="ml-auto flex items-center gap-0.5">

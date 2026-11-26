@@ -75,11 +75,17 @@ export function App() {
    * 侧栏每次（重）挂都把默认宽度定在 260px，避免 v4 首帧按 % 计算落成其它值。
    */
   useEffect(() => {
-    const panel = sidebarPanelRef.current;
-    const frame = window.requestAnimationFrame(() => {
-      panel?.resize(SIDEBAR_WIDTH.default);
+    if (!sidebarVisible) return;
+    let raf2 = 0;
+    const raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        sidebarPanelRef.current?.resize(SIDEBAR_WIDTH.default);
+      });
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+    };
   }, [sidebarPanelRef, sidebarVisible]);
 
   const openCommandBar = useCallback(() => {
@@ -218,7 +224,11 @@ export function App() {
                 destinations={railDestinations}
               />
 
-              <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+              <ResizablePanelGroup
+                key={sidebarVisible ? 'with-sidebar' : 'no-sidebar'}
+                orientation="horizontal"
+                className="h-full min-w-0"
+              >
                 {sidebarVisible && (
                   <>
                     <ResizablePanel

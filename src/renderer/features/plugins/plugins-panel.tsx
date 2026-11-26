@@ -4,18 +4,32 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Icon } from '@/components/icons';
-import { cardSurfaceClass, controlFieldCompactClass } from '@/theme/surface';
+import { cardSurfaceClass } from '@/theme/surface';
 import { cn } from '@/lib/utils';
 import { PERMISSION_TIERS } from '@shared/permissions';
 import type { InstalledPlugin, PluginLogEntry, PluginSettingValue } from '@shared/types';
 
 type FilterMode = 'all' | 'running' | 'pending' | 'error' | 'host';
 
-function tierBadge(permission: string) {
+const PLUGIN_OPTION_LABELS: Record<string, string> = {
+  all: '全部',
+  local: '仅本地',
+  remote: '仅远程',
+};
+
+function formatOptionLabel(option: string): string {
+  return PLUGIN_OPTION_LABELS[option] ?? option;
+}
+
+function tierBadge(permission: string, needsConfirm = true) {
   const tier = PERMISSION_TIERS[permission] ?? 'denied';
   if (tier === 'granted') return <Badge variant="secondary">{permission}</Badge>;
   if (tier === 'confirm') {
+    if (!needsConfirm) {
+      return <Badge variant="secondary">{permission} · 已确认</Badge>;
+    }
     return (
       <Badge variant="outline" className="border-[var(--warning)]/50 text-[var(--warning)]">
         {permission} · 确认
@@ -85,26 +99,31 @@ function SettingField({
       </span>
 
       {setting.options ? (
-        <select
-          className={cn(controlFieldCompactClass, 'text-xs')}
+        <Select
           value={String(setting.value ?? '')}
-          onChange={(event) =>
-            void window.envApi.pluginConfigSet(plugin.id, setting.key, event.target.value).then(onSaved)
-          }
+          onValueChange={(value) => {
+            if (!value) return;
+            void window.envApi.pluginConfigSet(plugin.id, setting.key, value).then(onSaved);
+          }}
         >
-          {setting.options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="flex-1 text-xs" aria-label={setting.label}>
+            <SelectValue>{(value) => formatOptionLabel(String(value ?? ''))}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {setting.options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {formatOptionLabel(option)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ) : (
         <Input
           type={isSecret ? 'password' : 'text'}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={isSecret ? (setting.configured ? '已配置（输入以覆盖）' : '未配置') : ''}
-          className="h-7 flex-1 text-xs"
+          className="flex-1 text-xs"
         />
       )}
 
@@ -132,7 +151,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
     }
   };
 
-  const surfaces = plugin.contributes.surfaces.map((surface) => surface.title);
+  const surfaces = Array.from(new Set(plugin.contributes.surfaces.map((surface) => surface.title)));
   const filteredLogs = useMemo(() => {
     if (!logs) return [];
     const q = logFilter.trim().toLowerCase();
@@ -181,7 +200,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
             aria-label="重载插件"
             onClick={() => void act(() => window.envApi.pluginReload(plugin.id), '重载失败')}
           >
-            <Icon name="RotateClockwise" />
+            <Icon name="Refresh" />
           </IconButton>
           <IconButton
             title={logs ? '收起日志' : '查看日志'}
@@ -202,7 +221,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
 
       <div className="flex flex-wrap items-center gap-1">
         {plugin.permissions.map((permission) => (
-          <span key={permission}>{tierBadge(permission)}</span>
+          <span key={permission}>{tierBadge(permission, plugin.needsConfirmation.includes(permission))}</span>
         ))}
       </div>
 
@@ -243,7 +262,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
               value={logFilter}
               onChange={(event) => setLogFilter(event.target.value)}
               placeholder="过滤插件日志…"
-              className="h-7 flex-1 text-xs"
+              className="flex-1 text-xs"
             />
             <IconButton
               title="刷新日志"
@@ -341,7 +360,7 @@ export function PluginsPanel({
       <div className="flex items-center gap-2">
         <Input
           value={source}
-          placeholder="path:plugins/account-manager / npm:warren-plugin-whistle@^0.3.0 / git:..."
+          placeholder="输入 path: / npm: / git: 插件源…"
           onChange={(event) => setSource(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== 'Enter' || !source.trim()) return;

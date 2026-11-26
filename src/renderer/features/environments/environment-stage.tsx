@@ -411,34 +411,40 @@ export function EnvironmentStage({
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="page" className="min-w-0">
-          <div ref={stageRef} data-slot="stage-placeholder" className="relative h-full bg-muted/20">
-            {(!running || tabs.length === 0) && (
-              <Empty className="absolute inset-0 border-0">
-                <EmptyHeader>
-                  <EmptyMedia>
-                    <WarrenMark className="size-12" />
-                  </EmptyMedia>
-                  <EmptyTitle>{!current ? '未选择环境' : running ? '这个空间还没有标签' : '环境未启动'}</EmptyTitle>
-                  <EmptyDescription>
-                    {!current
-                      ? '左侧选择一个环境，页面会显示在这里。'
-                      : running
-                        ? '点标签行右侧的 + 新建一个。'
-                        : sidebarCollapsed
-                          ? '这个环境还没有启动。点左上角 ☰ 展开侧栏，再点环境行上的 ▶。'
-                          : '点击左侧「启动」拉起这个环境的浏览器。'}
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-            {showTargetUrl && (
-              <div
-                data-slot="target-url-preview"
-                className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[65%] truncate rounded-[var(--radius-sm)] border border-border/60 bg-popover/90 px-2 py-0.5 font-mono text-[11px] text-popover-foreground shadow-sm"
-              >
-                {hoverTarget.url}
-              </div>
-            )}
+          <div className="h-full bg-surface-recessed p-1.5">
+            <div
+              ref={stageRef}
+              data-slot="stage-placeholder"
+              className="relative h-full rounded-[var(--radius-sm)] bg-muted/20 ring-1 ring-border/75"
+            >
+              {(!running || tabs.length === 0) && (
+                <Empty className="absolute inset-0 border-0">
+                  <EmptyHeader>
+                    <EmptyMedia>
+                      <WarrenMark className="size-12" />
+                    </EmptyMedia>
+                    <EmptyTitle>{!current ? '未选择环境' : running ? '这个空间还没有标签' : '环境未启动'}</EmptyTitle>
+                    <EmptyDescription>
+                      {!current
+                        ? '左侧选择一个环境，页面会显示在这里。'
+                        : running
+                          ? '点标签行右侧的 + 新建一个。'
+                          : sidebarCollapsed
+                            ? '这个环境还没有启动。点左上角 ☰ 展开侧栏，再点环境行上的 ▶。'
+                            : '点击左侧「启动」拉起这个环境的浏览器。'}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+              {showTargetUrl && (
+                <div
+                  data-slot="target-url-preview"
+                  className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[65%] truncate rounded-[var(--radius-sm)] border border-border/60 bg-popover/90 px-2 py-0.5 font-mono text-[11px] text-popover-foreground shadow-sm"
+                >
+                  {hoverTarget.url}
+                </div>
+              )}
+            </div>
           </div>
         </ResizablePanel>
 

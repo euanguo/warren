@@ -18,7 +18,7 @@ export interface CollectSystemDiagnosticsInput {
   skillSourceDir: string;
   db: DatabaseSync;
   store: Pick<Store, 'list' | 'listGroups' | 'events'>;
-  manager: Pick<EnvironmentManager, 'maxRunning' | 'hasActiveAgentLease'>;
+  manager: Pick<EnvironmentManager, 'list' | 'maxRunning' | 'hasActiveAgentLease'>;
   vault: Pick<VaultStore, 'available' | 'list'>;
   plugins: Pick<PluginHost, 'list'>;
 }
@@ -75,8 +75,8 @@ export async function collectSystemDiagnostics(input: CollectSystemDiagnosticsIn
         : 'Socket 或 runtime.json 尚未落盘',
   });
 
-  // 3. 环境池状态
-  const envs = input.store.list();
+  // 3. 环境池状态（必须读 manager 运行时列表，store.list() 的持久化 status 恒为 stopped）
+  const envs = input.manager.list();
   const running = envs.filter((env) => env.status === 'running').length;
   const dormant = envs.filter((env) => env.status === 'dormant').length;
   const erroredEnvs = envs.filter((env) => Boolean(env.error)).length;

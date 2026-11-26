@@ -8,6 +8,7 @@ import { PluginStorage, KV_MAX_VALUE_BYTES } from '../src/main/plugins/storage.t
 import { openDatabase } from '../src/main/db.ts';
 import { PluginSettings } from '../src/main/plugins/settings.ts';
 import { HostRuntime, SandboxRuntime } from '../src/main/plugins/runtime.ts';
+import { buildForkEnv } from '../src/main/plugins/worker-process.ts';
 import { buildHostApi, createHandlers, dispatchHostCall } from '../src/main/plugins/api.ts';
 
 const pluginPackage = {
@@ -627,4 +628,9 @@ test('sandbox 与 host 运行时：子进程异常退出对在途调用 fail-fas
     await hostRt.dispose();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('buildForkEnv 未传返回 undefined，传入时剔除非字符串键以免 utilityProcess 报 Invalid value for env', () => {
+  assert.equal(buildForkEnv(undefined), undefined);
+  assert.deepEqual(buildForkEnv({ FOO: 'bar', UNDEF: undefined, NUM: 123 as unknown as string }), { FOO: 'bar' });
 });

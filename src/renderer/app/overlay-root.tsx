@@ -702,7 +702,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         />
         <span className="text-[11px] text-muted-foreground">Esc 关闭</span>
       </div>
-      <div className="max-h-80 overflow-y-auto p-1.5">
+      <div className="max-h-[296px] overflow-y-auto p-1.5">
         {filtered.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">没有匹配的命令</p>
         ) : (

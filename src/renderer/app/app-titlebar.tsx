@@ -89,7 +89,7 @@ export function AppTitlebar({
           >
             {environment.error ? '页面加载失败' : (statusLabel[environment.status] ?? environment.status)}
           </span>
-          <span className="shrink-0 truncate font-mono text-xs text-muted-foreground/70">
+          <span className="shrink-0 truncate font-mono text-xs text-muted-foreground">
             {environment.proxy ?? '直连'}
           </span>
         </div>
