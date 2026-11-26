@@ -1,7 +1,7 @@
 /**
  * 插件网络域 host API。
  */
-import type { CapabilitySpec } from './index.ts';
+import type { CapabilitySpec } from './types.ts';
 
 export const netCapabilities: Record<string, CapabilitySpec> = {
   'browser.network': {

@@ -375,21 +375,19 @@ export class InputShield {
   #attached = false;
   #visible = true;
   #ready = false;
-  #layers?: WindowLayerManager;
+  #layers: WindowLayerManager;
   #callerLabel = 'Agent';
   #mode: ShieldMode = 'idle';
   #theme: ShieldTheme = 'dark';
   #showControlPill = true;
   #onTakeover?: () => void;
 
-  constructor(
-    options: {
-      layers?: WindowLayerManager;
-      showControlPill?: boolean;
-      theme?: ShieldTheme;
-      onTakeover?: () => void;
-    } = {},
-  ) {
+  constructor(options: {
+    layers: WindowLayerManager;
+    showControlPill?: boolean;
+    theme?: ShieldTheme;
+    onTakeover?: () => void;
+  }) {
     this.#layers = options.layers;
     this.#showControlPill = options.showControlPill ?? true;
     this.#theme = options.theme ?? 'dark';
@@ -481,54 +479,33 @@ export class InputShield {
       .catch(() => {});
   }
 
-  attach(window: Electron.BaseWindow, bounds: { x: number; y: number; width: number; height: number }): void {
+  attach(_window: Electron.BaseWindow, bounds: { x: number; y: number; width: number; height: number }): void {
     this.#attached = true;
-    if (this.#layers) {
-      this.#layers.setSlot('shield', this.#view, { visible: this.#visible, bounds });
-      this.#pushState();
-      return;
-    }
-    window.contentView.addChildView(this.#view);
-    this.#view.setBounds(bounds);
-    this.#view.setVisible(this.#visible);
+    this.#layers.setSlot('shield', this.#view, { visible: this.#visible, bounds });
     this.#pushState();
   }
 
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
     if (!this.#attached) return;
-    if (this.#layers) this.#layers.setBounds('shield', bounds);
-    else this.#view.setBounds(bounds);
+    this.#layers.setBounds('shield', bounds);
   }
 
-  raise(window: Electron.BaseWindow): void {
+  raise(_window: Electron.BaseWindow): void {
     if (!this.#attached) return;
-    if (this.#layers) {
-      this.#layers.restack();
-      return;
-    }
-    window.contentView.removeChildView(this.#view);
-    window.contentView.addChildView(this.#view);
+    this.#layers.restack();
   }
 
   setVisible(visible: boolean): void {
     this.#visible = visible;
-    if (this.#layers && this.#attached) {
-      this.#layers.setVisible('shield', visible);
-      return;
-    }
-    this.#view.setVisible(visible);
+    if (this.#attached) this.#layers.setVisible('shield', visible);
   }
 
-  detach(window: Electron.BaseWindow): void {
+  detach(_window: Electron.BaseWindow): void {
     if (!this.#attached) return;
     this.#attached = false;
-    if (this.#layers) {
-      if (this.#layers.slotView('shield') === this.#view) {
-        this.#layers.setSlot('shield', undefined);
-      }
-      return;
+    if (this.#layers.slotView('shield') === this.#view) {
+      this.#layers.setSlot('shield', undefined);
     }
-    window.contentView.removeChildView(this.#view);
   }
 
   destroy(): void {

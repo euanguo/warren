@@ -14,6 +14,7 @@ type Rule = NetRule & { id: string };
 /** 假拦截器：只实现 ops 真正用到的那几个方法（`NetInterceptable` 是 Pick 出来的，会跟着真货变）。 */
 function fakeInterceptor(): NetInterceptable & {
   rulesTable: Rule[];
+  bodiesTable: HarEntry[];
   recording: boolean;
   replaying: boolean;
   removed: string[];

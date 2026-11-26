@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHandlers, dispatchHostCall } from '../src/main/plugins/api.ts';
+import { dispatchHostCall } from '../src/main/plugins/api/index.ts';
 import { currentEnvironmentId, runWithPluginContext } from '../src/main/plugins/call-context.ts';
+import { createTestHandlers } from './helpers/plugin-host.ts';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function handlersFor(seen: string[]) {
-  return createHandlers({
+  return createTestHandlers({
     pluginId: 'com.example.context',
     currentEnvironmentId,
     require: () => undefined,
@@ -18,14 +19,6 @@ function handlersFor(seen: string[]) {
         },
       }),
     } as never,
-    vault: { available: true, list: () => [], reveal: () => ({}) },
-    storage: {} as never,
-    settings: { get: () => ({}) } as never,
-    descriptors: [],
-    record: () => undefined,
-    log: () => undefined,
-    signal: () => undefined,
-    withLease: async (_env, fn) => fn('lease'),
   });
 }
 

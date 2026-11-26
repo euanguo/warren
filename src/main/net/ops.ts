@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises';
 import type { NetHit, NetRule } from '../../shared/types';
 import { guardSavePath } from '../browser/policy.ts';
-import { isSensitiveKey, redactSecrets } from '../browser/redact.ts';
+import { redactSecrets, redactUrl } from '../browser/redact.ts';
 import { rulesFromHar, toHarDocument } from './har.ts';
 import { writeArtifact } from '../artifacts.ts';
 // **type-only**：真货 interceptor.ts 在运行时 import electron，node:test 加载不了。
@@ -233,7 +233,7 @@ export class EnvironmentNetOps {
     const entries = net.stopRecording();
     let artifact: { path: string; bytes: number; sha256: string } | undefined;
     if (output) {
-      const target = guardSavePath(output, 'saveAs');
+      const target = guardSavePath(output);
       artifact = await writeArtifact(target, JSON.stringify(toHarDocument(entries), null, 2) + '\n');
     }
     this.#deps.record(
@@ -271,7 +271,7 @@ export class EnvironmentNetOps {
       throw Object.assign(new Error(`未知动作 ${action}（start|stop）`), { code: 'BAD_REQUEST' });
     }
     if (!file) throw Object.assign(new Error('replay 需要 har 文件路径'), { code: 'BAD_REQUEST' });
-    const path = guardSavePath(file, 'saveAs');
+    const path = guardSavePath(file);
     let document: unknown;
     try {
       document = JSON.parse(await readFile(path, 'utf8'));
@@ -308,22 +308,5 @@ function redactBody(body: string): { text: string; redacted: boolean } {
     return { text: JSON.stringify(value, null, 2), redacted };
   } catch {
     return { text: body, redacted: false };
-  }
-}
-
-/** URL 的 query 里命中敏感词的参数值也脱敏（`?token=…` 这种太常见了）。 */
-function redactUrl(raw: string): string {
-  try {
-    const url = new URL(raw);
-    let hit = false;
-    for (const [key] of [...url.searchParams]) {
-      if (isSensitiveKey(key)) {
-        url.searchParams.set(key, '[REDACTED]');
-        hit = true;
-      }
-    }
-    return hit ? url.toString() : raw;
-  } catch {
-    return raw;
   }
 }

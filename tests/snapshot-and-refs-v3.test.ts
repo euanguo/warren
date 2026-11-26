@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHierarchicalAxNodes } from '../src/main/browser/snapshot.ts';
+import { buildHierarchicalAxNodes } from '../src/main/browser/ax-tree.ts';
 import { formatCompactSnapshot } from '../src/main/browser/ops/snapshot-compact.ts';
 import { RefTable } from '../src/main/browser/refs.ts';
 import type { AxNode } from '../src/shared/types.ts';

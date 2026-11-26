@@ -11,11 +11,10 @@ import {
   diffPermissions,
   needsUserConfirmation,
   satisfiesEngines,
-  tierOf,
   validatePluginPackage,
-  type Permission,
   type PluginPackage,
 } from './package.ts';
+import { tierOf, type Permission } from '../../shared/permissions.ts';
 import { pluginAutoApproves } from '../domain/approval.ts';
 import type { PluginState } from './registry.ts';
 import { PluginSettings } from './settings.ts';

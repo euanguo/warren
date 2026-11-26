@@ -27,7 +27,7 @@ function fakeHandle(path: string) {
 
 test('popup 队列先进先出，读走就没了', () => {
   const pending = new EnvPending();
-  const sink = pending.sinkFor(fakeWc(), 'tab-1');
+  const sink = pending.sinkFor(fakeWc());
   pending.notePopup(popup('http://a', '2026-01-01T00:00:01.000Z'));
   pending.notePopup(popup('http://b', '2026-01-01T00:00:02.000Z'));
 
@@ -38,7 +38,7 @@ test('popup 队列先进先出，读走就没了', () => {
 
 test('收据只报动作开始之后产生的 popup', () => {
   const pending = new EnvPending();
-  const sink = pending.sinkFor(fakeWc(), 'tab-1');
+  const sink = pending.sinkFor(fakeWc());
   const before = Date.parse('2026-01-01T00:00:00.000Z');
   pending.notePopup(popup('http://old', '2025-12-31T23:59:59.999Z'));
   pending.notePopup(popup('http://new', '2026-01-01T00:00:00.500Z'));
@@ -56,7 +56,7 @@ test('收据只报动作开始之后产生的 popup', () => {
 
 test('没有 popup 时收据不带 popups 字段', () => {
   const pending = new EnvPending();
-  const sink = pending.sinkFor(fakeWc(), 'tab-1');
+  const sink = pending.sinkFor(fakeWc());
   assert.equal(sink.receiptSince(0).popups, undefined);
 });
 
@@ -72,7 +72,7 @@ test('下载能按 id 取回句柄，clear 之后取不到', () => {
 
 test('下载记录只保留最近 N 条，句柄跟着一起裁', () => {
   const pending = new EnvPending({ maxDownloads: 3 });
-  const sink = pending.sinkFor(fakeWc(), 'tab-1');
+  const sink = pending.sinkFor(fakeWc());
   for (let i = 1; i <= 5; i++) {
     pending.noteDownload(download(`d${i}`, `2026-01-01T00:00:0${i}.000Z`), fakeHandle(`/tmp/d${i}.txt`));
   }

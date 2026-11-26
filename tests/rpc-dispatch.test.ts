@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dispatchRpc, type DispatchDeps } from '../src/main/rpc-dispatch.ts';
+import { dispatchRpc, type DispatchDeps } from '../src/main/rpc/registry.ts';
 
 /**
  * RPC 写门控的**运行时**验证。
@@ -91,6 +91,18 @@ function makeManager(options: { lease?: FakeLease; pageUrl?: string; dormant?: b
     focusForInput: async () => void calls.push('focusForInput'),
     prepareBackgroundInput: async () => false,
     clearBackgroundInput: async () => {},
+    async withInputContext<T>(id: string, _space: unknown, _tab: unknown, fn: () => Promise<T>): Promise<T> {
+      const temporary = this.ensureOperable();
+      try {
+        this.assertInputOnScreen();
+        this.assertActiveTab();
+        await this.focusForInput();
+        return await fn();
+      } finally {
+        if (temporary) this.detachOperable();
+        void id;
+      }
+    },
     assertVisible: () => void calls.push('assertVisible'),
     closeTab: (id: string, space: string, ref: unknown) => {
       calls.push(`closeTab:${id}:${space}:${String(ref)}`);

@@ -13,11 +13,11 @@ import {
   heldModifiers,
   holdButton,
   holdModifier,
-  lastMouse,
+  lastMouseOf,
   releaseButton,
   releaseModifier,
 } from './mouse-state.ts';
-import { assertNoDialog, receipt } from './page-helpers.ts';
+import { assertNoDialog } from './page-helpers.ts';
 
 export async function mouseClick(
   ctx: PageContext,
@@ -70,9 +70,10 @@ export async function mouseClick(
     pointerType: 'mouse',
   });
   if (opts.label) ctx.record('browser.action', `${opts.label} @${x | 0},${y | 0}`);
+  const lastMouse = lastMouseOf(ctx.wc);
   lastMouse.x = x;
   lastMouse.y = y;
-  return { x, y, ...receipt(ctx, since) };
+  return { x, y, ...ctx.pending.receiptSince(since) };
 }
 
 export async function mouseMove(
@@ -86,9 +87,10 @@ export async function mouseMove(
     type: 'mouseMoved',
     x,
     y,
-    buttons: heldButtons(),
+    buttons: heldButtons(ctx.wc),
     pointerType: 'mouse',
   });
+  const lastMouse = lastMouseOf(ctx.wc);
   lastMouse.x = x;
   lastMouse.y = y;
   if (ctx.onVisualAction) {
@@ -115,6 +117,7 @@ export async function mouseDown(
 ): Promise<{ ok: true }> {
   // 位置优先用显式坐标，否则沿用上次位置（CDP 会话级，无需 0,0）
   const { button, buttons } = mouseButtonParams(opts.button ?? 'left');
+  const lastMouse = lastMouseOf(ctx.wc);
   const x = opts.x ?? lastMouse.x;
   const y = opts.y ?? lastMouse.y;
   await ctx.sendInput('Input.dispatchMouseEvent', {
@@ -126,7 +129,7 @@ export async function mouseDown(
     clickCount: 1,
     pointerType: 'mouse',
   });
-  holdButton(buttons);
+  holdButton(ctx.wc, buttons);
   lastMouse.x = x;
   lastMouse.y = y;
   return { ok: true };
@@ -137,6 +140,7 @@ export async function mouseUp(
   opts: { button?: MouseButton; x?: number; y?: number } = {},
 ): Promise<{ ok: true }> {
   const { button, buttons } = mouseButtonParams(opts.button ?? 'left');
+  const lastMouse = lastMouseOf(ctx.wc);
   const x = opts.x ?? lastMouse.x;
   const y = opts.y ?? lastMouse.y;
   await ctx.sendInput('Input.dispatchMouseEvent', {
@@ -148,7 +152,7 @@ export async function mouseUp(
     clickCount: 1,
     pointerType: 'mouse',
   });
-  releaseButton(buttons);
+  releaseButton(ctx.wc, buttons);
   lastMouse.x = x;
   lastMouse.y = y;
   return { ok: true };
@@ -162,6 +166,7 @@ export async function mouseWheel(
 ): Promise<{ ok: true }> {
   // 调用前先 move 到滚动容器上（Ego 同款要求）。
   // x/y 是 CDP 的必填项——不给会直接报 "Invalid parameters"（实测），所以沿用上次鼠标位置。
+  const lastMouse = lastMouseOf(ctx.wc);
   await ctx.sendInput('Input.dispatchMouseEvent', {
     type: 'mouseWheel',
     x: lastMouse.x,
@@ -175,17 +180,17 @@ export async function mouseWheel(
 }
 
 export async function keyboardDown(ctx: PageContext, key: string): Promise<{ ok: true }> {
-  const [down] = keyEvents(key, { modifiers: heldModifiers() });
+  const [down] = keyEvents(key, { modifiers: heldModifiers(ctx.wc) });
   await ctx.sendInput('Input.dispatchKeyEvent', down as Record<string, unknown>);
   // 按住的修饰键要跨命令记住：down('Shift') 之后 press('a') 必须得到大写 A
-  holdModifier(modifierBitOf(parseChord(key).key));
+  holdModifier(ctx.wc, modifierBitOf(parseChord(key).key));
   return { ok: true };
 }
 
 export async function keyboardUp(ctx: PageContext, key: string): Promise<{ ok: true }> {
-  const [, up] = keyEvents(key, { modifiers: heldModifiers() });
+  const [, up] = keyEvents(key, { modifiers: heldModifiers(ctx.wc) });
   await ctx.sendInput('Input.dispatchKeyEvent', up as Record<string, unknown>);
-  releaseModifier(modifierBitOf(parseChord(key).key));
+  releaseModifier(ctx.wc, modifierBitOf(parseChord(key).key));
   return { ok: true };
 }
 
@@ -196,11 +201,11 @@ export async function keyboardPress(
 ): Promise<{ ok: true } & ActionReceipt> {
   assertNoDialog(ctx);
   const since = Date.now();
-  const [down, up] = keyEvents(chord, { modifiers: heldModifiers() });
+  const [down, up] = keyEvents(chord, { modifiers: heldModifiers(ctx.wc) });
   await ctx.sendInput('Input.dispatchKeyEvent', down as Record<string, unknown>);
   if (opts.delay) await new Promise((r) => setTimeout(r, opts.delay));
   await ctx.sendInput('Input.dispatchKeyEvent', up as Record<string, unknown>);
-  return { ok: true, ...receipt(ctx, since) };
+  return { ok: true, ...ctx.pending.receiptSince(since) };
 }
 
 export async function keyboardType(

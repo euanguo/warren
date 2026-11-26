@@ -8,21 +8,17 @@ import type { EnvironmentManager } from '../environments';
 import type { Store } from '../store';
 import type { VaultStore } from '../vault/store';
 import { pluginAutoApproves } from '../domain/approval.ts';
-import { createHandlers, dispatchHostCall, type HostHandler } from './api/index.ts';
+import { createHandlers, dispatchHostCall } from './api/index.ts';
+import type { HostHandler } from './api/types.ts';
 import { currentCaller, currentEnvironmentId, currentLeaseId, runWithPluginContext } from './call-context.ts';
 import type { PluginEventBus } from './event-bus.ts';
 import { hashPluginDir, pluginError } from './installer.ts';
-import { tierOf, type Permission, type PluginPackage } from './package.ts';
+import { tierOf, type Permission } from '../../shared/permissions.ts';
+import type { PluginPackage } from './package.ts';
 import type { PluginState } from './registry.ts';
-import {
-  HOST_BOOTSTRAP,
-  HostRuntime,
-  SANDBOX_BOOTSTRAP,
-  SandboxRuntime,
-  type LogLevel,
-  type PluginCrashInfo,
-  type PluginRuntimeAdapter,
-} from './runtime.ts';
+import type { LogLevel, PluginCrashInfo, PluginRuntimeAdapter } from './runtime-base.ts';
+import { HOST_BOOTSTRAP, HostRuntime } from './runtime-host.ts';
+import { SANDBOX_BOOTSTRAP, SandboxRuntime } from './runtime-sandbox.ts';
 import type { PluginSettings } from './settings.ts';
 import { PluginStorage } from './storage.ts';
 import type { InstalledPlugin, PluginStatus } from '../../shared/types.ts';

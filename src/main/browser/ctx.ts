@@ -52,6 +52,8 @@ export interface PageContext {
   refs: RefTable;
   /** 选择器 → backendNodeId（`@N` / css / xpath / text= / role= …）。 */
   backendIdFor(target: TargetInput): Promise<number>;
+  /** 选择器 → `{ backendNodeId, sessionId }`，保留 OOPIF 子会话信息。 */
+  resolveTarget?(target: TargetInput): Promise<{ backendNodeId: number; sessionId?: string }>;
   /** 这个 backendNodeId 属于哪个 frame / 会话（跨源元素才有 sessionId）。 */
   frameOf(backendNodeId: number): Promise<{ frameId: string; sessionId?: string } | undefined>;
   /** 环境级下载句柄（saveAs / cancel / status 用）。 */

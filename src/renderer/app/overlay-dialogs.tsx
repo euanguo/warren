@@ -1,0 +1,376 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Icon } from '@/components/icons';
+import { Button, IconButton } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
+import { elevatedDialogSurfaceClass } from '@/theme/surface';
+import type { Environment } from '@shared/types';
+
+const DEFAULT_START_URL = 'https://example.com';
+
+function OverlayCard({
+  title,
+  description,
+  onClose,
+  children,
+}: {
+  title: string;
+  description?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <dialog
+      open
+      aria-modal="true"
+      className={cn(
+        elevatedDialogSurfaceClass,
+        'relative z-10 m-0 grid w-full max-w-[440px] gap-0 border-0 p-5 text-sm outline-none animate-in fade-in-0 zoom-in-95 duration-100',
+      )}
+    >
+      <div className="flex flex-col gap-1.5 pr-6">
+        <h2 className="text-base leading-none font-medium text-foreground">{title}</h2>
+        {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
+      </div>
+      <IconButton
+        className="absolute top-3 right-3 text-subtle-foreground hover:bg-surface-hover hover:text-foreground"
+        title="关闭"
+        aria-label="关闭弹窗"
+        onClick={onClose}
+      >
+        <Icon name="X" />
+      </IconButton>
+      {children}
+    </dialog>
+  );
+}
+
+export function CreateEnvCard({ initialGroupId }: { initialGroupId?: string }) {
+  const [id, setId] = useState('');
+  const [proxy, setProxy] = useState('');
+  const [startUrl, setStartUrl] = useState(DEFAULT_START_URL);
+  const [headed, setHeaded] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const idRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => idRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const cancel = () => void window.envApi.resolveOverlay(null);
+
+  const submit = async () => {
+    const trimmedId = id.trim();
+    if (!trimmedId || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await window.envApi.create({
+        id: trimmedId,
+        proxy: proxy.trim() || undefined,
+        startUrl: startUrl.trim() || undefined,
+        headed,
+      });
+      if (initialGroupId) {
+        await window.envApi.moveToGroup(created.id, initialGroupId);
+      }
+      await window.envApi.resolveOverlay(created);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <OverlayCard title="新建环境" description="一个环境 = 独立浏览器存储 + 独立出口。" onClose={cancel}>
+      <form
+        className="flex flex-col gap-4 py-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <Field>
+          <FieldLabel htmlFor="overlay-new-env-id">环境名</FieldLabel>
+          <Input
+            ref={idRef}
+            id="overlay-new-env-id"
+            value={id}
+            onChange={(event) => setId(event.target.value)}
+            placeholder="例如 alpha"
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="overlay-new-env-proxy">代理</FieldLabel>
+          <Input
+            id="overlay-new-env-proxy"
+            value={proxy}
+            onChange={(event) => setProxy(event.target.value)}
+            placeholder="http://host:port（留空直连）"
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="overlay-new-env-start-url">启动 URL</FieldLabel>
+          <Input
+            id="overlay-new-env-start-url"
+            value={startUrl}
+            onChange={(event) => setStartUrl(event.target.value)}
+            placeholder={DEFAULT_START_URL}
+          />
+        </Field>
+        <Field orientation="horizontal">
+          <Switch id="overlay-new-env-headed" checked={headed} onCheckedChange={setHeaded} />
+          <FieldLabel htmlFor="overlay-new-env-headed">启动后自动切换到这个环境</FieldLabel>
+        </Field>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </form>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={cancel}>
+          取消
+        </Button>
+        <Button onClick={() => void submit()} disabled={!id.trim() || submitting}>
+          创建
+        </Button>
+      </div>
+    </OverlayCard>
+  );
+}
+
+export function EditEnvCard({ environment }: { environment: Environment }) {
+  const [name, setName] = useState(environment.name);
+  const [proxy, setProxy] = useState(environment.proxy ?? '');
+  const [startUrl, setStartUrl] = useState(environment.startUrl ?? '');
+  const [headed, setHeaded] = useState(environment.headed);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => nameRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const cancel = () => void window.envApi.resolveOverlay(null);
+
+  const submit = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const updated = await window.envApi.update(environment.id, {
+        name: trimmedName,
+        proxy: proxy.trim(),
+        startUrl: startUrl.trim(),
+        headed,
+      });
+      await window.envApi.resolveOverlay(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <OverlayCard
+      title="编辑环境"
+      description={
+        <>
+          <code>{environment.id}</code>
+          {environment.status === 'running' && ' · 正在运行：代理、启动 URL 与「自动切换」下次启动才生效'}
+        </>
+      }
+      onClose={cancel}
+    >
+      <form
+        className="flex flex-col gap-4 py-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <Field>
+          <FieldLabel htmlFor="overlay-edit-env-name">显示名</FieldLabel>
+          <Input
+            ref={nameRef}
+            id="overlay-edit-env-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={environment.id}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="overlay-edit-env-proxy">代理</FieldLabel>
+          <Input
+            id="overlay-edit-env-proxy"
+            value={proxy}
+            onChange={(event) => setProxy(event.target.value)}
+            placeholder="http://host:port（留空直连）"
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="overlay-edit-env-start-url">启动 URL</FieldLabel>
+          <Input
+            id="overlay-edit-env-start-url"
+            value={startUrl}
+            onChange={(event) => setStartUrl(event.target.value)}
+            placeholder="https://example.com"
+          />
+        </Field>
+        <Field orientation="horizontal">
+          <Switch id="overlay-edit-env-headed" checked={headed} onCheckedChange={setHeaded} />
+          <FieldLabel htmlFor="overlay-edit-env-headed">启动后自动切换到这个环境</FieldLabel>
+        </Field>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </form>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={cancel}>
+          取消
+        </Button>
+        <Button onClick={() => void submit()} disabled={!name.trim() || submitting}>
+          保存
+        </Button>
+      </div>
+    </OverlayCard>
+  );
+}
+
+export function CreateGroupCard() {
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const cancel = () => void window.envApi.resolveOverlay(null);
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const group = await window.envApi.groupCreate(trimmed);
+      await window.envApi.resolveOverlay(group);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <OverlayCard title="新建分组" description="分组只影响侧栏的组织方式，不影响运行时。" onClose={cancel}>
+      <form
+        className="flex flex-col gap-4 py-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <Field>
+          <FieldLabel htmlFor="overlay-new-group-name">分组名</FieldLabel>
+          <Input
+            ref={inputRef}
+            id="overlay-new-group-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="生产"
+          />
+        </Field>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </form>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={cancel}>
+          取消
+        </Button>
+        <Button onClick={() => void submit()} disabled={!name.trim() || submitting}>
+          创建
+        </Button>
+      </div>
+    </OverlayCard>
+  );
+}
+
+export function RenameCard({ title, label, initialValue }: { title: string; label: string; initialValue: string }) {
+  const [value, setValue] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const cancel = () => void window.envApi.resolveOverlay(null);
+  const submit = () => {
+    const next = value.trim();
+    if (!next) return;
+    void window.envApi.resolveOverlay(next);
+  };
+
+  return (
+    <OverlayCard title={title} onClose={cancel}>
+      <form
+        className="flex flex-col gap-4 py-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <Field>
+          <FieldLabel htmlFor="overlay-rename-value">{label}</FieldLabel>
+          <Input
+            ref={inputRef}
+            id="overlay-rename-value"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </Field>
+      </form>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={cancel}>
+          取消
+        </Button>
+        <Button onClick={submit} disabled={!value.trim()}>
+          保存
+        </Button>
+      </div>
+    </OverlayCard>
+  );
+}
+
+export function ConfirmCard({
+  title,
+  description,
+  confirmLabel = '确认',
+  destructive = false,
+}: {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  destructive?: boolean;
+}) {
+  const cancel = () => void window.envApi.resolveOverlay(false);
+  return (
+    <OverlayCard title={title} description={description} onClose={cancel}>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" onClick={cancel}>
+          取消
+        </Button>
+        <Button
+          variant={destructive ? 'destructive' : 'default'}
+          onClick={() => void window.envApi.resolveOverlay(true)}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </OverlayCard>
+  );
+}

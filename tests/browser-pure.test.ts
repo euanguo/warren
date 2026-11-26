@@ -8,7 +8,8 @@ import { hostAllowed } from '../src/main/browser/policy.ts';
 import { redactSecrets } from '../src/main/browser/redact.ts';
 import { matchUrl, readyStateAtLeast } from '../src/main/browser/matcher.ts';
 import { requiredStates, isRetryable, runAction } from '../src/main/browser/actionability.ts';
-import { canFallbackToElectronScreenshot, withTimeout } from '../src/main/browser/screenshot-policy.ts';
+import { canFallbackToElectronScreenshot } from '../src/main/browser/screenshot-policy.ts';
+import { withTimeout } from '../src/main/browser/timeout.ts';
 
 test('chord 单字符保留大小写', () => {
   assert.deepEqual(parseChord('a'), { key: 'a', code: 'KeyA', modifiers: 0 });
@@ -111,19 +112,19 @@ test('截图超时会把挂起的 CDP 转成可回退错误', async () => {
 
 test('路径护栏禁数据目录与系统区', () => {
   assert.throws(
-    () => guardSavePath('a/b.png', 'saveAs'),
+    () => guardSavePath('a/b.png'),
     (e: unknown) => (e as { code?: string }).code === 'PATH_DENIED',
   );
   const home = process.env.HOME ?? os.homedir();
   assert.throws(
-    () => guardSavePath(`${home}/.warren/x`, 'saveAs'),
+    () => guardSavePath(`${home}/.warren/x`),
     (e: unknown) => (e as { code?: string }).code === 'PATH_DENIED',
   );
   assert.throws(
-    () => guardSavePath('/etc/passwd', 'saveAs'),
+    () => guardSavePath('/etc/passwd'),
     (e: unknown) => (e as { code?: string }).code === 'PATH_DENIED',
   );
-  assert.equal(guardSavePath('/tmp/x.png', 'saveAs'), '/tmp/x.png');
+  assert.equal(guardSavePath('/tmp/x.png'), '/tmp/x.png');
   assert.equal(sanitizeFilename('../../etc/passwd'), 'passwd');
 });
 

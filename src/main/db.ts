@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS console_entries (
   source TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS console_entries_env ON console_entries (env_id, id);
+CREATE INDEX IF NOT EXISTS console_entries_tab ON console_entries (tab_id, id);
 
 CREATE TABLE IF NOT EXISTS network_entries (
   id INTEGER PRIMARY KEY,
@@ -169,6 +170,7 @@ CREATE TABLE IF NOT EXISTS network_entries (
   resource_type TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS network_entries_env ON network_entries (env_id, id);
+CREATE INDEX IF NOT EXISTS network_entries_tab ON network_entries (tab_id, id);
 
 CREATE TABLE IF NOT EXISTS domain_prefs (
   env_id TEXT NOT NULL,

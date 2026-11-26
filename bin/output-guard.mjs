@@ -1,11 +1,10 @@
 /**
- * CLI 独立版输出治理与动态超时预算（纯 ESM，零 `src/` 依赖，打包后可随 `bin/` 独立分发）。
- * 语义与 `src/main/browser/ops/output-guard.ts` / `budget.ts` 完全对齐。
+ * CLI 与主进程共用的输出安全治理与动态超时预算（纯 ESM，零依赖）。
  */
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { warrenHome } from './paths.mjs';
 
 export const DEFAULT_MAX_OUTPUT_CHARS = 12_000;
 
@@ -68,8 +67,7 @@ export function applyOutputBudget(raw, options = {}) {
   const limit = options.maxChars && options.maxChars > 0 ? options.maxChars : DEFAULT_MAX_OUTPUT_CHARS;
   if (totalChars <= limit) return { text: cleaned, truncated: false, totalChars };
 
-  const home = process.env.WARREN_HOME ? path.resolve(process.env.WARREN_HOME) : path.join(os.homedir(), '.warren');
-  const tmpDir = options.tmpDir ?? path.join(home, 'tmp');
+  const tmpDir = options.tmpDir ?? path.join(warrenHome(), 'tmp');
   const safeLabel = (options.label ?? 'output').replace(/[^\w.-]+/g, '-').slice(0, 32);
   const savedPath = path.join(tmpDir, `${safeLabel}-${Date.now()}-${randomBytes(3).toString('hex')}.txt`);
   try {

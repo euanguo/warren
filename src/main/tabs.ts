@@ -25,6 +25,7 @@ const CHANGE_THROTTLE_MS = 100;
 
 /** favicon 要转成 data URL 塞进 TabState，所以必须有上限，别让一个巨大响应卡住主进程。 */
 const MAX_FAVICON_BYTES = 256 * 1024;
+const MAX_FAVICON_CACHE = 128;
 
 /** 「最近关闭」栈的深度（⌘⇧T 用）。Chrome 是 25，我们用不着那么多。 */
 const CLOSED_STACK_MAX = 10;
@@ -55,8 +56,8 @@ type CreateWindowOptions = Electron.BrowserWindowConstructorOptions & {
 interface TabOptions {
   session: Session;
   space: SpaceId;
-  /** 该环境额外信任的 CA；有它才在该 tab 的 webContents 上装证书兜底。 */
-  trustedCa?: X509Certificate;
+  /** 该环境额外信任的 CA 或动态解析器；用于每张 webContents 的证书兜底。 */
+  trustedCa?: X509Certificate | (() => X509Certificate | undefined);
   /** `window.open` 场景下 Electron 已经建好的 guest，必须复用它 */
   webContents?: WebContents;
   webPreferences?: Electron.WebPreferences;
@@ -98,12 +99,14 @@ export class Tab {
    * 实测新 webContents 上的 `certificate-error` 能绕过该缓存；校验仍是同一张 CA 的验签，
    * 不是无脑放行。
    */
-  #wireCertificateTrust(trustedCa?: X509Certificate): void {
+  #wireCertificateTrust(trustedCa?: X509Certificate | (() => X509Certificate | undefined)): void {
     if (!trustedCa) return;
     const wc = this.view.webContents;
     if (!wc || wc.isDestroyed()) return;
+    const resolveCa = typeof trustedCa === 'function' ? trustedCa : () => trustedCa;
     wc.on('certificate-error', (event, _url, _error, certificate, callback) => {
-      if (leafSignedByCa(certificate.data, trustedCa)) {
+      const currentCa = resolveCa();
+      if (currentCa && leafSignedByCa(certificate.data, currentCa)) {
         event.preventDefault();
         callback(true);
       } else {
@@ -172,13 +175,13 @@ export interface TabManagerOptions {
   space: SpaceId;
   window: BrowserWindow;
   /** 窗口原生层管理器 */
-  layers?: WindowLayerManager;
+  layers: WindowLayerManager;
   /** 读取当前真实页面视口（单一真相源，避免新建或后台 Space 沿用 0,0,800,600 默认值） */
   getViewport?: () => ViewportRect;
   /** 渲染层是否已经上报过有效视口；未就绪前不把默认 800x600 视图画到左上角 */
   isViewportReady?: () => boolean;
   session: Session;
-  trustedCa?: X509Certificate;
+  trustedCa?: X509Certificate | (() => X509Certificate | undefined);
   /** 状态变更通知（已节流）—— 渲染层刷新用 */
   onChanged: () => void;
   /** 挂在窗口里的视图换了（新建/切换/关闭）—— 遮罩与 DevTools 要跟随更新 */
@@ -420,13 +423,7 @@ export class TabManager {
     const view = tab.view;
     const bounds = this.#effectiveViewport();
     this.#viewport = bounds;
-    if (this.#options.layers) {
-      this.#options.layers.setSlot('below', view, { visible: true, bounds });
-    } else {
-      this.#options.window.contentView.addChildView(view, 0);
-      view.setVisible(true);
-      view.setBounds(bounds);
-    }
+    this.#options.layers.setSlot('below', view, { visible: true, bounds });
     this.#below = view;
     return true;
   }
@@ -434,12 +431,8 @@ export class TabManager {
   /** 摘掉 `attachBelow` 挂上去的那个视图（只摘它，不动正在显示的那个）。 */
   detachBelow(): void {
     if (!this.#below) return;
-    if (this.#options.layers) {
-      if (this.#options.layers.slotView('below') === this.#below) {
-        this.#options.layers.setSlot('below', undefined);
-      }
-    } else {
-      this.#removeFromWindow(this.#below);
+    if (this.#options.layers.slotView('below') === this.#below) {
+      this.#options.layers.setSlot('below', undefined);
     }
     this.#below = undefined;
   }
@@ -453,17 +446,11 @@ export class TabManager {
     const tab = this.active();
     const visible = this.#viewVisible && this.#viewportReady();
     if (tab && this.#attached === tab.view) {
-      if (this.#options.layers) {
-        this.#options.layers.setBounds('page', bounds);
-        this.#options.layers.setVisible('page', visible);
-      } else {
-        tab.view.setBounds(bounds);
-        tab.view.setVisible(visible);
-      }
+      this.#options.layers.setBounds('page', bounds);
+      this.#options.layers.setVisible('page', visible);
     }
     if (this.#below) {
-      if (this.#options.layers) this.#options.layers.setBounds('below', bounds);
-      else this.#below.setBounds(bounds);
+      this.#options.layers.setBounds('below', bounds);
     }
   }
 
@@ -475,32 +462,9 @@ export class TabManager {
     this.#viewVisible = visible;
     if (!this.#attached) return;
     const effective = visible && this.#viewportReady();
-    if (this.#options.layers) {
-      if (this.#options.layers.slotView('page') === this.#attached) {
-        this.#options.layers.setVisible('page', effective);
-      }
-      return;
+    if (this.#options.layers.slotView('page') === this.#attached) {
+      this.#options.layers.setVisible('page', effective);
     }
-    this.#attached.setVisible(effective);
-  }
-
-  /**
-   * 打开当前标签页面的 Chrome DevTools。
-   *
-   * 只能 `detach`（独立窗口）：right / bottom 那种停靠模式要宿主是 BrowserWindow
-   * 才成立，我们的页面是挂在 BaseWindow 上的 WebContentsView，停不进去。
-   * 已经开着就聚焦，不重复开。
-   */
-  openDevTools(): void {
-    // 页面 window.close() 之后 view.webContents 会变 undefined（见 HANDOFF 坑 12）
-    const wc = this.active()?.view.webContents;
-    if (!wc || wc.isDestroyed()) return;
-    const hostFocused = !this.#options.window.isDestroyed() && this.#options.window.isFocused();
-    if (wc.isDevToolsOpened()) {
-      if (hostFocused) wc.devToolsWebContents?.focus();
-      return;
-    }
-    wc.openDevTools({ mode: 'detach', activate: hostFocused });
   }
 
   /** 把当前标签的视图放进窗口。切换环境时由 EnvironmentManager 调用。 */
@@ -519,12 +483,8 @@ export class TabManager {
     this.#viewVisible = true;
     this.detachBelow();
     if (!this.#attached) return;
-    if (this.#options.layers) {
-      if (this.#options.layers.slotView('page') === this.#attached) {
-        this.#options.layers.setSlot('page', undefined);
-      }
-    } else {
-      this.#removeFromWindow(this.#attached);
+    if (this.#options.layers.slotView('page') === this.#attached) {
+      this.#options.layers.setSlot('page', undefined);
     }
     this.#attached = undefined;
   }
@@ -535,6 +495,7 @@ export class TabManager {
       this.#changeTimer = undefined;
     }
     for (const id of [...this.#tabs.keys()]) this.#remove(id, true, { silent: true });
+    this.#favicons.clear();
   }
 
   // ── 内部 ──────────────────────────────────────────────────────────
@@ -622,7 +583,12 @@ export class TabManager {
   }
 
   async #fetchFavicon(url: string): Promise<string | undefined> {
-    if (this.#favicons.has(url)) return this.#favicons.get(url);
+    if (this.#favicons.has(url)) {
+      const cached = this.#favicons.get(url);
+      this.#favicons.delete(url);
+      this.#favicons.set(url, cached);
+      return cached;
+    }
     let dataUrl: string | undefined;
     try {
       const response = await this.#options.session.fetch(url);
@@ -633,6 +599,10 @@ export class TabManager {
       dataUrl = `data:${type};base64,${bytes.toString('base64')}`;
     } catch {
       // 取不到就当没有图标，UI 退回占位图标
+    }
+    if (this.#favicons.size >= MAX_FAVICON_CACHE) {
+      const oldest = this.#favicons.keys().next().value;
+      if (oldest !== undefined) this.#favicons.delete(oldest);
     }
     this.#favicons.set(url, dataUrl);
     return dataUrl;
@@ -692,12 +662,8 @@ export class TabManager {
     const { empty } = this.#list.remove(id);
 
     if (wasActive && this.#attached === tab.view) {
-      if (this.#options.layers) {
-        if (this.#options.layers.slotView('page') === tab.view) {
-          this.#options.layers.setSlot('page', undefined);
-        }
-      } else {
-        this.#removeFromWindow(tab.view);
+      if (this.#options.layers.slotView('page') === tab.view) {
+        this.#options.layers.setSlot('page', undefined);
       }
       this.#attached = undefined;
     }
@@ -743,34 +709,12 @@ export class TabManager {
     this.#viewport = bounds;
     const visible = this.#viewVisible && this.#viewportReady();
 
-    if (this.#options.layers) {
-      this.#attached = tab.view;
-      this.#options.layers.setSlot('page', tab.view, {
-        visible,
-        bounds,
-      });
-      this.#options.onViewChanged();
-      return;
-    }
-
-    if (this.#attached && this.#attached !== tab.view) this.#removeFromWindow(this.#attached);
-    if (this.#attached !== tab.view) {
-      this.#options.window.contentView.addChildView(tab.view);
-      this.#attached = tab.view;
-    }
-    // 新挂上来的视图要跟上当前的让位状态，否则浮层还开着的时候切标签会露出页面
-    tab.view.setVisible(visible);
-    tab.view.setBounds(bounds);
-    // 遮罩必须在所有页面视图之后 addChildView 才盖得住
+    this.#attached = tab.view;
+    this.#options.layers.setSlot('page', tab.view, {
+      visible,
+      bounds,
+    });
     this.#options.onViewChanged();
-  }
-
-  #removeFromWindow(view: WebContentsView): void {
-    try {
-      this.#options.window.contentView.removeChildView(view);
-    } catch {
-      // webContents 已销毁时可能抛错；view 会被回收，不影响功能
-    }
   }
 
   #notify(): void {

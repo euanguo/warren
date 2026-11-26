@@ -41,7 +41,7 @@ export function checkCdpAllowed(method: string): void {
 }
 
 /** 写下载/上传目标路径的护栏。返回净化后的绝对路径。 */
-export function guardSavePath(input: string, _kind: 'saveAs' | 'setInputFiles'): string {
+export function guardSavePath(input: string): string {
   if (typeof input !== 'string' || !input) {
     throw Object.assign(new Error(`PATH_DENIED 空路径`), { code: 'PATH_DENIED' });
   }
@@ -55,10 +55,6 @@ export function guardSavePath(input: string, _kind: 'saveAs' | 'setInputFiles'):
     throw Object.assign(new Error(`PATH_DENIED 禁止写入 ${dataRoot} 数据目录`), {
       code: 'PATH_DENIED',
     });
-  }
-  // core/ 数据目录：app.getPath('userData')/core，按常见位置护栏
-  if (normalized.includes(`${path.sep}core${path.sep}`) && /warren/i.test(normalized)) {
-    throw Object.assign(new Error(`PATH_DENIED 禁止写入 core 数据目录`), { code: 'PATH_DENIED' });
   }
   const SYS_DIRS = ['/etc/', '/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/System/', '/private/etc/'];
   if (process.platform !== 'win32') {
@@ -95,7 +91,7 @@ export function checkInputFiles(paths: unknown): string[] {
   if (list.length === 0 || list.some((p) => typeof p !== 'string' || !p)) {
     throw Object.assign(new Error('PATH_DENIED 文件路径非法'), { code: 'PATH_DENIED' });
   }
-  for (const p of list as string[]) guardSavePath(p, 'setInputFiles');
+  for (const p of list as string[]) guardSavePath(p);
   return list as string[];
 }
 

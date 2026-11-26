@@ -45,6 +45,22 @@ export function getDownloadPath(downloadId: string): string | undefined {
   return historyById.get(downloadId)?.savePath;
 }
 
+/** 清理指定环境（或全部）的下载历史条目，防止环境删除后残留索引与内存增长。 */
+export function clearDownloads(envId?: string): void {
+  if (!envId) {
+    history.length = 0;
+    historyById.clear();
+    return;
+  }
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const item = history[i];
+    if (item && item.envId === envId) {
+      historyById.delete(item.downloadId);
+      history.splice(i, 1);
+    }
+  }
+}
+
 export function wireDownloads(
   ses: Session,
   environmentId: string,

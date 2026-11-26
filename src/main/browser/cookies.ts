@@ -12,9 +12,6 @@
 import type { Session } from 'electron';
 import type { CookieSummary } from '../../shared/types.ts';
 
-/** 形状定义在 `shared/types.ts`（跨进程单一来源），这里只按老路径转出。 */
-export type { CookieSummary };
-
 export interface CookieInput {
   name: string;
   value: string;

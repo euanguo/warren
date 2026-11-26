@@ -123,131 +123,96 @@ Console 用 `console-message`，Network 用 `webRequest.onCompleted`。
 
 ```
 src/shared/
-  permissions.ts       权限分层单一来源（granted / confirm / denied，含 events.subscribe）
-  types.ts             纯 export * 兼容入口
-  types/               分域共享类型（browser / environment / plugin / rpc / settings / ui）
+  permissions.ts         权限分层单一来源（granted / confirm / denied，共 19 项）
+  plugin-host-api.ts     插件前端只读白名单
+  popover-sizing.ts      独立浮窗尺寸规格单一来源
+  types.ts               纯 export * 导出（只用于模块聚合，新代码可直引分域模块）
+  types/                 分域共享类型（common / browser / environment / plugin / rpc / settings / ui）
 
 src/main/
-  main.ts              应用入口、窗口、IPC（含 system:doctor / domainPrefs / browser 交互接口）；
-                       建窗口前 app.setPath 把 userData/sessionData/logs/crashDumps 挪进数据根
-  system-doctor.ts     系统自检 collectSystemDiagnostics（读取 manager 运行态与脱敏健康检查）
-  environments.ts      薄协调 Facade：委托 env/ 下四个协作者管理生命周期/Session/Lease/视图
+  main.ts                应用入口与窗口创建（IPC 路由与自定义协议已独立拆出）
+  ipc-routes.ts          Electron IPC 全部通道注册（与 shared/types/rpc.ts 的 EnvApi 对齐）
+  plugin-protocol.ts     warren-plugin:// 协议供给与目录缓存
+  system-doctor.ts       系统自检 collectSystemDiagnostics（读取运行态与脱敏健康检查）
+  environments.ts        薄协调 Facade：委托 env/ 下四个协作者管理生命周期/Session/Lease/视图
   env/
-    session-factory.ts Session 创建、代理/CA、warren://newtab、chrome UA、扩展、netOps/Telemetry
-    lifecycle.ts       Environment 启停/休眠/恢复与脱敏事件转发
-    lease-coordinator.ts Agent/Human 租约状态、审批判定与自动/手动回收
-    view-coordinator.ts 视图切换、窗口显隐、DevTools 停靠/分割与页面交互（缩放/查找/视口/下载/打印/另存为）
+    session-factory.ts   Session 创建/同步、代理/CA、PermissionRequestHandler、netOps/Telemetry
+    lifecycle.ts         Environment 启停/休眠/恢复（带启动并发去重与代次校验）
+    lease-coordinator.ts Agent/Human 租约状态、审批判定与 withInputContext()
+    view-coordinator.ts  视图切换、窗口显隐、DevTools 停靠/分割与页面交互
   ui/
-    layer-order.ts     纯 5 层 Z-Order 模型（below → page → devtools → shield → overlay）
-    layer-manager.ts   BaseWindow contentView 层序与圆角统一控制器
-    overlay-host.ts    透明无边框预热顶层窗口，承载 ⌘K / 创建/确认弹窗且不隐藏底层网页
-    popover-host.ts    双池低延迟弹出面板宿主（omni-suggest / find-in-page）与 popover-layout.ts
-    devtools-host.ts   setDevToolsWebContents 停靠式原生 Chrome DevTools（right / bottom / detach）
-    native-menu.ts     网页与插件右键原生 Menu 封装
-  tabs.ts              Tab / TabManager：一个 Environment 的标签集合、新窗口分流、视图挂载
-  domain/tabs.ts       标签集合的纯领域逻辑（顺序 / 激活 / 关掉之后选谁），可单测
-  browser/             浏览器能力层（见下）
-    ops/               统一高阶读取/语义查找/增量状态与批处理（snapshot-compact / reader / diff / inspector / batch）
-    redact.ts            凭据脱敏（**叶子模块**：不 import 任何东西，网络层也要用它，
-                         而那条路径必须能被 node --test 加载）
-    controller.ts        页面门面：导航 + info/events + 目标解析 + dialog 守卫 + getProp/checkState，其余委托给下面各模块
-    ctx.ts               页面级上下文（PageContext / PendingSink）——拆开的模块只依赖它
-    page-helpers.ts      CDP 节点换算、dialog 守卫、收据、动作超时、坐标换算
-    snapshot.ts          AX 取树（带 120ms 缓存）+ snapshot（不碰 ref 表）+ assignRefs + 截图
-    waits.ts             七种等待 + navigate/reload 的 waitUntil 四态
-    actions.ts           元素动作 + 弹窗/下载
-    escape.ts            evaluate / fetch / cdp / clearDataForOrigin / 脱敏
-    keymouse.ts          坐标鼠标 + 键盘
-    mouse-state.ts       上次鼠标位置（元素动作与坐标键鼠共享）
-    downloads.ts         will-download 接线（每 session 挂一次，队列每次现取）
-    session.ts           webContents.debugger 薄封装 + dialog 状态（Page 域只开这一个）
-    target.ts            选择器解析 + Target 归一 + 歧义判定（纯函数）
-    refs.ts              snapshot ref 表（gen 失效，纯类）
-    input.ts             chord 解析 + 鼠标按键参数（纯函数）
-    matcher.ts           URL matcher / readyState 判定（纯函数）
-    policy.ts            CDP 白名单 + 路径护栏 + fetch 凭据默认 + 域名名单（纯函数）
-    input-synthesis.ts   鼠标路径合成（贝塞尔；纯函数）。click/hover 走它，按下那一下仍由
-                         actions.ts 自己发，**不绕过 actionability**。WARREN_INPUT_PATH=0 关掉
-    pending.ts           环境级 popup / download 队列（dialog 在 session.ts）
-  net/                 网络拦截（对标 Playwright route / HAR，见 docs/NET-INTERCEPT-PLAN.md）
-    ops.ts               编排层：环境级拦截器的持有 + 规则/录制/回放门面。
-                         **依赖注入**（record / onChange / createInterceptor），不 import electron，
-                         所以 tests/net-ops.test.ts 能直接跑。真货 NetInterceptor 由 environments.ts 传。
-    rules.ts             规则模型 + URL 匹配 + 优先级挑选 + 归一校验（纯函数，可单测）
-    interceptor.ts       接线：挂到 Environment 自己的 session 上（protocol.handle）
-  input-shield.ts      Agent 持 lease 时的原生输入遮罩
-  telemetry.ts         Console / Network 摘要（warren.db 的两张表；每标签留最近 300 条）
-  rpc.ts               本地 Unix socket RPC + 随机 token；RUNTIME_DIR = ~/.warren
-  rpc-methods.ts       RPC 方法元数据目录（供 `warren methods` 与 `rpc.methods` 自省）
-  rpc-dispatch.ts      RPC 派发表（从 rpc.ts 拆出来）。**不 import electron**（isPackaged / quit 由调用方注入），
-                       所以 tests/rpc-dispatch.test.ts 能喂假 manager 直接跑写门控
-  agent-integration.ts 自带 SKILL.md 安装、动态组装已启用插件 Skill 区块（`<!-- warren:enabled-plugins:begin/end -->`）与 `.warren-skill` SHA-256 指纹追踪/refreshSkills
-  db.ts                **唯一的 SQLite 连接**（warren.db）：全库 schema（含 domain_prefs / site_notes）+ openDatabase / closeDatabases / tx
-  store.ts             环境 / 分组 / 事件 / 运行态 / 历史 / 域偏好 / site_notes（warren.db）
-  paths.ts             数据根（WARREN_HOME，默认 ~/.warren）+ 各子目录。纯 Node，CLI 与路径护栏共用
-  domain/environment.ts  纯领域逻辑（状态机、lease 规则），可单测
-  domain/trusted-ca.ts   证书验签判定（纯函数，可单测）：叶子证书是不是这张 CA 签的
-  domain/approval.ts     审批策略判定（纯函数，可单测）：控制权模式 + 插件确认是否自动放行
-  vault/store.ts       safeStorage 凭据库（无 reveal）
-  vault/electron-encryptor.ts
-  vault/persistence.ts 凭据落库（warren.db 的 vault 表，只存密文；老 vault.json 一次性导入）
-  plugins/package.ts   package.json#warren 校验（runtime / contributes / skill / engines）+ 三层权限
-  plugins/source.ts    path / npm / git 安装源解析、npm pack、依赖安装
-  plugins/host.ts      PluginHost（安装·启停·重载·状态·日志·RPC·caller 透传·Skill 解析与同步·信号·事件总线）
-  plugins/api.ts       host API（权限门控 + 写操作按 `space`/`caller` 惰性取 lease + `detectLoginFields`/`highlightElement` + events 通道）
-  skills/composer.ts   插件 Skill 读取与安全拼接（显式 `SKILL.md` / 命令清单兜底、10KB/插件与 32KB 总预算截断、零敏感数据硬限制）
-  plugins/event-bus.ts 只读脱敏事件总线 `PluginEventBus`（支持过滤订阅与脱敏字段）
-  plugins/worker-process.ts 子进程适配层（Electron 下 utilityProcess.fork / node --test 下 child_process.fork）
-  plugins/runtime.ts   两种均在可强杀子进程内的运行时：sandbox（受限 node:vm）/ host（完整 Node）
-  plugins/registry.ts  插件注册表（含 `skill_exposed` 持久化）+ 插件日志（warren.db 的 plugins / plugin_logs）
-  plugins/storage.ts   每插件 kv（warren.db 的 plugin_values scope=kv）+ 自己的 data.db（node:sqlite）
-  plugins/settings.ts  设置描述符（warren.db 的 plugin_values scope=setting）；secret 存 Vault，永不回前端
+    layer-order.ts       纯 5 层 Z-Order 模型（below → page → devtools → shield → overlay）
+    layer-manager.ts     BaseWindow contentView 层序与 8px 圆角统一控制器
+    overlay-host.ts      透明无边框预热顶层窗口（⌘K 命令栏与弹窗，不藏底层网页）
+    popover-host.ts      双池弹出宿主（omni-suggest / find-in-page / plugin-popover）
+    devtools-host.ts     setDevToolsWebContents 停靠式原生 Chrome DevTools（right / bottom / detach）
+    native-menu.ts       网页与插件右键原生 Menu 封装
+  tabs.ts + domain/tabs.ts  标签集合、新窗口分流与 WindowLayerManager 视图挂载
+  browser/
+    controller.ts        页面门面；其余委托 locator / actions / waits / snapshot / screenshot
+    locator.ts           隔离世界 CSS/XPath 与 OOPIF / Closed Shadow 查找
+    ctx.ts / errors.ts / roles.ts / dom-scripts.ts / timeout.ts / redact.ts
+    page-helpers.ts      CDP 节点与 { backendNodeId, sessionId } 解析、dialog 守卫、坐标换算
+    snapshot.ts + screenshot.ts  AX 树（120ms 缓存）+ OOPIF/iframe 脱敏 + 截图与标注
+    actions.ts + pointer-actions.ts + form-actions.ts  元素动作、点击点与 SPA 表单引擎
+    waits.ts / escape.ts / keymouse.ts / mouse-state.ts（WeakMap 隔离）/ downloads.ts / session.ts
+    target.ts / refs.ts / input.ts / matcher.ts / policy.ts / input-synthesis.ts / fill-secret.ts
+    ops/                 snapshot-compact / reader / diff(+png-codec) / inspector / batch / flow / remedy / emulation / webmcp / diagnostics
+  net/                   ops.ts + rules.ts + interceptor.ts + har.ts
+  input-shield.ts        Agent 持 lease 时的透明原生输入遮罩与光标轨迹
+  telemetry.ts           Console / Network 持久化采集（warren.db，停/休眠保留历史、remove 才清理）
+  rpc.ts                 本地 Unix socket RPC + 串行读队列 + 随机 token；RUNTIME_DIR = ~/.warren/runtime
+  rpc/                   按域拆分的单一 RPC_REGISTRY（registry / env / browser / net / storage / plugin / system / types）
+  skills/composer.ts + agent-integration.ts  builtin SKILL + 插件 SKILL 自动合成（单插件 32KB 上限，<!-- warren:enabled-plugins:begin/end -->）
+  db.ts + store/         唯一 SQLite 连接 + store/{common,environments,memory}.ts + tx()
+  paths.ts               数据根（WARREN_HOME，默认 ~/.warren）+ {app,core,runtime,whistle,logs,crashDumps}
+  domain/                纯领域逻辑（approval / environment / group / tabs / trusted-ca / user-agent）
+  vault/                 safeStorage 凭据库（无 reveal + 原型字段护栏）
+  plugins/               host / package / source / installer / lifecycle / invoker / call-context / registry / storage / settings / event-bus / host-read / api/* / runtime-{base,host,sandbox} / worker-process
 
 src/renderer/
-  state/               4 域轻量外置状态库（useSyncExternalStore：navigation / environment / plugin / telemetry）
-  lib/theme.ts         主窗 / Overlay / Popover 三宿主浅暗主题同步与系统跟随
-  app/App.tsx                          顶层装配、4 域 Store 消费与桌面壳（卡片 + 面板组 + bottom-right Toaster）
-  app/app-rail.tsx                     左侧图标栏（⌘K / 导航 / 设置入口 / 品牌标记）
-  app/app-titlebar.tsx                 窗口标题行（macOS 拖拽区 + 环境身份 + Space 切换 + 接管/交还 + 插件扩展菜单）
-  app/overlay-root.tsx                 独立 OverlayHost 入口（⌘K 命令栏含插件 `commandBarAction`/浮窗/工作台/管理页直达）
-  app/popover-root.tsx                 独立 PopoverHost 入口（地址联想 / 页内查找 / 下载 / 视口 / 插件 `popover` 浮窗路由）
-  features/environments/environment-sidebar.tsx   侧栏卡片（拆分 sidebar-menus / group-header / env-row）
-  features/environments/environment-stage.tsx     内容卡片（6px 凹槽框 + 标签行 + 地址行 + 页面占位 + 检查器 + 插件 Popover/快捷键联动）
-  features/environments/environment-tabstrip.tsx  标签条（复用 SurfaceTab，不手写 chrome）
-  features/environments/environment-address-bar.tsx  地址行（导航 + omnibox 弹出 + 插件快捷胶囊槽 `popover`/`statusBadge` + 缩放/视口/下载/DevTools/检查器）
-  features/environments/environment-inspector.tsx   检查器面板（按需开启后才拉取遥测 + 插件 `inspectorTab`）
-  features/settings/                   可检索 7 分区设置中心（general / browser / agent 含已注入插件 Skill 列表与重同步 / approval / vault / plugins 含 Skill 注入开关与预览弹窗 / diagnostics + 插件分节）
-  lib/plugin-runtime.ts                           插件前端加载器（warren-plugin:// + SurfaceRegistry + 扩展 `PLUGIN_UI`）
-  app/plugin-surfaces.tsx                         插件面的错误边界（一个坏插件不白屏）
-  features/plugins/vault-panel.tsx                设置里的「凭据」页
-  features/plugins/plugins-panel.tsx              设置里的「插件」页（状态/权限/配置/日志 + Agent Skill 注入开关与加宽预览弹窗）
-  components/icons.tsx                 图标单源（Hugeicons；语义名注册表 + <Icon name>）
-  components/ui/status-dot.tsx         状态点（实心圆，走 bg-current）
-  lib/address-input.ts                 地址栏输入解析（纯函数，可单测）
-  components/ui/                       产品组件层
-  components/ui-reference/             stock 基线（只读参照）
-  theme/theme-tokens.css               皮肤 token（4 个 seed，浅暗双极）
-  theme/surface.ts                     表面 recipe
-  lib/ipc.ts                           IPC 类型声明
+  state/                 4 域轻量外置状态库（useSyncExternalStore：navigation / environment / plugin / telemetry）
+  lib/theme.ts + plugin-runtime.ts + plugin-ui.ts + plugin-sdk-types.ts + plugin-badges.ts + address-input.ts
+  app/                   App.tsx / app-titlebar.tsx / overlay-{root,command-bar,dialogs}.tsx / popover-root.tsx / plugin-surfaces.tsx / error-boundary.tsx
+  features/environments/ environment-{sidebar,stage,tabstrip,address-bar,inspector,space-switcher}.tsx + sidebar-* / stage-overlays / address-bar-controls / inspector-panels
+  features/plugins/      plugins-panel.tsx / plugin-card.tsx / vault-panel.tsx
+  features/settings/     6 内置+插件可检索设置中心（general / browser / agent / approval / vault / plugins / diagnostics）
+  components/            ui/ + ui-reference/（只读）+ icons.tsx + identity-glyphs.tsx + action-tooltip.tsx
+  theme/                 theme-tokens.css（4 seed，浅色 #ffffff / 深色 #181b21）+ surface.ts
 
-bin/warren.mjs / caller.mjs / commands.mjs / exec-runtime.mjs / page-contract.mjs  Agent CLI v3（`warren --skill` / `warren plugin skill` 动态注入已启用插件 Skill、`warren browser detect-login`）
-plugins/example-login/  示例登录插件（v4 包：设置描述符 + 环境菜单动作）
-plugins/example-notes/  示例笔记插件（rail 页 / 设置分节 / 检查器页 / kv + SQLite + rpc + 信号）
-plugins/example-host/   示例 host 运行时插件（独立进程，fs / child_process 可用）
-plugins/whistle/        Whistle 代理插件（runtime=host，`whistle@2.10.15`）：5 Tab 全屏工作台 + 快捷浮窗 + 随行抓包重放 + Values/受控意图/ruleTest/replay Diff/captureLink + `SKILL.md`
-plugins/account-manager/ 账号管理插件（sandbox）：4 面协同（地址栏微标 + `⇧⌘L` 快捷填充浮窗 + 随行表单探测 + 3 区主从管理台）+ RFC 6238 TOTP + 强密码生成 + 跨站防钓鱼 + `SKILL.md`
-fixtures/plugins/broken/ 故意抛异常的插件（验证崩溃隔离）
-fixtures/login/         本地测试站点
-fixtures/capability/    能力验收页（dialog/download/upload/form/drag/shadow/iframe）
-scripts/serve-fixture.mjs / serve-shots.mjs / ui-promote.mjs
-scripts/regress/         全量回归套件（run-all.sh 一把跑完；见 docs/FULL-REGRESSION-2026-10-15.md）
-tests/                  node:test 单测（environment / tabs / group / store / plugin-manifest / vault）
-legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
+bin/                     warren.mjs (<40L) → cli.mjs + commands.mjs + commands/*.mjs + exec-runtime.mjs + output-guard.mjs + caller.mjs + paths.mjs
+plugins/                 account-manager（server.js + ui/*.js）/ whistle（host.mjs + lib/*.mjs + ui/*.js）/ example-*
+packages/plugin-sdk/     @warren/plugin-sdk 类型契约（已纳入 tsconfig.check.json）
+scripts/                 serve-fixture / serve-shots / ui-promote / test-changed / regress/{lib.sh,*.sh}
+tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套件 + tests/helpers/{plugin-host,fake-cdp}.ts
 ```
 
 ---
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
+
+### 全仓库零 Shim 代码质量与架构质量改造（Waves 0 → 4，2026-11-27）
+
+施工图见 `docs/CODE-ARCHITECTURE-QUALITY-PLAN-2026-11-27.md`，全面实施「零 Shim 层、破除 SCC 循环依赖、拆解巨石模块、收敛单源契约、对齐测试与脚本」5 波次改造并全量通过 `npm run check` & `npx tsc -p tsconfig.check.json`：
+
+- **Wave 0 — P0 安全边界、竞态止血与 CI/打包**：
+  - 修复 CI macOS 回归 socket 探测路径（`$HOME/.warren/runtime/envd.sock`）、`forge.config.cjs` `extraResource` 补入 `./assets` 与 `main.ts#assetPath()`；
+  - `plugins/whistle` 移除未脱敏 `requestBodyRaw`/`responseBodyRaw`、增强 `toCurl` query/body 脱敏、UI Replay 改传 `reqId` 在服务端合并原载荷、补充规则/预设 SQL 事务与存活校验；
+  - `plugins/account-manager` 禁止 UI `PATH_DENIED` 自动跨站重试、`displayAliases` 不混入允许域名、Agent 列表查询禁止 `username LIKE ?` Oracle、`browser/fill-secret.ts` 强制 Agent 通道拒绝空域名账号；
+  - `vault/store.ts` 增加 `ALLOWED_SECRET_FIELDS` 与入参清洗；`browser/ops/diff.ts` 增加 `guardScreenshotPath` 与 `inflateSync` 64MB 上限；`ops/flow.ts` 复用 `redact.ts`（含 `authorization`）并拒绝 `..`；`ops/webmcp.ts` 接入脱敏与超时；`browser/read --links/--data` 统一经 `bin/output-guard.mjs`；
+  - `env/session-factory.ts` 统一 `syncSessionNetwork` 覆盖启动/唤醒/运行期更新并补充 `setPermissionRequestHandler`；`env/lifecycle.ts` 加 `#starting` 与 `#epoch` 并发防重；全链路保留 `{ backendNodeId, sessionId }` 修复 OOPIF 错位；`mouse-state.ts` 改 `WeakMap<WebContents, InputState>` 消除跨环境污染；`fillPrepareScript` 消除明文插值，`session.ts` 监听 `debugger.on('detach')`。
+- **Wave 1 — 零 Shim 清除死代码**：删除 `plugins/api.ts`、`plugins/package.ts` 权限再导出、`browser/cookies.ts` 类型转出、`browser/ops/budget.ts`、4 个已弃用弹窗文件、`app.navigation` / `DeclarativeSurfaceView` / `window.__WARREN__`、`layout:pageSnapshot` / `net:ruleRemove`、`layers` 历史 else 分支、`tabs.openDevTools`、`--rail-*` 死 token、`parseFlags`、遗留 `state:changed` 广播与 `SidebarProvider` 冗余快捷键。
+- **Wave 2 — 3 个 SCC 解环与单源契约**：
+  - 解开 `src/shared/types/common.ts`、`src/main/browser/{errors,roles,locator}.ts`、`src/main/plugins/api/types.ts` 三个循环依赖圈；
+  - 收敛单一 `RPC_REGISTRY`（`src/main/rpc/{registry,env,browser,net,storage,plugin,system}.ts`），补齐此前漏登的 59 项业务 RPC 与 `debug.*` 方法；`LeaseCoordinator.withInputContext()` 统一三处后台输入准备；
+  - `src/preload/preload.ts` 严格绑定 `@shared/types` 的 `EnvApi`；`PopoverOpenOptions` / `PopoverActionEvent` 改为可判别联合类型；补全 `packages/plugin-sdk/index.d.ts` 并纳入 `tsconfig.check.json` 类型检查；抽取共享 `dom-scripts.ts`、`browser/timeout.ts` 与 `bin/paths.mjs`。
+- **Wave 3 — 适度拆解巨石与理顺渲染层**：
+  - CLI 拆为 `<40` 行 `bin/warren.mjs` + `bin/{cli,paths,rpc-client,commands,formatters}.mjs` + `bin/commands/*.mjs`；修正 `SUBS.env` 与 `BOOLEAN_FLAGS`，命令帮助由注册表自动合成；
+  - 主进程拆出 `ipc-routes.ts`、`plugin-protocol.ts`（带目录缓存）、`store/{common,environments,memory}.ts`（带 `tx()`）、`LeaseCoordinator` 复用 `domain/environment.ts`、`WindowLayerManager` 单归视图 `bounds`、`telemetry.clear(id)` 仅在 `remove` 时清空；
+  - `controller.ts` / `actions.ts`（`pointer-actions` + `form-actions`）/ `snapshot.ts`（+ `screenshot.ts`）/ `diff.ts`（+ `png-codec.ts`）/ `plugins/runtime-{base,host,sandbox}.ts`（共享 child-process IPC 与 `30_000ms` 超时强杀，修复 `plugins/whistle/lib/w2-client.mjs` 与 `lib/instances.mjs` 导入）；
+  - 双内置插件拆分为 `plugins/whistle/{host.mjs,lib/*.mjs,ui/*.js}` 与 `plugins/account-manager/{server.js,ui/*.js}`；
+  - 渲染层拆出 `lib/{plugin-ui,plugin-sdk-types}.ts`、以 `navigation-store` 替代 `CustomEvent + rAF`、消除 `PopoverHost` 第二套主题同步、抽取 `<EnvIdentityAvatar>` / `<PluginBrandGlyph>` 并拆解 `overlay-root` / `environment-stage` / `address-bar` / `inspector` / `plugin-card`。
+- **Wave 4 — 测试与脚本对齐**：新增 `tests/helpers/{plugin-host,fake-cdp}.ts`、`plugins-lifecycle-installer.test.ts`、`bin-cli-commands.test.ts`、`browser-actions-and-waits.test.ts`，改写行为级 `whistle-agent-api.test.ts` 与 `remedy-output-budget.test.ts`，修复 `scripts/regress/{run-all,plugin}.sh` 并抽出 `scripts/regress/lib.sh`。
 
 ### 外壳微立体质感、身份微彩与交互减负改造（2026-11-26 / 27，分支 `feat/shell-layout-interaction`）
 
@@ -1479,7 +1444,7 @@ JS
 **重启清理**（别省）：
 ```bash
 pkill -f "electron-forge start"; pkill -f "node_modules/electron/dist"; sleep 3
-lsof -ti :5173 | xargs kill -9; rm -f ~/.warren/envd.sock ~/.warren/runtime.json
+lsof -ti :5173 | xargs kill -9; rm -f ~/.warren/runtime/envd.sock ~/.warren/runtime/runtime.json
 pgrep -f 'electron-forge start' | wc -l   # 必须是 0
 ```
 
@@ -1491,15 +1456,16 @@ node bin/warren.mjs browser screenshot <env> --output=/tmp/warren-shot.png
 
 ---
 
-## 9. 接手后从哪开始
+## 9. 已结清原先挂起事项与后续方向
 
-按优先级：
+早期交接清单中下列事项**均已落地**（不再属于未完成）：
 
-1. **Cookie 搬运通道的设计** —— 这是 Cookie 插件的前置条件，也是唯一被「设计层面」卡住的功能。形状参考 `vault.fill`：只搬运、不返回。
-2. **插件执行时限** —— `runtime: "host"` 已经给了「放进子进程」的路径；sandbox 侧仍无异步时限。
-3. **环境上限 + LRU 休眠** —— 直接关系到「同时开很多环境」这个核心场景能不能用。
-4. **退出时清理 Electron 辅助进程**。
-5. **遥测持久化** —— 现在是内存环形缓冲，环境重启就没了。
+- **Cookie 受控搬运通道**：`storage.cookie.port` + `host.cookie.{names,copy,import,clear}` 已完成（只搬运不返回 Cookie 值，`storage.cookie.read`/`write` 保持永久 `denied`）；
+- **插件子进程与执行超时**：`runtime: "sandbox"` 与 `"host"` 均运行于可强杀子进程（`runtime-base.ts` + `worker-process.ts`），默认 `30_000ms` 超时（`WARREN_PLUGIN_TIMEOUT_MS`）；
+- **环境并发上限与空闲休眠**：已落地 `hibernate`/`wake` 及设置项控制；
+- **遥测持久化**：Console / Network 已统一落入 `warren.db`（每标签保留 300 条，停用/休眠保留，仅 `env.remove` 时清空）。
+
+后续演进仅聚焦日常打包发布、按需依赖月度升级（见 `docs/DEPENDENCY-POLICY.md`）与新插件扩展。
 
 ---
 

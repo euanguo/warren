@@ -213,7 +213,10 @@ export class RefTable {
    * 若在当前新节点列表中 `(frameId, role, name)` **唯一命中** 1 个节点，则原地自愈该 ref。
    * 多匹配或无匹配一律返回 null，绝不盲猜点错。
    */
-  tryHeal(input: string, currentNodes: readonly AxNode[]): { backendId: number; healed: true } | null {
+  tryHeal(
+    input: string,
+    currentNodes: readonly AxNode[],
+  ): { backendId: number; sessionId?: string; healed: true } | null {
     const ref = normalizeRefKey(input);
     const entry = this.#map.get(ref);
     if (!entry || entry.gen !== this.#gen) return null;
@@ -237,7 +240,7 @@ export class RefTable {
     this.#reverse.delete(`${entry.frameId ?? ''}::${entry.backendId}`);
     entry.backendId = healedId;
     this.#reverse.set(`${entry.frameId ?? ''}::${healedId}`, ref);
-    return { backendId: healedId, healed: true };
+    return { backendId: healedId, ...(entry.sessionId ? { sessionId: entry.sessionId } : {}), healed: true };
   }
 
   has(input: string): boolean {

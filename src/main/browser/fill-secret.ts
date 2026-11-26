@@ -10,6 +10,7 @@
  *
  * 值只在这一层流动：不回传、不打日志、不进事件。
  */
+import { asTargetInput } from './parse-params.ts';
 import { hostAllowed } from './policy.ts';
 import type { BrowserController } from './controller.ts';
 import type { EnvironmentManager } from '../environments';
@@ -27,6 +28,8 @@ export interface SecretFillContext {
 export interface SecretFillOptions {
   /** 域名名单（抄 Browser Use secret_bindings）：不在名单的 origin 拒绝填充 */
   allowedDomains?: string[];
+  /** 是否要求必须提供非空域名名单（Agent 渠道强制开启，防止空名单放行） */
+  requireDomains?: boolean;
   /** 名单外的域；调用方用它记事件（谁被拒、拒在哪） */
   onDenied?: (host: string) => void;
 }
@@ -34,12 +37,20 @@ export interface SecretFillOptions {
 /** 域名名单校验。单独导出，让调用方能在真正准备输入之前就拒掉。 */
 export function assertSecretDomain(context: SecretFillContext, options: SecretFillOptions = {}): void {
   const domains = options.allowedDomains;
-  if (!domains || domains.length === 0) return;
   let host = '';
   try {
     host = new URL(context.controller.currentUrl()).hostname;
   } catch {
     host = '';
+  }
+  if (!domains || domains.length === 0) {
+    if (options.requireDomains) {
+      options.onDenied?.(host);
+      throw Object.assign(new Error('Agent 通道凭据填充必须配置非空允许域名（allowedDomains）'), {
+        code: 'PATH_DENIED',
+      });
+    }
+    return;
   }
   if (hostAllowed(host, domains)) return;
   options.onDenied?.(host);
@@ -57,17 +68,10 @@ export async function fillSecretInto(
 ): Promise<void> {
   assertSecretDomain(context, options);
   const { manager, environmentId, space, controller, tab } = context;
-  // 后台环境（视图没挂在窗口上）Chromium 会把输入丢掉，先临时挂到窗口最底层
-  const temporary = manager.ensureOperable(environmentId, space);
-  let emulatedViewport = false;
-  try {
-    manager.assertInputOnScreen(environmentId, space);
-    manager.assertActiveTab(environmentId, tab, space);
-    await manager.focusForInput(environmentId, space);
-    if (temporary) emulatedViewport = await manager.prepareBackgroundInput(environmentId, space);
-    await controller.fill(target as never, value);
-  } finally {
-    if (emulatedViewport) await manager.clearBackgroundInput(environmentId, space);
-    if (temporary) manager.detachOperable(environmentId, space);
-  }
+  const resolvedTarget = asTargetInput(target);
+  await manager.withInputContext(environmentId, space, tab, async () => {
+    await controller.handleAutoDialogIfNeeded?.();
+    controller.assertNoDialog?.();
+    await controller.fill(resolvedTarget, value, { isSecret: true });
+  });
 }

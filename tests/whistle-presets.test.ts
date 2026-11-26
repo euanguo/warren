@@ -176,7 +176,7 @@ test('mergePresets 合并变量与层，同 id 层以后者为准', () => {
   const merged = mergePresets([a, b]);
   assert.equal(merged.layers.length, 2);
   assert.deepEqual(
-    merged.layers.map((layer) => layer.id),
+    merged.layers.map((layer: { id: string }) => layer.id),
     ['backend', 'local-console'],
   );
   const composed = composePreset(merged, {
@@ -246,7 +246,7 @@ test('local-static-only：规则文本可被预设合成，且本地端口只出
   );
   // 同 id 再追加是替换，不是重复叠加
   const replaced = appendStaticOnlyLayer(withLayer, { host: 'console.example.com', localPort: 19001 });
-  assert.equal(replaced.layers.filter((layer) => layer.id === 'local-static-only').length, 1);
+  assert.equal(replaced.layers.filter((layer: { id: string }) => layer.id === 'local-static-only').length, 1);
 });
 
 test('local-static-only：host 省略时不锚定 host，缺 localPort 直接拒绝', () => {

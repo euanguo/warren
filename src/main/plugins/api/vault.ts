@@ -2,8 +2,8 @@
  * 插件 Vault 域 host API。
  */
 import { fillSecretInto } from '../../browser/fill-secret.ts';
-import { maskHint } from '../../vault/store.ts';
-import type { CapabilitySpec } from './index.ts';
+import { isSecretField, maskHint } from '../../vault/store.ts';
+import type { CapabilitySpec } from './types.ts';
 
 export const vaultCapabilities: Record<string, CapabilitySpec> = {
   'vault.listRefs': {
@@ -20,7 +20,11 @@ export const vaultCapabilities: Record<string, CapabilitySpec> = {
     needsLease: true,
     handler: async ({ deps, env, text }, ref, target, field) => {
       const secret = deps.vault.reveal(text(ref));
-      const key = (text(field) || 'password') as 'username' | 'password' | 'token' | 'totp';
+      const rawKey = field === undefined || field === '' ? 'password' : field;
+      if (!isSecretField(rawKey)) {
+        throw Object.assign(new Error(`非法的凭据字段: ${String(rawKey)}`), { code: 'BAD_REQUEST' });
+      }
+      const key = rawKey;
       const value = secret[key];
       if (!value) {
         throw Object.assign(new Error(`${ref} 没有 ${key}`), {

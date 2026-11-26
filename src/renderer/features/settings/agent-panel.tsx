@@ -11,7 +11,7 @@ const QUICK_CLI_SNIPPETS = [
   { id: 'skill', label: '打印合成版 Skill（含已启用插件）', cmd: 'warren --skill' },
   { id: 'plugin-skill', label: '读取指定插件 Skill 手册', cmd: 'warren skills plugin <pluginId>' },
   { id: 'methods', label: '查看 RPC 能力目录', cmd: 'warren methods' },
-  { id: 'doctor', label: '环境连接自检', cmd: 'warren doctor <env>' },
+  { id: 'doctor', label: '环境连接自检', cmd: 'warren env doctor <env>' },
 ];
 
 /**

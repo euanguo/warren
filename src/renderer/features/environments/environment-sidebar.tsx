@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/sidebar';
 import { disclosureInnerClassName, disclosureShellClassName } from '@/lib/disclosure-motion';
 import type { PluginBadgeSnapshot } from '@/lib/plugin-badges';
-import type { PluginEnvAction } from '@/lib/plugin-runtime';
+import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
 import type { Environment, Group } from '@shared/types';
 import { SidebarEnvRow } from './sidebar-env-row';
 import { SidebarGroupHeader } from './sidebar-group-header';

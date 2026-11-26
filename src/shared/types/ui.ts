@@ -1,14 +1,5 @@
-import type { Environment } from './environment.ts';
-
-/**
- * 页面视图的矩形。原生视图不遵守 DOM 布局，位置只能由渲染层实测后报给主进程。
- */
-export interface ViewportRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import type { BuiltinSettingsSection, SpaceId, ViewportPresetId, ViewportRect } from './common.ts';
+import type { Environment, UrlHistoryEntry } from './environment.ts';
 
 /**
  * 应用自有的浏览器快捷键。
@@ -37,8 +28,6 @@ export type BrowserShortcut =
   | 'quickAutofill'
   | { selectTab: number };
 
-export type DevToolsDockMode = 'right' | 'bottom' | 'detach';
-
 export interface NativeMenuItem {
   id?: string;
   label?: string;
@@ -59,22 +48,49 @@ export type OverlayRequest =
 
 export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-end' | 'top-start';
 
-export interface PopoverOpenOptions {
-  id: string;
+export interface PopoverPropsMap {
+  'address-suggest': { query: string; entries: UrlHistoryEntry[]; highlighted: number; width: number };
+  'find-in-page': { envId: string; space: SpaceId; initialQuery?: string };
+  downloads: { envId?: string };
+  viewport: { envId: string; space: SpaceId; preset: ViewportPresetId };
+  'plugin-popover': { pluginId: string; surfaceId: string; environmentId?: string; space: SpaceId; url: string };
+}
+
+export type PopoverId = keyof PopoverPropsMap;
+
+export interface PopoverGeometry {
   anchorRect: ViewportRect;
   size: { width: number; height: number };
   placement?: PopoverPlacement;
   /** 地址栏联想设为 false，避免抢走输入框键盘焦点；⌘F 查找条设为 true 接收打字。 */
   focusable?: boolean;
   beyondWindow?: boolean;
-  props?: Record<string, unknown>;
 }
 
-export interface PopoverActionEvent {
-  id: string;
-  action: string;
-  payload?: unknown;
-}
+export type PopoverOpenOptions = {
+  [K in PopoverId]: PopoverGeometry & { id: K; props: PopoverPropsMap[K] };
+}[PopoverId];
+
+export type PopoverUpdateOptions<K extends PopoverId = PopoverId> = Partial<PopoverGeometry> & {
+  props?: Partial<PopoverPropsMap[K]>;
+};
+
+export type PopoverState = {
+  [K in PopoverId]: { id: K; props: PopoverPropsMap[K] };
+}[PopoverId];
+
+export type PopoverActionEvent =
+  | { id: 'address-suggest'; action: 'hover'; payload: number }
+  | { id: 'address-suggest'; action: 'pick'; payload: string }
+  | { id: 'viewport'; action: 'preset'; payload: ViewportPresetId }
+  | { id: 'plugin-popover'; action: 'openPluginPage'; payload: { pluginId: string; surfaceId: string } }
+  | { id: 'plugin-popover'; action: 'openInspectorTab'; payload: { pluginId: string; surfaceId: string } }
+  | { id: 'plugin-popover'; action: 'openSettings'; payload: { section?: BuiltinSettingsSection } }
+  | {
+      id: 'plugin-popover';
+      action: 'toast';
+      payload: { kind: 'success' | 'error' | 'info'; title: string; description?: string };
+    };
 
 export interface FindInPageResult {
   envId: string;

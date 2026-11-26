@@ -147,10 +147,10 @@ test('missing or corrupt file yields an empty store instead of throwing', async 
 
 test('create assigns order per group and persists groups', async () => {
   await withStore({ environments: [], groups: [] }, async (store, dir) => {
-    const group = await store.createGroup({ name: '生产' });
-    await store.create({ id: 'a', groupId: group.id });
-    await store.create({ id: 'b', groupId: group.id });
-    await store.create({ id: 'c' });
+    const group = store.createGroup({ name: '生产' });
+    store.create({ id: 'a', groupId: group.id });
+    store.create({ id: 'b', groupId: group.id });
+    store.create({ id: 'c' });
 
     assert.equal(store.configFor('a')!.order, 0);
     assert.equal(store.configFor('b')!.order, 1, '组内递增');
@@ -169,14 +169,14 @@ test('create assigns order per group and persists groups', async () => {
 test('create rejects environment ids that can escape the storage root', async () => {
   await withStore({ environments: [], groups: [] }, async (store) => {
     for (const id of ['', '.', '..', 'a/b', '/abs', 'a\\b', '../x']) {
-      await assert.rejects(
+      assert.throws(
         () => store.create({ id }),
         (error: Error & { code?: string }) => error.code === 'BAD_REQUEST',
         `id ${JSON.stringify(id)} 必须被拒绝`,
       );
     }
     for (const id of ['alpha', 'a1', 'my.env', 'my-env']) {
-      await store.create({ id });
+      store.create({ id });
       assert.ok(store.configFor(id), `id ${id} 应该被接受`);
     }
   });
@@ -192,11 +192,11 @@ test('storagePathFor keeps legacy bad ids inside the sessions root', async () =>
 
 test('removing a group keeps its environments and detaches them', async () => {
   await withStore({ environments: [], groups: [] }, async (store) => {
-    const group = await store.createGroup({ name: '临时' });
-    await store.create({ id: 'a', groupId: group.id });
-    await store.create({ id: 'b', groupId: group.id });
+    const group = store.createGroup({ name: '临时' });
+    store.create({ id: 'a', groupId: group.id });
+    store.create({ id: 'b', groupId: group.id });
 
-    const result = await store.removeGroup(group.id);
+    const result = store.removeGroup(group.id);
     assert.equal(result.detached, 2);
     assert.equal(store.list().length, 2, '删组不能删环境');
     assert.deepEqual(store.listGroups(), []);
@@ -206,8 +206,8 @@ test('removing a group keeps its environments and detaches them', async () => {
 
 test('moving to an unknown group is refused', async () => {
   await withStore({ environments: [], groups: [] }, async (store) => {
-    await store.create({ id: 'a' });
-    await assert.rejects(
+    store.create({ id: 'a' });
+    assert.throws(
       () => store.moveToGroup('a', 'ghost'),
       (error: Error & { code?: string }) => error.code === 'GROUP_NOT_FOUND',
     );
@@ -216,13 +216,13 @@ test('moving to an unknown group is refused', async () => {
 
 test('reorder only affects the target group', async () => {
   await withStore({ environments: [], groups: [] }, async (store) => {
-    const g1 = await store.createGroup({ name: 'A' });
-    const g2 = await store.createGroup({ name: 'B' });
-    await store.create({ id: 'a1', groupId: g1.id });
-    await store.create({ id: 'a2', groupId: g1.id });
-    await store.create({ id: 'b1', groupId: g2.id });
+    const g1 = store.createGroup({ name: 'A' });
+    const g2 = store.createGroup({ name: 'B' });
+    store.create({ id: 'a1', groupId: g1.id });
+    store.create({ id: 'a2', groupId: g1.id });
+    store.create({ id: 'b1', groupId: g2.id });
 
-    await store.reorderEnvironments(g1.id, ['a2', 'a1']);
+    store.reorderEnvironments(g1.id, ['a2', 'a1']);
     assert.equal(store.configFor('a2')!.order, 0);
     assert.equal(store.configFor('a1')!.order, 1);
     assert.equal(store.configFor('b1')!.order, 0, '别的组不受影响');
@@ -234,7 +234,7 @@ test('写到 SQLite：不再产生 environments.json', async () => {
   try {
     const store = new Store(dir);
     await store.load();
-    await store.create({ id: 'a' });
+    store.create({ id: 'a' });
     assert.equal(existsSync(path.join(dir, 'environments.json')), false, 'JSON 不该再被写出来');
     assert.equal(existsSync(path.join(dir, 'warren.db')), true);
     const reopened = new Store(dir);
@@ -306,9 +306,9 @@ test('老 JSON 只导入一次：第二次打开不会把已删的环境倒回�
   try {
     const store = new Store(dir);
     await store.load();
-    await store.create({ id: 'a' });
-    await store.create({ id: 'b' });
-    await store.remove('b');
+    store.create({ id: 'a' });
+    store.create({ id: 'b' });
+    store.remove('b');
     closeDatabases();
 
     // 有人（或某次崩溃）又放了一份老的 environments.json 回来
@@ -408,8 +408,8 @@ test('库损坏也能起来：挪到一边再开一个新的，不把应用卡�
 
 test('按域偏好：保存缩放与视口预设并在删环境时连带清理', async () => {
   await withStore({ environments: [], groups: [] }, async (store) => {
-    await store.create({ id: 'a' });
-    await store.create({ id: 'b' });
+    store.create({ id: 'a' });
+    store.create({ id: 'b' });
 
     const saved = store.setDomainPref('a', 'https://example.com', {
       zoomFactor: 1.25,
@@ -437,7 +437,7 @@ test('按域偏好：保存缩放与视口预设并在删环境时连带清理',
     assert.equal(store.clearUrlHistory(), 2);
     assert.equal(store.searchUrlHistory('example.com').length, 0);
 
-    await store.remove('a');
+    store.remove('a');
     assert.equal(store.domainPref('a', 'https://example.com'), undefined);
   });
 });

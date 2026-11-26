@@ -129,11 +129,8 @@ function toAccount(row) {
     note: String(row.note ?? ''),
     tags: String(row.tags ?? ''),
     displayAliases: parseArray(row.display_aliases),
-    expectedUin: String(row.expected_uin ?? ''),
     appHints: parseArray(row.app_hints),
-    loginProfile: String(row.login_profile ?? ''),
     manualVerificationHint: String(row.manual_verification_hint ?? ''),
-    frameAwareFill: Boolean(row.frame_aware_fill),
     selectors: parseSelectors(row.selectors),
     allowedHosts: parseArray(row.allowed_hosts),
     envIds: parseArray(row.env_ids),
@@ -165,16 +162,12 @@ function toPublicAccount(host, row, caller) {
     usernameHint: hint,
     hasPassword: account.password.length > 0,
     hasTotp,
-    totpConfigured: hasTotp,
     extraFieldKeys,
     note: account.note,
     tags: account.tags,
     displayAliases: account.displayAliases,
-    expectedUin: account.expectedUin,
     appHints: account.appHints,
-    loginProfile: account.loginProfile,
     manualVerificationHint: account.manualVerificationHint,
-    frameAwareFill: account.frameAwareFill,
     selectors: account.selectors,
     allowedHosts: account.allowedHosts,
     envIds: account.envIds,
@@ -188,8 +181,8 @@ function toPublicAccount(host, row, caller) {
 }
 
 const COLUMNS = `id, name, url, urls, username, password, totp_secret, extra_fields, note, tags,
-  display_aliases, expected_uin, app_hints, login_profile, manual_verification_hint,
-  frame_aware_fill, selectors, allowed_hosts, env_ids, pinned, use_count, last_used_at, deleted_at,
+  display_aliases, app_hints, manual_verification_hint,
+  selectors, allowed_hosts, env_ids, pinned, use_count, last_used_at, deleted_at,
   created_at, updated_at`;
 
 const FIELDS = ['username', 'password'];
@@ -819,7 +812,6 @@ function deriveAllowedDomains(account) {
   add(extractDomainCandidate(account.url, false));
   for (const item of account.urls) add(extractDomainCandidate(item, false));
   for (const item of account.allowedHosts) add(extractDomainCandidate(item, false));
-  for (const item of account.displayAliases) add(extractDomainCandidate(item, true));
   return [...set];
 }
 
@@ -962,10 +954,16 @@ async function listAccounts(ctx, input) {
   }
   if (query) {
     const like = `%${query}%`;
-    where.push(
-      '(name LIKE ? OR url LIKE ? OR urls LIKE ? OR display_aliases LIKE ? OR username LIKE ? OR note LIKE ? OR tags LIKE ?)',
-    );
-    params.push(like, like, like, like, like, like, like);
+    if (caller === 'ui') {
+      where.push(
+        '(name LIKE ? OR url LIKE ? OR urls LIKE ? OR display_aliases LIKE ? OR username LIKE ? OR note LIKE ? OR tags LIKE ?)',
+      );
+      params.push(like, like, like, like, like, like, like);
+    } else {
+      // Agent 通道不把明文 username 纳入搜索条件，防侧信道探测用户名
+      where.push('(name LIKE ? OR url LIKE ? OR urls LIKE ? OR display_aliases LIKE ? OR note LIKE ? OR tags LIKE ?)');
+      params.push(like, like, like, like, like, like);
+    }
   }
   if (tag) {
     where.push('tags LIKE ?');
@@ -1005,11 +1003,8 @@ async function create(ctx, input) {
     note: text(input, 'note', 20000),
     tags: text(input, 'tags', 500),
     display_aliases: stringArray(input, 'displayAliases', 50, 200) || '[]',
-    expected_uin: text(input, 'expectedUin', 100),
     app_hints: stringArray(input, 'appHints', 50, 500) || '[]',
-    login_profile: text(input, 'loginProfile', 100),
     manual_verification_hint: text(input, 'manualVerificationHint', 1000),
-    frame_aware_fill: input && input.frameAwareFill === true ? 1 : 0,
     selectors: normalizeSelectorsInput(input && input.selectors) || '{}',
     allowed_hosts: stringArray(input, 'allowedHosts', 50, 255) || '[]',
     env_ids: stringArray(input, 'envIds', 50, 128) || '[]',
@@ -1018,10 +1013,10 @@ async function create(ctx, input) {
   const runResult = await host.storage.sql.run(
     `INSERT INTO accounts (
        name, url, urls, username, password, totp_secret, extra_fields, note, tags,
-       display_aliases, expected_uin, app_hints, login_profile, manual_verification_hint,
-       frame_aware_fill, selectors, allowed_hosts, env_ids, pinned,
+       display_aliases, app_hints, manual_verification_hint,
+       selectors, allowed_hosts, env_ids, pinned,
        use_count, last_used_at, deleted_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', '', ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', '', ?, ?)`,
     [
       account.name,
       account.url,
@@ -1033,11 +1028,8 @@ async function create(ctx, input) {
       account.note,
       account.tags,
       account.display_aliases,
-      account.expected_uin,
       account.app_hints,
-      account.login_profile,
       account.manual_verification_hint,
-      account.frame_aware_fill,
       account.selectors,
       account.allowed_hosts,
       account.env_ids,
@@ -1049,7 +1041,7 @@ async function create(ctx, input) {
   const createdId = runResult && runResult.lastInsertRowid ? Number(runResult.lastInsertRowid) : undefined;
   await safePublishChanged(host, { action: 'create', ...(createdId ? { id: createdId } : {}) });
   return {
-    ...(await listAccounts(ctx, input)),
+    ...(await listAccounts(ctx, {})),
     created: account.name,
     ...(createdId ? { id: createdId } : {}),
   };
@@ -1085,14 +1077,8 @@ async function update(ctx, input) {
     urls: ['urls', stringArray(input, 'urls', 50, 2000)],
     extraFields: ['extra_fields', normalizeExtraFieldsInput(input && input.extraFields)],
     displayAliases: ['display_aliases', stringArray(input, 'displayAliases', 50, 200)],
-    expectedUin: ['expected_uin', text(input, 'expectedUin', 100)],
     appHints: ['app_hints', stringArray(input, 'appHints', 50, 500)],
-    loginProfile: ['login_profile', text(input, 'loginProfile', 100)],
     manualVerificationHint: ['manual_verification_hint', text(input, 'manualVerificationHint', 1000)],
-    frameAwareFill: [
-      'frame_aware_fill',
-      input && input.frameAwareFill === undefined ? undefined : input.frameAwareFill === true ? 1 : 0,
-    ],
     selectors: ['selectors', normalizeSelectorsInput(input && input.selectors)],
     allowedHosts: ['allowed_hosts', stringArray(input, 'allowedHosts', 50, 255)],
     envIds: ['env_ids', stringArray(input, 'envIds', 50, 128)],
@@ -1108,7 +1094,7 @@ async function update(ctx, input) {
   params.push(new Date().toISOString(), id);
   await host.storage.sql.run(`UPDATE accounts SET ${sets.join(', ')} WHERE id = ?`, params);
   await safePublishChanged(host, { action: 'update', id });
-  return listAccounts(ctx, input);
+  return listAccounts(ctx, {});
 }
 
 async function remove(ctx, input) {
@@ -1119,7 +1105,7 @@ async function remove(ctx, input) {
   }
   await host.storage.sql.run('DELETE FROM accounts WHERE id = ?', [id]);
   await safePublishChanged(host, { action: 'remove', id });
-  return listAccounts(ctx, input);
+  return listAccounts(ctx, {});
 }
 
 async function trash(ctx, input) {
@@ -1129,7 +1115,7 @@ async function trash(ctx, input) {
   const now = new Date().toISOString();
   await host.storage.sql.run('UPDATE accounts SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id]);
   await safePublishChanged(host, { action: 'trash', id });
-  return { ...(await listAccounts(ctx, input)), trashed: id };
+  return { ...(await listAccounts(ctx, {})), trashed: id };
 }
 
 async function restore(ctx, input) {
@@ -1139,7 +1125,7 @@ async function restore(ctx, input) {
   const now = new Date().toISOString();
   await host.storage.sql.run("UPDATE accounts SET deleted_at = '', updated_at = ? WHERE id = ?", [now, id]);
   await safePublishChanged(host, { action: 'restore', id });
-  return { ...(await listAccounts(ctx, input)), restored: id };
+  return { ...(await listAccounts(ctx, {})), restored: id };
 }
 
 async function purge(ctx, input) {
@@ -1148,13 +1134,13 @@ async function purge(ctx, input) {
     const res = await host.storage.sql.run("DELETE FROM accounts WHERE deleted_at != ''");
     const purgedCount = res && res.changes !== undefined ? Number(res.changes) : 0;
     await safePublishChanged(host, { action: 'purge', all: true });
-    return { ...(await listAccounts(ctx, { ...input, includeDeleted: true })), purgedCount };
+    return { ...(await listAccounts(ctx, { includeDeleted: true })), purgedCount };
   }
   const id = idOf(input);
   await rowOf(host, id);
   await host.storage.sql.run('DELETE FROM accounts WHERE id = ?', [id]);
   await safePublishChanged(host, { action: 'purge', id });
-  return { ...(await listAccounts(ctx, input)), purged: id };
+  return { ...(await listAccounts(ctx, {})), purged: id };
 }
 
 async function togglePin(ctx, input) {
@@ -1168,7 +1154,7 @@ async function togglePin(ctx, input) {
     id,
   ]);
   await safePublishChanged(host, { action: 'togglePin', id, pinned: Boolean(next) });
-  return { ...(await listAccounts(ctx, input)), id, pinned: Boolean(next) };
+  return { ...(await listAccounts(ctx, {})), id, pinned: Boolean(next) };
 }
 
 async function saveSelectors(ctx, input) {
@@ -1353,12 +1339,15 @@ function pickTarget(explicit, saved, detectedField) {
 
 function buildFillOptions(ctx, input, account) {
   const space = resolveSpaceOption(ctx, input);
-  const allowCrossOrigin = Boolean(input && input.allowCrossOrigin === true);
+  const allowCrossOrigin = ctx.caller === 'ui' && Boolean(input && input.allowCrossOrigin === true);
   const allowedDomains = deriveAllowedDomains(account);
   const opts = {};
   if (space) opts.space = space;
-  if (ctx.caller !== 'ui' || !allowCrossOrigin) {
-    if (allowedDomains.length > 0) opts.allowedDomains = allowedDomains;
+  if (ctx.caller !== 'ui') {
+    opts.allowedDomains = allowedDomains;
+    opts.requireDomains = true;
+  } else if (!allowCrossOrigin && allowedDomains.length > 0) {
+    opts.allowedDomains = allowedDomains;
   }
   return { opts, space };
 }
@@ -1816,41 +1805,82 @@ async function importAccounts(ctx, input) {
   let failed = 0;
   const errors = [];
 
-  for (let i = 0; i < items.length; i += 1) {
-    const rawItem = items[i];
-    if (!isPlainObject(rawItem)) {
-      failed += 1;
-      errors.push({ index: i, message: '记录不是对象' });
-      continue;
-    }
-    const fallbackName = extractUrlMeta(rawItem.url).host;
-    const item = {
-      ...rawItem,
-      name: String(rawItem.name || fallbackName || '').trim(),
-    };
-    if (!item.name) {
-      failed += 1;
-      errors.push({ index: i, message: '缺少 name 且无法从 url 推导站点名' });
-      continue;
-    }
-    const key = dedupeKeyFor(item);
-    const existingId = existingMap.get(key);
-    try {
-      if (existingId && strategy === 'skip') {
-        skipped += 1;
+  await host.storage.sql.exec('BEGIN');
+  try {
+    for (let i = 0; i < items.length; i += 1) {
+      const rawItem = items[i];
+      if (!isPlainObject(rawItem)) {
+        failed += 1;
+        errors.push({ index: i, message: '记录不是对象' });
         continue;
       }
-      if (existingId && strategy === 'overwrite') {
+      const fallbackName = extractUrlMeta(rawItem.url).host;
+      const item = {
+        ...rawItem,
+        name: String(rawItem.name || fallbackName || '').trim(),
+      };
+      if (!item.name) {
+        failed += 1;
+        errors.push({ index: i, message: '缺少 name 且无法从 url 推导站点名' });
+        continue;
+      }
+      const key = dedupeKeyFor(item);
+      const existingId = existingMap.get(key);
+      const savepoint = `am_import_${i}`;
+      await host.storage.sql.exec(`SAVEPOINT ${savepoint}`);
+      try {
+        if (existingId && strategy === 'skip') {
+          await host.storage.sql.exec(`RELEASE SAVEPOINT ${savepoint}`);
+          skipped += 1;
+          continue;
+        }
+        if (existingId && strategy === 'overwrite') {
+          const now = new Date().toISOString();
+          const totpSecret = text(item, 'totpSecret', 1000);
+          if (totpSecret) parseTotpConfig(totpSecret);
+          await host.storage.sql.run(
+            `UPDATE accounts SET
+             name = ?, url = ?, urls = ?, username = ?, password = ?, totp_secret = ?, extra_fields = ?,
+             note = ?, tags = ?, display_aliases = ?, app_hints = ?,
+             manual_verification_hint = ?,
+             selectors = ?, allowed_hosts = ?, env_ids = ?, pinned = ?, updated_at = ?
+           WHERE id = ?`,
+            [
+              required(item, 'name', 200),
+              text(item, 'url', 2000),
+              stringArray(item, 'urls', 50, 2000) || '[]',
+              text(item, 'username', 500),
+              raw(item, 'password', 4096),
+              totpSecret,
+              normalizeExtraFieldsInput(item.extraFields) || '{}',
+              text(item, 'note', 20000),
+              text(item, 'tags', 500),
+              stringArray(item, 'displayAliases', 50, 200) || '[]',
+              stringArray(item, 'appHints', 50, 500) || '[]',
+              text(item, 'manualVerificationHint', 1000),
+              normalizeSelectorsInput(item.selectors) || '{}',
+              stringArray(item, 'allowedHosts', 50, 255) || '[]',
+              stringArray(item, 'envIds', 50, 128) || '[]',
+              item.pinned === true ? 1 : 0,
+              now,
+              existingId,
+            ],
+          );
+          await host.storage.sql.exec(`RELEASE SAVEPOINT ${savepoint}`);
+          updated += 1;
+          continue;
+        }
+
         const now = new Date().toISOString();
         const totpSecret = text(item, 'totpSecret', 1000);
         if (totpSecret) parseTotpConfig(totpSecret);
-        await host.storage.sql.run(
-          `UPDATE accounts SET
-             name = ?, url = ?, urls = ?, username = ?, password = ?, totp_secret = ?, extra_fields = ?,
-             note = ?, tags = ?, display_aliases = ?, expected_uin = ?, app_hints = ?,
-             login_profile = ?, manual_verification_hint = ?, frame_aware_fill = ?,
-             selectors = ?, allowed_hosts = ?, env_ids = ?, pinned = ?, updated_at = ?
-           WHERE id = ?`,
+        const runResult = await host.storage.sql.run(
+          `INSERT INTO accounts (
+           name, url, urls, username, password, totp_secret, extra_fields, note, tags,
+           display_aliases, app_hints, manual_verification_hint,
+           selectors, allowed_hosts, env_ids, pinned,
+           use_count, last_used_at, deleted_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', '', ?, ?)`,
           [
             required(item, 'name', 200),
             text(item, 'url', 2000),
@@ -1862,69 +1892,40 @@ async function importAccounts(ctx, input) {
             text(item, 'note', 20000),
             text(item, 'tags', 500),
             stringArray(item, 'displayAliases', 50, 200) || '[]',
-            text(item, 'expectedUin', 100),
             stringArray(item, 'appHints', 50, 500) || '[]',
-            text(item, 'loginProfile', 100),
             text(item, 'manualVerificationHint', 1000),
-            item.frameAwareFill === true ? 1 : 0,
             normalizeSelectorsInput(item.selectors) || '{}',
             stringArray(item, 'allowedHosts', 50, 255) || '[]',
             stringArray(item, 'envIds', 50, 128) || '[]',
             item.pinned === true ? 1 : 0,
             now,
-            existingId,
+            now,
           ],
         );
-        updated += 1;
-        continue;
+        await host.storage.sql.exec(`RELEASE SAVEPOINT ${savepoint}`);
+        if (strategy !== 'duplicate' && runResult && runResult.lastInsertRowid) {
+          existingMap.set(key, Number(runResult.lastInsertRowid));
+        }
+        imported += 1;
+      } catch (err) {
+        try {
+          await host.storage.sql.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+          await host.storage.sql.exec(`RELEASE SAVEPOINT ${savepoint}`);
+        } catch {}
+        failed += 1;
+        errors.push({
+          index: i,
+          name: item.name,
+          message: err && err.message ? err.message : String(err),
+        });
       }
-
-      const now = new Date().toISOString();
-      const totpSecret = text(item, 'totpSecret', 1000);
-      if (totpSecret) parseTotpConfig(totpSecret);
-      const runResult = await host.storage.sql.run(
-        `INSERT INTO accounts (
-           name, url, urls, username, password, totp_secret, extra_fields, note, tags,
-           display_aliases, expected_uin, app_hints, login_profile, manual_verification_hint,
-           frame_aware_fill, selectors, allowed_hosts, env_ids, pinned,
-           use_count, last_used_at, deleted_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', '', ?, ?)`,
-        [
-          required(item, 'name', 200),
-          text(item, 'url', 2000),
-          stringArray(item, 'urls', 50, 2000) || '[]',
-          text(item, 'username', 500),
-          raw(item, 'password', 4096),
-          totpSecret,
-          normalizeExtraFieldsInput(item.extraFields) || '{}',
-          text(item, 'note', 20000),
-          text(item, 'tags', 500),
-          stringArray(item, 'displayAliases', 50, 200) || '[]',
-          text(item, 'expectedUin', 100),
-          stringArray(item, 'appHints', 50, 500) || '[]',
-          text(item, 'loginProfile', 100),
-          text(item, 'manualVerificationHint', 1000),
-          item.frameAwareFill === true ? 1 : 0,
-          normalizeSelectorsInput(item.selectors) || '{}',
-          stringArray(item, 'allowedHosts', 50, 255) || '[]',
-          stringArray(item, 'envIds', 50, 128) || '[]',
-          item.pinned === true ? 1 : 0,
-          now,
-          now,
-        ],
-      );
-      if (strategy !== 'duplicate' && runResult && runResult.lastInsertRowid) {
-        existingMap.set(key, Number(runResult.lastInsertRowid));
-      }
-      imported += 1;
-    } catch (err) {
-      failed += 1;
-      errors.push({
-        index: i,
-        name: item.name,
-        message: err && err.message ? err.message : String(err),
-      });
     }
+    await host.storage.sql.exec('COMMIT');
+  } catch (err) {
+    try {
+      await host.storage.sql.exec('ROLLBACK');
+    } catch {}
+    throw err;
   }
 
   if (imported > 0 || updated > 0) {
@@ -1933,155 +1934,91 @@ async function importAccounts(ctx, input) {
   return { imported, updated, skipped, failed, errors };
 }
 
-module.exports = {
+const ACCOUNT_MIGRATIONS = [
+  `CREATE TABLE IF NOT EXISTS accounts (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     name TEXT NOT NULL,
+     url TEXT NOT NULL DEFAULT '',
+     username TEXT NOT NULL DEFAULT '',
+     password TEXT NOT NULL DEFAULT '',
+     note TEXT NOT NULL DEFAULT '',
+     tags TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     display_aliases TEXT NOT NULL DEFAULT '[]',
+     app_hints TEXT NOT NULL DEFAULT '[]',
+     manual_verification_hint TEXT NOT NULL DEFAULT '',
+     totp_secret TEXT NOT NULL DEFAULT '',
+     urls TEXT NOT NULL DEFAULT '[]',
+     extra_fields TEXT NOT NULL DEFAULT '{}',
+     selectors TEXT NOT NULL DEFAULT '{}',
+     allowed_hosts TEXT NOT NULL DEFAULT '[]',
+     env_ids TEXT NOT NULL DEFAULT '[]',
+     pinned INTEGER NOT NULL DEFAULT 0,
+     use_count INTEGER NOT NULL DEFAULT 0,
+     last_used_at TEXT NOT NULL DEFAULT '',
+     deleted_at TEXT NOT NULL DEFAULT ''
+   );
+   CREATE INDEX IF NOT EXISTS accounts_updated ON accounts (updated_at DESC, id DESC);`,
+];
+
+const EXTRA_SCHEMA_COLUMNS = [
+  ['display_aliases', "TEXT NOT NULL DEFAULT '[]'"],
+  ['app_hints', "TEXT NOT NULL DEFAULT '[]'"],
+  ['manual_verification_hint', "TEXT NOT NULL DEFAULT ''"],
+  ['totp_secret', "TEXT NOT NULL DEFAULT ''"],
+  ['urls', "TEXT NOT NULL DEFAULT '[]'"],
+  ['extra_fields', "TEXT NOT NULL DEFAULT '{}'"],
+  ['selectors', "TEXT NOT NULL DEFAULT '{}'"],
+  ['allowed_hosts', "TEXT NOT NULL DEFAULT '[]'"],
+  ['env_ids', "TEXT NOT NULL DEFAULT '[]'"],
+  ['pinned', 'INTEGER NOT NULL DEFAULT 0'],
+  ['use_count', 'INTEGER NOT NULL DEFAULT 0'],
+  ['last_used_at', "TEXT NOT NULL DEFAULT ''"],
+  ['deleted_at', "TEXT NOT NULL DEFAULT ''"],
+];
+
+/** 统一派发表：CLI 命令与 RPC 共用处理实现（仅 get/reveal/totpCode 为纯 RPC 入口）。 */
+const ACCOUNT_OPERATIONS = {
+  list: { fn: (input, ctx) => listAccounts(ctx, input), cli: true, rpc: true },
+  get: { fn: (input, ctx) => get(ctx, input), cli: false, rpc: true },
+  create: { fn: (input, ctx) => create(ctx, input), cli: true, rpc: true },
+  update: { fn: (input, ctx) => update(ctx, input), cli: true, rpc: true },
+  remove: { fn: (input, ctx) => remove(ctx, input), cli: true, rpc: true },
+  trash: { fn: (input, ctx) => trash(ctx, input), cli: true, rpc: true },
+  restore: { fn: (input, ctx) => restore(ctx, input), cli: true, rpc: true },
+  purge: { fn: (input, ctx) => purge(ctx, input), cli: true, rpc: true },
+  match: { fn: (input, ctx) => matchAccounts(ctx, input), cli: true, rpc: true },
+  detectFields: { fn: (input, ctx) => detectFields(ctx, input), cli: true, rpc: true },
+  fill: { fn: (input, ctx) => fill(ctx, input), cli: true, rpc: true },
+  autoFill: { fn: (input, ctx) => autoFill(ctx, input), cli: true, rpc: true },
+  togglePin: { fn: (input, ctx) => togglePin(ctx, input), cli: true, rpc: true },
+  saveSelectors: { fn: (input, ctx) => saveSelectors(ctx, input), cli: true, rpc: true },
+  generatePassword: { fn: (input) => generatePassword(input), cli: true, rpc: true },
+  importAccounts: { fn: (input, ctx) => importAccounts(ctx, input), cli: true, rpc: true },
+  reveal: { fn: (input, ctx) => reveal(ctx, input), cli: false, rpc: true },
+  totpCode: { fn: (input, ctx) => totpCode(ctx, input), cli: false, rpc: true },
+  export: { fn: (input, ctx) => exportAccounts(ctx, input), cli: true, rpc: true },
+};
+
+const plugin = {
   async activate(ctx) {
-    await ctx.host.storage.sql.migrate([
-      `CREATE TABLE IF NOT EXISTS accounts (
-         id INTEGER PRIMARY KEY AUTOINCREMENT,
-         name TEXT NOT NULL,
-         url TEXT NOT NULL DEFAULT '',
-         username TEXT NOT NULL DEFAULT '',
-         password TEXT NOT NULL DEFAULT '',
-         note TEXT NOT NULL DEFAULT '',
-         tags TEXT NOT NULL DEFAULT '',
-         created_at TEXT NOT NULL,
-         updated_at TEXT NOT NULL
-       );
-       CREATE INDEX IF NOT EXISTS accounts_updated ON accounts (updated_at DESC, id DESC);`,
-    ]);
+    await ctx.host.storage.sql.migrate(ACCOUNT_MIGRATIONS);
     const columns = await ctx.host.storage.sql.query('PRAGMA table_info(accounts)');
     const present = new Set(columns.map((column) => String(column.name)));
-    for (const [name, definition] of [
-      ['display_aliases', "TEXT NOT NULL DEFAULT '[]'"],
-      ['expected_uin', "TEXT NOT NULL DEFAULT ''"],
-      ['app_hints', "TEXT NOT NULL DEFAULT '[]'"],
-      ['login_profile', "TEXT NOT NULL DEFAULT ''"],
-      ['manual_verification_hint', "TEXT NOT NULL DEFAULT ''"],
-      ['frame_aware_fill', 'INTEGER NOT NULL DEFAULT 0'],
-      ['totp_secret', "TEXT NOT NULL DEFAULT ''"],
-      ['urls', "TEXT NOT NULL DEFAULT '[]'"],
-      ['extra_fields', "TEXT NOT NULL DEFAULT '{}'"],
-      ['selectors', "TEXT NOT NULL DEFAULT '{}'"],
-      ['allowed_hosts', "TEXT NOT NULL DEFAULT '[]'"],
-      ['env_ids', "TEXT NOT NULL DEFAULT '[]'"],
-      ['pinned', 'INTEGER NOT NULL DEFAULT 0'],
-      ['use_count', 'INTEGER NOT NULL DEFAULT 0'],
-      ['last_used_at', "TEXT NOT NULL DEFAULT ''"],
-      ['deleted_at', "TEXT NOT NULL DEFAULT ''"],
-    ]) {
+    for (const [name, definition] of EXTRA_SCHEMA_COLUMNS) {
       if (!present.has(name)) {
         await ctx.host.storage.sql.run(`ALTER TABLE accounts ADD COLUMN ${name} ${definition}`);
       }
     }
     await ctx.host.log.info('账号库已就绪（明文存储）');
   },
-
-  list(ctx) {
-    return listAccounts(ctx, ctx.input);
-  },
-  create(ctx) {
-    return create(ctx, ctx.input);
-  },
-  update(ctx) {
-    return update(ctx, ctx.input);
-  },
-  remove(ctx) {
-    return remove(ctx, ctx.input);
-  },
-  trash(ctx) {
-    return trash(ctx, ctx.input);
-  },
-  restore(ctx) {
-    return restore(ctx, ctx.input);
-  },
-  purge(ctx) {
-    return purge(ctx, ctx.input);
-  },
-  match(ctx) {
-    return matchAccounts(ctx, ctx.input);
-  },
-  detectFields(ctx) {
-    return detectFields(ctx, ctx.input);
-  },
-  fill(ctx) {
-    return fill(ctx, ctx.input);
-  },
-  autoFill(ctx) {
-    return autoFill(ctx, ctx.input);
-  },
-  togglePin(ctx) {
-    return togglePin(ctx, ctx.input);
-  },
-  saveSelectors(ctx) {
-    return saveSelectors(ctx, ctx.input);
-  },
-  generatePassword(ctx) {
-    return generatePassword(ctx.input);
-  },
-  importAccounts(ctx) {
-    return importAccounts(ctx, ctx.input);
-  },
-  export(ctx) {
-    return exportAccounts(ctx, ctx.input);
-  },
-
-  rpc: {
-    list(input, ctx) {
-      return listAccounts(ctx, input);
-    },
-    get(input, ctx) {
-      return get(ctx, input);
-    },
-    create(input, ctx) {
-      return create(ctx, input);
-    },
-    update(input, ctx) {
-      return update(ctx, input);
-    },
-    remove(input, ctx) {
-      return remove(ctx, input);
-    },
-    trash(input, ctx) {
-      return trash(ctx, input);
-    },
-    restore(input, ctx) {
-      return restore(ctx, input);
-    },
-    purge(input, ctx) {
-      return purge(ctx, input);
-    },
-    match(input, ctx) {
-      return matchAccounts(ctx, input);
-    },
-    detectFields(input, ctx) {
-      return detectFields(ctx, input);
-    },
-    fill(input, ctx) {
-      return fill(ctx, input);
-    },
-    autoFill(input, ctx) {
-      return autoFill(ctx, input);
-    },
-    togglePin(input, ctx) {
-      return togglePin(ctx, input);
-    },
-    saveSelectors(input, ctx) {
-      return saveSelectors(ctx, input);
-    },
-    generatePassword(input) {
-      return generatePassword(input);
-    },
-    importAccounts(input, ctx) {
-      return importAccounts(ctx, input);
-    },
-    reveal(input, ctx) {
-      return reveal(ctx, input);
-    },
-    totpCode(input, ctx) {
-      return totpCode(ctx, input);
-    },
-    export(input, ctx) {
-      return exportAccounts(ctx, input);
-    },
-  },
+  rpc: {},
 };
+
+for (const [name, spec] of Object.entries(ACCOUNT_OPERATIONS)) {
+  if (spec.cli) plugin[name] = (ctx) => spec.fn(ctx.input, ctx);
+  if (spec.rpc) plugin.rpc[name] = (input, ctx) => spec.fn(input, ctx);
+}
+
+module.exports = plugin;

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { closeDatabases, openDatabase } from '../src/main/db.ts';
 import {
   EVENT_BUS_MAX_QUEUE_PER_PLUGIN,
   PLUGIN_EVENT_TYPES,
@@ -11,8 +10,9 @@ import {
   sanitizeEvent,
   type PluginBusEvent,
 } from '../src/main/plugins/event-bus.ts';
-import { createHandlers, dispatchHostCall } from '../src/main/plugins/api.ts';
+import { dispatchHostCall } from '../src/main/plugins/api/index.ts';
 import { PluginHost } from '../src/main/plugins/host.ts';
+import { createTestHandlers, createTestPluginHost } from './helpers/plugin-host.ts';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -116,23 +116,10 @@ test('PluginEventBus：单插件 256 条背压上限（丢最老保最新，绝�
 test('Host API events.subscribe / events.unsubscribe 强制校验 events.subscribe 权限', async () => {
   const granted = new Set<string>();
   const bus = new PluginEventBus(() => undefined);
-  const handlers = createHandlers({
+  const handlers = createTestHandlers({
     pluginId: 'com.example.events',
     currentEnvironmentId: () => undefined,
-    require: (permission) => {
-      if (!granted.has(permission)) {
-        throw Object.assign(new Error(`没有 ${permission}`), { code: 'PLUGIN_PERMISSION_DENIED' });
-      }
-    },
-    manager: {} as never,
-    vault: { available: false, list: () => [], reveal: () => ({}) },
-    storage: {} as never,
-    settings: { get: () => ({}) } as never,
-    descriptors: [],
-    record: () => undefined,
-    log: () => undefined,
-    signal: () => undefined,
-    withLease: async (_env, fn) => fn('lease'),
+    granted,
     subscribeEvents: (filter) => bus.subscribe('com.example.events', filter),
     unsubscribeEvents: (subId) => {
       bus.unsubscribe('com.example.events', subId);
@@ -157,34 +144,15 @@ test('Host API events.subscribe / events.unsubscribe 强制校验 events.subscri
   assert.equal(bus.subscriptionCount('com.example.events'), 0);
 });
 
-async function createHostFixture(root: string): Promise<PluginHost> {
-  const db = openDatabase(path.join(root, 'warren.db'));
-  return new PluginHost({
-    root: path.join(root, 'plugins'),
-    manager: {} as never,
-    vault: {
-      available: false,
-      list: () => [],
-      add: () => ({ ref: '' }),
-      remove: () => true,
-      reveal: () => ({}),
-    } as never,
-    store: {
-      record: () => undefined,
-      appSettings: () => ({ controlPolicy: 'ask', pluginPolicy: 'ask' }),
-    } as never,
-    db,
-    saveVault: async () => undefined,
-    appVersion: '0.1.0',
-    reconnectBaseMs: 0,
-  });
+async function createHostFixture(root: string): Promise<{ host: PluginHost; cleanup: () => Promise<void> }> {
+  return createTestPluginHost(root);
 }
 
 test('PluginHost 集成：权限门控、过滤分发、disable / reload / 子进程超时强杀后 subscriptionCount 归零', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'warren-event-bus-'));
   const srcSandbox = path.join(root, 'src-sandbox');
   const srcHost = path.join(root, 'src-host');
-  const host = await createHostFixture(root);
+  const { host, cleanup } = await createHostFixture(root);
 
   try {
     await mkdir(srcSandbox, { recursive: true });
@@ -372,8 +340,7 @@ test('PluginHost 集成：权限门控、过滤分发、disable / reload / 子�
     assert.equal(host.isCrashed(hostPkg.id), false);
     assert.equal(host.subscriptionCount(hostPkg.id), 1);
   } finally {
-    await host.dispose();
-    closeDatabases();
+    await cleanup();
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -381,24 +348,7 @@ test('PluginHost 集成：权限门控、过滤分发、disable / reload / 子�
 test('PluginHost 崩溃后支持指数退避自动重连并受最大重试次数上限约束', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'warren-plugin-backoff-'));
   const srcHost = path.join(root, 'src-host');
-  const db = openDatabase(path.join(root, 'warren.db'));
-  const host = new PluginHost({
-    root: path.join(root, 'plugins'),
-    manager: {} as never,
-    vault: {
-      available: false,
-      list: () => [],
-      add: () => ({ ref: '' }),
-      remove: () => true,
-      reveal: () => ({}),
-    } as never,
-    store: {
-      record: () => undefined,
-      appSettings: () => ({ controlPolicy: 'ask', pluginPolicy: 'ask' }),
-    } as never,
-    db,
-    saveVault: async () => undefined,
-    appVersion: '0.1.0',
+  const { host, cleanup } = createTestPluginHost(root, {
     reconnectBaseMs: 40,
     maxReconnectAttempts: 2,
   });
@@ -459,8 +409,7 @@ test('PluginHost 崩溃后支持指数退避自动重连并受最大重试次数
     assert.equal(host.statusOf(pkg.id).status, 'error');
     assert.equal(host.isCrashed(pkg.id), true);
   } finally {
-    await host.dispose();
-    closeDatabases();
+    await cleanup();
     await rm(root, { recursive: true, force: true });
   }
 });

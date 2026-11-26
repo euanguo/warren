@@ -1,28 +1,29 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-
 /**
- * RPC 写门控的**静态**守卫。
+ * 写操作门禁完整性断言。
  *
- * `rpc-dispatch.ts` 的派发表里，「改页面状态」的命令必须经过 `writeCall` / `inputCall` /
- * `dialogCall`，或者显式 `assertWritable`。
- *
- * `tests/rpc-dispatch.test.ts` 从运行时验「门控真的拦得住」；这里补的是另一半——
- * 新增一个 `browser.*` / `net.*` / `tab.*` 命令却**忘了挂门控**时立刻红
- * （运行时那个测试只覆盖它点名的那几条，覆盖不到新加的方法）。
- *
- * 和 `icon-names.test.ts` 同一路数——用源码断言守住一个「类型系统管不到」的约定。
+ * 直接从单一事实源 `RPC_REGISTRY` 验证：
+ * 1. `browser.*` / `net.*` / `tab.*` 中仅白名单方法使用 `gate: 'read'`，其余强制走对应写/输入/弹窗/标签/自定义门禁；
+ * 2. 所有非 `'read'` 的 `(browser|net).*` 方法在未持有或伪造 lease 时被 `dispatchRpc` 拒绝且不穿透至 controller；
+ * 3. `findRpcMethods()` 与 `RPC_REGISTRY` 键集严格一致，不存在契约漂移。
  */
-const RPC_SOURCE = readFileSync(new URL('../src/main/rpc-dispatch.ts', import.meta.url), 'utf8');
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { dispatchRpc, findRpcMethods, RPC_REGISTRY, type DispatchDeps } from '../src/main/rpc/registry.ts';
 
-const GATE_CALL = /writeCall\(|inputCall\(|dialogCall\(|assertWritable\(/;
-
-/** 明确只读的命令：读快照 / 等条件 / 看日志，都不改页面状态，所以不取 lease。 */
 const READ_ONLY = new Set([
-  // 读录制期间抓到的响应体 —— 只读，不改页面状态
-  'net.body',
+  'tab.list',
   'browser.snapshot',
+  'browser.read',
+  'browser.get',
+  'browser.is',
+  'browser.diff',
+  'browser.screenshot',
+  'browser.highlight',
+  'browser.frame.list',
+  'browser.webmcp.list',
+  'browser.vitals',
+  'browser.a11y',
+  'browser.react',
   'browser.waitFor',
   'browser.waitForURL',
   'browser.waitForSelector',
@@ -36,72 +37,97 @@ const READ_ONLY = new Set([
   'browser.downloadStatus',
   'browser.console',
   'browser.network',
-  'browser.screenshot',
-  'browser.highlight',
-  'browser.read',
-  'browser.get',
-  'browser.is',
-  'browser.diff',
-  'browser.frame.list',
-  'browser.webmcp.list',
-  'browser.vitals',
-  'browser.a11y',
-  'browser.react',
   'net.rules',
+  'net.body',
   'net.hits',
-  'tab.list',
 ]);
 
-/** 从 dispatch 的 switch 里切出每个 case；`case 'a': case 'b': { ... }` 的 fall-through 要一起算。 */
-function dispatchCases(): Array<{ method: string; body: string }> {
-  const start = RPC_SOURCE.indexOf('switch (method) {');
-  assert.notEqual(start, -1, 'rpc.ts 里找不到 dispatch 的 switch，这个测试要跟着改');
+test('RPC_REGISTRY：所有 browser.*/net.*/tab.* 非只读端点必须声明非 read 门禁', () => {
+  const gatedNames = Object.keys(RPC_REGISTRY).filter((name) => /^(browser|net|tab)\./.test(name));
+  assert.ok(gatedNames.length >= 80, `应覆盖全部 browser/net/tab 端点，实际 ${gatedNames.length}`);
 
-  const blocks = RPC_SOURCE.slice(start)
-    .split(/\n\s*case '/)
-    .slice(1)
-    .flatMap((part) => {
-      const label = part.match(/^([a-zA-Z][\w.]*)':/);
-      return label ? [{ method: label[1]!, body: part.slice(label[0].length) }] : [];
-    });
+  const readDeclared = gatedNames.filter((name) => RPC_REGISTRY[name].gate === 'read');
+  const unexpectedRead = readDeclared.filter((name) => !READ_ONLY.has(name));
+  assert.deepEqual(unexpectedRead, [], `以下端点未在 READ_ONLY 中却使用了 gate=read：${unexpectedRead.join(', ')}`);
 
-  // 从后往前：只有标签、没有语句的块（fall-through）继承下一个块的门控状态
-  const out: Array<{ method: string; body: string }> = [];
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i]!;
-    const inherited = out.at(-1);
-    out.push(block.body.trim() === '' && inherited ? { method: block.method, body: inherited.body } : block);
+  for (const name of READ_ONLY) {
+    assert.ok(name in RPC_REGISTRY, `READ_ONLY 含有无效方法：${name}`);
+    assert.equal(RPC_REGISTRY[name].gate, 'read', `${name} 在 READ_ONLY 中但 gate 不是 read`);
   }
-  return out.reverse();
+
+  for (const name of gatedNames) {
+    if (READ_ONLY.has(name)) continue;
+    const def = RPC_REGISTRY[name];
+    if (name.startsWith('tab.')) {
+      assert.equal(def.gate, 'tab', `${name} 应声明 gate=tab`);
+    } else {
+      assert.ok(
+        ['write', 'input', 'dialog', 'custom'].includes(def.gate),
+        `${name} 必须声明 write/input/dialog/custom 门禁，实际 ${def.gate}`,
+      );
+    }
+  }
+});
+
+test('RPC_REGISTRY 与 RPC_METHODS / findRpcMethods 严格一致（零漂移）', () => {
+  const registryKeys = Object.keys(RPC_REGISTRY).sort();
+  const listedNames = findRpcMethods()
+    .map((m) => m.name)
+    .sort();
+  assert.deepEqual(listedNames, registryKeys);
+  assert.ok(registryKeys.includes('debug.layout'));
+  assert.ok(registryKeys.includes('rpc.methods'));
+});
+
+function unleasedDeps(): { deps: DispatchDeps; touchedController: () => boolean } {
+  let touched = false;
+  const manager = {
+    get: () => ({ id: 'env1', status: 'running' }),
+    isDormant: () => false,
+    wake: () => false,
+    assertWritable: () => {
+      throw new Error('lease required');
+    },
+    assertTabWritable: () => {
+      throw new Error('tab lease required');
+    },
+    assertDialogWritable: () => {
+      throw new Error('dialog lease required');
+    },
+    assertSpaceWritable: () => {
+      throw new Error('lease required');
+    },
+    withInputContext: async <T>(_id: string, _space: unknown, _tab: unknown, fn: () => Promise<T>) => fn(),
+    controllerFor: () => {
+      touched = true;
+      throw new Error('should not reach controller');
+    },
+    listTabs: () => [],
+  } as unknown as DispatchDeps['manager'];
+
+  const deps: DispatchDeps = {
+    manager,
+    store: {} as DispatchDeps['store'],
+    vault: {} as DispatchDeps['vault'],
+    saveVault: async () => {},
+    plugins: {} as DispatchDeps['plugins'],
+    isPackaged: false,
+    quit: () => {},
+  };
+  return { deps, touchedController: () => touched };
 }
 
-const CASES = dispatchCases();
-const GATED = CASES.filter((item) => GATE_CALL.test(item.body)).map((item) => item.method);
-const UNGATED = CASES.filter((item) => !GATE_CALL.test(item.body)).map((item) => item.method);
+test('运行时阻断：所有声明 write/input/dialog 门禁的 browser/net 端点在无 lease 时拒绝且不触达 controller', async () => {
+  const protectedMethods = Object.entries(RPC_REGISTRY)
+    .filter(
+      ([name, def]) =>
+        /^(browser|net)\./.test(name) && (def.gate === 'write' || def.gate === 'input' || def.gate === 'dialog'),
+    )
+    .map(([name]) => name);
 
-test('dispatch 被完整解析：门控 / 非门控加起来等于全部 case', () => {
-  assert.ok(CASES.length > 80, `只解析到 ${CASES.length} 个 case，切分逻辑可能失效了`);
-  assert.equal(GATED.length + UNGATED.length, CASES.length);
-  // 抽查两条已知形状：fall-through 的 tab.closeOthers 算门控，tab.list 不算
-  assert.ok(GATED.includes('tab.closeOthers'), 'fall-through 的 tab.closeOthers 应该继承到门控');
-  assert.ok(UNGATED.includes('tab.list'));
-});
-
-test('browser.* / net.* / tab.* 里改状态的命令都走写门控', () => {
-  const risky = CASES.filter(
-    (item) => /^(browser|net|tab)\./.test(item.method) && !GATE_CALL.test(item.body) && !READ_ONLY.has(item.method),
-  ).map((item) => item.method);
-
-  assert.deepEqual(
-    risky,
-    [],
-    `这些命令会改页面状态却没走 writeCall/inputCall/dialogCall/assertWritable：${risky.join(', ')}。` +
-      '如果它确实是只读的，把它加进本文件的 READ_ONLY 白名单。',
-  );
-});
-
-test('只读白名单不过期：每一条都还存在且确实没挂门控', () => {
-  const actuallyReadOnly = new Set(UNGATED);
-  const stale = [...READ_ONLY].filter((method) => !actuallyReadOnly.has(method));
-  assert.deepEqual(stale, [], `白名单里这些已经不存在或已经挂了门控，删掉：${stale.join(', ')}`);
+  for (const method of protectedMethods) {
+    const { deps, touchedController } = unleasedDeps();
+    await assert.rejects(() => dispatchRpc(deps, method, { id: 'env1', tabId: 1 }), /lease required/);
+    assert.equal(touchedController(), false, `${method} 不得在校验 lease 前获取 controller`);
+  }
 });

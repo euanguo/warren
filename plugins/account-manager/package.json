@@ -5,6 +5,8 @@
   "files": [
     "server.js",
     "app.js",
+    "ui/",
+    "references/",
     "README.md",
     "SKILL.md"
   ],
@@ -29,6 +31,9 @@
         "2fa",
         "account",
         "login"
+      ],
+      "references": [
+        "references/commands.md"
       ]
     },
     "engines": {

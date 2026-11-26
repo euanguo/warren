@@ -12,9 +12,9 @@ import {
 import type { X509Certificate } from 'node:crypto';
 import { buildPageContextMenu } from '../browser-context-menu.ts';
 import { BrowserController } from '../browser/controller.ts';
-import type { VisualActionEvent } from '../browser/ctx.ts';
 import { getDownloadPath, listDownloads } from '../browser/downloads.ts';
 import type { EnvPending } from '../browser/pending.ts';
+import { redactUrl } from '../browser/redact.ts';
 import { makeEvent } from '../domain/environment.ts';
 import { nextViewTransition } from '../environment-view-state.ts';
 import type { Store } from '../store.ts';
@@ -36,44 +36,52 @@ import type {
   ViewportPresetId,
   ViewportRect,
 } from '../../shared/types.ts';
-import { SPACE_IDS, redactBusUrl, type EnvironmentSpaces } from './lifecycle.ts';
-import type { TabManagerLike } from './lease-coordinator.ts';
+import type { EnvSessionFactory } from './session-factory.ts';
+import { SPACE_IDS, type EnvironmentSpaces, type EnvLifecycle } from './lifecycle.ts';
+import type { LeaseCoordinator, TabManagerLike } from './lease-coordinator.ts';
 
 export interface ViewCoordinatorDeps {
   window: BrowserWindow;
   layers?: WindowLayerManager;
   store: Pick<Store, 'domainPref' | 'setDomainPref' | 'record' | 'recordUrlHistory'>;
-  getSpaces: (id: string) => EnvironmentSpaces | undefined;
-  allSpacesEntries: () => Array<[string, EnvironmentSpaces]>;
-  getSpaceManager: (id: string, space?: SpaceId) => TabManager | undefined;
-  getActiveSpace: (id: string) => SpaceId;
-  touch: (id: string) => void;
-  rememberRunning: () => void;
-  rememberTabs: (id: string) => void;
-  onSpaceEmpty: (id: string, space: SpaceId) => void;
+  sessions: Pick<
+    EnvSessionFactory,
+    | 'attachTabTelemetry'
+    | 'detachTabTelemetry'
+    | 'lastActivityAt'
+    | 'inFlightCount'
+    | 'lastNavigationError'
+    | 'telemetryWriteStats'
+  >;
+  getLifecycle: () => Pick<
+    EnvLifecycle,
+    | 'spacesFor'
+    | 'allSpacesEntries'
+    | 'spaceManager'
+    | 'activeSpaceOf'
+    | 'touch'
+    | 'rememberRunning'
+    | 'rememberTabs'
+    | 'onSpaceEmpty'
+    | 'maxRunning'
+  >;
+  getLeases: () => Pick<
+    LeaseCoordinator,
+    | 'syncShield'
+    | 'detachShieldOnly'
+    | 'repositionShield'
+    | 'setShieldVisible'
+    | 'isAgentControlling'
+    | 'canHumanNavigate'
+    | 'assertHumanAgentWritable'
+    | 'showVisualAction'
+    | 'rawLease'
+    | 'shieldAttached'
+  >;
   onChange: () => void;
   onTargetUrl?: (payload: { envId: string; url: string }) => void;
   onFindResult?: (result: FindInPageResult) => void;
-  onVisualAction?: (id: string, space: SpaceId, action: VisualActionEvent) => void;
   emitBusEvent: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
-  attachTabTelemetry: (envId: string, tabId: string, wc: Electron.WebContents) => void;
-  detachTabTelemetry: (tabId: string) => void;
-  lastActivityAt: (tabId: string) => number;
-  inFlightCount?: (tabId: string) => number;
-  lastNavigationError?: (tabId: string) => { url: string; error: string; at: string } | null;
-  syncShield: (id: string, options?: { createIfMissing?: boolean }) => void;
-  detachShieldOnly: (id: string) => void;
-  repositionShield: (id: string, bounds: ViewportRect) => void;
-  setShieldVisible: (id: string, visible: boolean) => void;
-  isAgentControlling: (id: string) => boolean;
-  canHumanNavigate: (id: string, space: SpaceId) => boolean;
-  assertAgentHumanWritable: (id: string) => void;
-  getLayoutExtra: (selected?: string) => {
-    telemetryWrite: { writes: number; ms: number };
-    maxRunning: number;
-    shieldAttached: boolean;
-    owner: ControlOwner;
-  };
 }
 
 /**
@@ -86,11 +94,8 @@ export class EnvViewCoordinator {
   #window: BrowserWindow;
   #layers: WindowLayerManager;
   #devtools: DevToolsHost;
-  #viewport: ViewportRect = { x: 0, y: 0, width: 800, height: 600 };
-  #viewportReady = false;
   #backgroundBounds?: { x: number; y: number; width: number; height: number };
   #selected?: string;
-  #viewVisible = true;
   #presets = new Map<string, ViewportPresetId>();
   #defaultViewport: ViewportPresetId = 'auto';
 
@@ -123,15 +128,15 @@ export class EnvViewCoordinator {
   }
 
   get viewVisible(): boolean {
-    return this.#viewVisible;
+    return this.#layers.viewVisible();
   }
 
   get viewport(): ViewportRect {
-    return this.#viewport;
+    return this.#layers.viewport();
   }
 
   pageBounds(): ViewportRect {
-    if (!this.#viewportReady) {
+    if (!this.#layers.isViewportReady()) {
       const [winW, winH] = this.#window.isDestroyed() ? [1440, 920] : this.#window.getContentSize();
       const x = Math.min(318, Math.max(0, Math.floor(winW * 0.25)));
       const y = Math.min(128, Math.max(0, Math.floor(winH * 0.15)));
@@ -154,7 +159,7 @@ export class EnvViewCoordinator {
     id: string,
     space: SpaceId,
     ses: Session,
-    trustedCa: X509Certificate | undefined,
+    trustedCa: X509Certificate | (() => X509Certificate | undefined) | undefined,
     pending: EnvPending,
   ): TabManager {
     return new TabManager({
@@ -163,21 +168,21 @@ export class EnvViewCoordinator {
       window: this.#window,
       layers: this.#layers,
       getViewport: () => this.pageBounds(),
-      isViewportReady: () => this.#viewportReady,
+      isViewportReady: () => this.#layers.isViewportReady(),
       session: ses,
       trustedCa,
       onChanged: () => {
         this.#deps.onChange();
-        this.#deps.rememberTabs(id);
+        this.#deps.getLifecycle().rememberTabs(id);
       },
       onViewChanged: () => {
-        if (this.#selected === id && this.#deps.getActiveSpace(id) === space) {
-          this.#devtools.activateTab(this.#deps.getSpaceManager(id, space)?.activeId);
+        if (this.#selected === id && this.#deps.getLifecycle().activeSpaceOf(id) === space) {
+          this.#devtools.activateTab(this.#deps.getLifecycle().spaceManager(id, space)?.activeId);
           this.reapplySplitBounds(id);
-          this.#deps.syncShield(id);
+          this.#deps.getLeases().syncShield(id);
         }
       },
-      onEmpty: () => this.#deps.onSpaceEmpty(id, space),
+      onEmpty: () => this.#deps.getLifecycle().onSpaceEmpty(id, space),
       onEvent: (type, message) => {
         this.#deps.store.record(makeEvent(type, message, 'system', id));
         this.#deps.onChange();
@@ -185,16 +190,17 @@ export class EnvViewCoordinator {
       onPopup: (tabId, url) => {
         const index =
           (this.#deps
-            .getSpaceManager(id, space)
+            .getLifecycle()
+            .spaceManager(id, space)
             ?.list()
             .findIndex((tab) => tab.id === tabId) ?? -1) + 1;
         pending.notePopup({ tabId, index, url, at: new Date().toISOString() });
-        this.#deps.emitBusEvent('tab.created', id, { tabId, space, url: redactBusUrl(url) });
+        this.#deps.emitBusEvent('tab.created', id, { tabId, space, url: redactUrl(url) });
       },
       onUrlVisited: (url) => this.#deps.store.recordUrlHistory(url),
       onOriginZoomNeeded: (tab, url) => this.applyOriginZoom(id, tab, url),
       onTargetUrl: (url) => {
-        if (this.#selected === id && this.#deps.getActiveSpace(id) === space) {
+        if (this.#selected === id && this.#deps.getLifecycle().activeSpaceOf(id) === space) {
           this.#deps.onTargetUrl?.({ envId: id, url });
         }
       },
@@ -212,16 +218,16 @@ export class EnvViewCoordinator {
       },
       createController: (tabId, wc) => {
         try {
-          this.#deps.attachTabTelemetry(id, tabId, wc);
+          this.#deps.sessions.attachTabTelemetry(id, tabId, wc);
         } catch {
           // 遥测挂不上不能影响环境启动
         }
         wc.on('did-navigate', (_event, url) => {
-          this.#deps.emitBusEvent('nav.committed', id, { tabId, space, url: redactBusUrl(url) });
+          this.#deps.emitBusEvent('nav.committed', id, { tabId, space, url: redactUrl(url) });
         });
         wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
           if (isMainFrame) {
-            this.#deps.emitBusEvent('nav.committed', id, { tabId, space, url: redactBusUrl(url) });
+            this.#deps.emitBusEvent('nav.committed', id, { tabId, space, url: redactUrl(url) });
           }
         });
         const controller = new BrowserController(wc, {
@@ -229,24 +235,27 @@ export class EnvViewCoordinator {
           tabId,
           tabIndex: () =>
             this.#deps
-              .getSpaceManager(id, space)
+              .getLifecycle()
+              .spaceManager(id, space)
               ?.list()
               .findIndex((tab) => tab.id === tabId) ?? -1,
           pending: pending.sinkFor(wc),
-          lastActivityAt: () => this.#deps.lastActivityAt(tabId),
-          inFlightCount: () => this.#deps.inFlightCount?.(tabId) ?? 0,
-          lastNavigationError: () => this.#deps.lastNavigationError?.(tabId) ?? null,
+          lastActivityAt: () => this.#deps.sessions.lastActivityAt(tabId),
+          inFlightCount: () => this.#deps.sessions.inFlightCount(tabId),
+          lastNavigationError: () => this.#deps.sessions.lastNavigationError(tabId),
           downloadById: (downloadId) => pending.downloadById(downloadId),
           record: (type, message) => {
             this.#deps.store.record(makeEvent(type, message, 'agent', id));
           },
-          onVisualAction: (action) => this.#deps.onVisualAction?.(id, space, action),
+          onVisualAction: (action) => {
+            if (space === 'agent') this.#deps.getLeases().showVisualAction(id, action);
+          },
         });
         controller.attach();
         return controller;
       },
       onTabDestroyed: (tabId) => {
-        this.#deps.detachTabTelemetry(tabId);
+        this.#deps.sessions.detachTabTelemetry(tabId);
         this.#devtools.closeForTab(tabId);
       },
     });
@@ -255,13 +264,13 @@ export class EnvViewCoordinator {
   // ── 标签与导航 ─────────────────────────────────────────────────────
 
   controllerFor(id: string, ref?: TabRef, space: SpaceId = 'agent'): BrowserController {
-    this.#deps.touch(id);
-    const tabs = this.#deps.getSpaceManager(id, space);
+    this.#deps.getLifecycle().touch(id);
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     if (!tabs) {
       throw Object.assign(new Error(`environment ${id} is not running`), { code: 'ENV_NOT_RUNNING' });
     }
     if (space === 'agent' && !tabs.active()) {
-      const visibleUrl = this.#deps.getSpaceManager(id, 'person')?.active()?.state.url;
+      const visibleUrl = this.#deps.getLifecycle().spaceManager(id, 'person')?.active()?.state.url;
       tabs.create({ url: visibleUrl || newTabUrl(id) });
     }
     const controller = tabs.controllerFor(ref);
@@ -272,20 +281,20 @@ export class EnvViewCoordinator {
   }
 
   tabsOf(id: string, space?: SpaceId): TabListItem[] {
-    return this.#deps.getSpaceManager(id, space)?.list() ?? [];
+    return this.#deps.getLifecycle().spaceManager(id, space)?.list() ?? [];
   }
 
   newTab(
     id: string,
     url?: string,
     options: { activate?: boolean } = {},
-    space: SpaceId = this.#deps.getActiveSpace(id),
+    space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id),
   ): TabListItem {
     const tabs = this.#requireTabs(id, space);
     const target = url ?? newTabUrl(id);
     const tab = tabs.create({ url: target, activate: options.activate ?? true });
     this.#deps.store.record(makeEvent('tab.created', `${id} 新建标签：${target}`, 'human', id));
-    this.#deps.emitBusEvent('tab.created', id, { tabId: tab.id, space, url: redactBusUrl(target) });
+    this.#deps.emitBusEvent('tab.created', id, { tabId: tab.id, space, url: redactUrl(target) });
     this.#afterTabChange(id);
     return tabs.item(tab.id);
   }
@@ -313,7 +322,7 @@ export class EnvViewCoordinator {
     this.#afterTabChange(id);
   }
 
-  reopenTab(id: string, space: SpaceId = this.#deps.getActiveSpace(id)): TabListItem {
+  reopenTab(id: string, space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id)): TabListItem {
     const tabs = this.#requireTabs(id, space);
     const tab = tabs.reopen();
     if (!tab) throw Object.assign(new Error('没有可重新打开的标签'), { code: 'TAB_NOT_FOUND' });
@@ -339,7 +348,7 @@ export class EnvViewCoordinator {
     this.#deps.emitBusEvent('tab.activated', id, {
       tabId: tab.id,
       space,
-      url: redactBusUrl(item.url),
+      url: redactUrl(item.url),
       title: item.title,
     });
     return item;
@@ -351,12 +360,16 @@ export class EnvViewCoordinator {
     this.#afterTabChange(id);
   }
 
-  navState(id: string, space: SpaceId = this.#deps.getActiveSpace(id)): NavigationState | undefined {
-    return this.#deps.getSpaceManager(id, space)?.controller()?.navigationState();
+  navState(id: string, space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id)): NavigationState | undefined {
+    return this.#deps.getLifecycle().spaceManager(id, space)?.controller()?.navigationState();
   }
 
-  humanNavigate(id: string, action: NavigationAction, space: SpaceId = this.#deps.getActiveSpace(id)): NavigationState {
-    if (space === 'agent') this.#deps.assertAgentHumanWritable(id);
+  humanNavigate(
+    id: string,
+    action: NavigationAction,
+    space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id),
+  ): NavigationState {
+    if (space === 'agent') this.#deps.getLeases().assertHumanAgentWritable(id);
     const controller = this.controllerFor(id, undefined, space);
     if (action.kind === 'back') controller.goBack();
     else if (action.kind === 'forward') controller.goForward();
@@ -372,7 +385,7 @@ export class EnvViewCoordinator {
 
   /** 只切「当前显示哪个 Space」，不等于获取控制权。 */
   selectSpace(id: string, space: SpaceId): void {
-    const spaces = this.#deps.getSpaces(id);
+    const spaces = this.#deps.getLifecycle().spacesFor(id);
     if (!spaces) {
       throw Object.assign(new Error(`environment ${id} is not running`), { code: 'ENV_NOT_RUNNING' });
     }
@@ -380,29 +393,32 @@ export class EnvViewCoordinator {
       throw Object.assign(new Error(`unknown space ${String(space)}`), { code: 'BAD_REQUEST' });
     }
     if (spaces.active === space) return;
-    this.#deps.touch(id);
+    this.#deps.getLifecycle().touch(id);
     if (this.#selected === id) spaces[spaces.active].detach();
     spaces.active = space;
     if (this.#selected === id) {
       this.#devtools.activateTab(spaces[space].activeId);
       const split = this.#devtools.computeSplitBounds();
       spaces[space].setViewport(split.page);
-      spaces[space].setViewVisible(this.#viewVisible);
+      spaces[space].setViewVisible(this.#layers.viewVisible());
       spaces[space].attach();
-      this.#layers.setVisible('devtools', this.#viewVisible && this.#viewportReady && this.#devtools.isOpen());
-      this.#deps.syncShield(id);
+      this.#layers.setVisible(
+        'devtools',
+        this.#layers.viewVisible() && this.#layers.isViewportReady() && this.#devtools.isOpen(),
+      );
+      this.#deps.getLeases().syncShield(id);
     }
     this.#deps.emitBusEvent('space.switched', id, {
       space,
       activeTabId: spaces[space].activeId ?? '',
-      url: redactBusUrl(spaces[space].active()?.state.url ?? ''),
+      url: redactUrl(spaces[space].active()?.state.url ?? ''),
     });
     this.#deps.onChange();
   }
 
   /** 选中不等于获得写权限：只负责把该环境的当前标签放进右侧区域。 */
   select(id: string, space?: SpaceId): void {
-    const spaces = this.#deps.getSpaces(id);
+    const spaces = this.#deps.getLifecycle().spacesFor(id);
     if (spaces && space && SPACE_IDS.includes(space) && spaces.active !== space) {
       if (this.#selected === id) spaces[spaces.active].detach();
       spaces.active = space;
@@ -415,8 +431,8 @@ export class EnvViewCoordinator {
     });
     if (detachCurrent) this.#detachSelected();
     this.#selected = id;
-    this.#deps.touch(id);
-    this.#deps.rememberRunning();
+    this.#deps.getLifecycle().touch(id);
+    this.#deps.getLifecycle().rememberRunning();
 
     if (!attachTarget || !target) {
       this.#devtools.activateTab(undefined);
@@ -427,22 +443,24 @@ export class EnvViewCoordinator {
     this.#devtools.activateTab(target.activeId);
     const split = this.#devtools.computeSplitBounds();
     target.setViewport(split.page);
-    target.setViewVisible(this.#viewVisible);
+    target.setViewVisible(this.#layers.viewVisible());
     target.attach();
-    this.#layers.setVisible('devtools', this.#viewVisible && this.#viewportReady && this.#devtools.isOpen());
+    this.#layers.setVisible(
+      'devtools',
+      this.#layers.viewVisible() && this.#layers.isViewportReady() && this.#devtools.isOpen(),
+    );
 
-    this.#deps.syncShield(id, { createIfMissing: true });
+    this.#deps.getLeases().syncShield(id, { createIfMissing: true });
     this.#deps.onChange();
   }
 
   setViewport(viewport: ViewportRect): void {
     if (viewport.width <= 0 || viewport.height <= 0) return;
-    this.#viewportReady = true;
-    this.#viewport = viewport;
+    this.#layers.setViewport(viewport);
     this.#devtools.setViewport(viewport);
     const split = this.#devtools.computeSplitBounds();
     // 同步全部运行中环境的双 Space 视口，确保后台/非激活 Space attachBelow 绝不回退到 0,0,800,600
-    for (const [, spaces] of this.#deps.allSpacesEntries()) {
+    for (const [, spaces] of this.#deps.getLifecycle().allSpacesEntries()) {
       for (const space of SPACE_IDS) {
         spaces[space].setViewport(split.page);
       }
@@ -451,37 +469,29 @@ export class EnvViewCoordinator {
       this.#layers.setBounds('below', split.page);
     }
     if (this.#selected) {
-      this.#deps.getSpaceManager(this.#selected)?.setViewVisible(this.#viewVisible);
-      this.#deps.repositionShield(this.#selected, split.page);
-      this.#layers.setVisible('devtools', this.#viewVisible && this.#devtools.isOpen());
+      this.#deps.getLifecycle().spaceManager(this.#selected)?.setViewVisible(this.#layers.viewVisible());
+      this.#deps.getLeases().repositionShield(this.#selected, split.page);
+      this.#layers.setVisible('devtools', this.#layers.viewVisible() && this.#devtools.isOpen());
     }
-  }
-
-  async capturePage(): Promise<string | null> {
-    const wc = this.#selected ? this.#deps.getSpaceManager(this.#selected)?.active()?.webContents : undefined;
-    if (!wc || wc.isDestroyed()) return null;
-    const image = await wc.capturePage();
-    if (image.isEmpty()) return null;
-    return `data:image/jpeg;base64,${image.toJPEG(92).toString('base64')}`;
   }
 
   setViewVisible(visible: boolean): void {
-    this.#viewVisible = visible;
+    this.#layers.setViewVisible(visible);
     if (this.#selected) {
-      this.#deps.getSpaceManager(this.#selected)?.setViewVisible(visible);
-      this.#deps.setShieldVisible(this.#selected, visible);
+      this.#deps.getLifecycle().spaceManager(this.#selected)?.setViewVisible(visible);
+      this.#deps.getLeases().setShieldVisible(this.#selected, visible);
     }
-    this.#layers.setVisible('devtools', visible && this.#viewportReady && this.#devtools.isOpen());
+    this.#layers.setVisible('devtools', visible && this.#layers.isViewportReady() && this.#devtools.isOpen());
   }
 
   reapplySplitBounds(id: string): void {
     if (this.#selected !== id) return;
     const split = this.#devtools.computeSplitBounds();
-    this.#deps.getSpaceManager(id)?.setViewport(split.page);
+    this.#deps.getLifecycle().spaceManager(id)?.setViewport(split.page);
     if (this.#layers.slotView('below')) {
       this.#layers.setBounds('below', split.page);
     }
-    this.#deps.repositionShield(id, split.page);
+    this.#deps.getLeases().repositionShield(id, split.page);
   }
 
   closeEnvDevTools(spaces: EnvironmentSpaces): void {
@@ -504,7 +514,7 @@ export class EnvViewCoordinator {
   }
 
   closeDevTools(id: string, space: SpaceId = 'agent'): void {
-    const tab = this.#deps.getSpaceManager(id, space)?.active();
+    const tab = this.#deps.getLifecycle().spaceManager(id, space)?.active();
     if (!tab) return;
     this.#devtools.closeForTab(tab.id);
     this.reapplySplitBounds(id);
@@ -527,7 +537,7 @@ export class EnvViewCoordinator {
   }
 
   findInPage(id: string, space: SpaceId, text: string, options: { forward?: boolean; findNext?: boolean } = {}): void {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     if (!wc || wc.isDestroyed()) return;
     if (!text) {
       wc.stopFindInPage('clearSelection');
@@ -541,13 +551,13 @@ export class EnvViewCoordinator {
   }
 
   stopFindInPage(id: string, space: SpaceId): void {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     if (!wc || wc.isDestroyed()) return;
     wc.stopFindInPage('clearSelection');
   }
 
   setZoom(id: string, space: SpaceId, mode: 'in' | 'out' | 'reset' | number): { factor: number } {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     if (!wc || wc.isDestroyed()) return { factor: 1 };
     const current = wc.getZoomFactor() || 1;
     let next = current;
@@ -565,7 +575,7 @@ export class EnvViewCoordinator {
   }
 
   getZoom(id: string, space: SpaceId): { factor: number } {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     if (!wc || wc.isDestroyed()) return { factor: 1 };
     return { factor: Math.round((wc.getZoomFactor() || 1) * 100) / 100 };
   }
@@ -581,13 +591,13 @@ export class EnvViewCoordinator {
     }
     const targetPreset = pref?.viewportPreset ?? (this.#defaultViewport !== 'auto' ? this.#defaultViewport : undefined);
     if (targetPreset) {
-      const controller = this.#deps.getSpaceManager(id, tab.space)?.controllerFor(tab.id);
+      const controller = this.#deps.getLifecycle().spaceManager(id, tab.space)?.controllerFor(tab.id);
       if (controller) void controller.setViewportPreset(targetPreset).catch(() => {});
     }
   }
 
   async setViewportPreset(id: string, space: SpaceId, preset: ViewportPresetId): Promise<{ preset: ViewportPresetId }> {
-    const tabs = this.#deps.getSpaceManager(id, space);
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     const controller = tabs?.controller();
     const wc = tabs?.active()?.webContents;
     if (!controller || !wc || wc.isDestroyed()) {
@@ -602,7 +612,7 @@ export class EnvViewCoordinator {
   }
 
   getViewportPreset(id: string, space: SpaceId): { preset: ViewportPresetId } {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     const origin = wc && !wc.isDestroyed() ? this.#originOf(wc.getURL()) : undefined;
     if (origin) {
       const saved = this.#deps.store.domainPref(id, origin)?.viewportPreset;
@@ -633,13 +643,13 @@ export class EnvViewCoordinator {
   }
 
   printPage(id: string, space: SpaceId): void {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     if (!wc || wc.isDestroyed()) return;
     wc.print();
   }
 
   async savePageAs(id: string, space: SpaceId): Promise<{ saved: boolean; path?: string }> {
-    const wc = this.#deps.getSpaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
     if (!wc || wc.isDestroyed()) return { saved: false };
     const title = (wc.getTitle() || 'page').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 64);
     const result = await dialog.showSaveDialog(this.#window, {
@@ -655,7 +665,7 @@ export class EnvViewCoordinator {
   async handlePageContextMenu(id: string, space: SpaceId, tab: Tab, params: Electron.ContextMenuParams): Promise<void> {
     const wc = tab.webContents;
     if (!wc || wc.isDestroyed()) return;
-    const canNavigate = this.#deps.canHumanNavigate(id, space);
+    const canNavigate = this.#deps.getLeases().canHumanNavigate(id, space);
     const history = wc.navigationHistory;
     const items = buildPageContextMenu({
       x: params.x,
@@ -791,7 +801,7 @@ export class EnvViewCoordinator {
     if (id && id !== this.#selected) return;
     const selected = this.#selected;
     if (!selected) return;
-    this.restoreDisplayedFocus(this.#deps.getSpaceManager(selected));
+    this.restoreDisplayedFocus(this.#deps.getLifecycle().spaceManager(selected));
   }
 
   restoreDisplayedFocus(tabs: TabManagerLike | undefined): void {
@@ -807,10 +817,10 @@ export class EnvViewCoordinator {
   }
 
   async focusForInput(id: string, space: SpaceId = 'agent'): Promise<void> {
-    const tabs = this.#deps.getSpaceManager(id, space);
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     const controller = tabs?.controller();
     if (!controller || !tabs?.active()) return;
-    if (this.#window.isFocused() && id === this.#selected && space === this.#deps.getActiveSpace(id)) {
+    if (this.#window.isFocused() && id === this.#selected && space === this.#deps.getLifecycle().activeSpaceOf(id)) {
       controller.webContents.focus();
       return;
     }
@@ -850,8 +860,10 @@ export class EnvViewCoordinator {
     activeSpace?: SpaceId;
     spaces: Array<{ envId: string; space: SpaceId; showing: boolean; attachedBelow: boolean }>;
   } {
-    const tabs = this.#selected ? this.#deps.getSpaceManager(this.#selected) : undefined;
-    const entries = this.#deps.allSpacesEntries();
+    const lifecycle = this.#deps.getLifecycle();
+    const leases = this.#deps.getLeases();
+    const tabs = this.#selected ? lifecycle.spaceManager(this.#selected) : undefined;
+    const entries = lifecycle.allSpacesEntries();
     const allSpaces = entries.flatMap(([envId, spaces]) =>
       SPACE_IDS.map((space) => ({
         envId,
@@ -860,10 +872,10 @@ export class EnvViewCoordinator {
         attachedBelow: spaces[space].attachedBelow,
       })),
     );
-    const extra = this.#deps.getLayoutExtra(this.#selected);
     const entryMap = new Map(entries);
+    const owner: ControlOwner = this.#selected ? (leases.rawLease(this.#selected)?.owner ?? 'none') : 'none';
     return {
-      viewport: this.#viewport,
+      viewport: this.#layers.viewport(),
       selected: this.#selected,
       viewBounds: tabs?.active()?.view.getBounds(),
       showing: [...new Set(allSpaces.filter((item) => item.showing).map((item) => item.envId))],
@@ -875,21 +887,21 @@ export class EnvViewCoordinator {
       windowVisible: this.#window.isVisible(),
       windowBounds: this.#window.getBounds(),
       windowOpacity: this.#window.getOpacity(),
-      telemetryWrite: extra.telemetryWrite,
+      telemetryWrite: this.#deps.sessions.telemetryWriteStats,
       viewVisible: tabs?.viewVisible ?? true,
       devToolsOpen: this.#devtools.isOpen() || (tabs?.devToolsOpen ?? false),
       webContents: webContents.getAllWebContents().length,
       running: entries.length,
-      maxRunning: extra.maxRunning,
-      shieldAttached: extra.shieldAttached,
-      owner: extra.owner,
-      activeSpace: this.#selected ? this.#deps.getActiveSpace(this.#selected) : undefined,
+      maxRunning: lifecycle.maxRunning,
+      shieldAttached: this.#selected ? leases.shieldAttached(this.#selected) : false,
+      owner,
+      activeSpace: this.#selected ? lifecycle.activeSpaceOf(this.#selected) : undefined,
       spaces: allSpaces,
     };
   }
 
-  #requireTabs(id: string, space: SpaceId = this.#deps.getActiveSpace(id)): TabManager {
-    const tabs = this.#deps.getSpaceManager(id, space);
+  #requireTabs(id: string, space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id)): TabManager {
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     if (!tabs) {
       throw Object.assign(new Error(`environment ${id} is not running`), { code: 'ENV_NOT_RUNNING' });
     }
@@ -898,9 +910,9 @@ export class EnvViewCoordinator {
 
   #afterTabChange(id: string): void {
     if (this.#selected === id) {
-      this.#devtools.activateTab(this.#deps.getSpaceManager(id)?.activeId);
+      this.#devtools.activateTab(this.#deps.getLifecycle().spaceManager(id)?.activeId);
       this.reapplySplitBounds(id);
-      this.#deps.syncShield(id);
+      this.#deps.getLeases().syncShield(id);
     }
     this.#deps.onChange();
   }
@@ -910,24 +922,24 @@ export class EnvViewCoordinator {
     space: SpaceId,
     busyVerb: string,
   ): { tab: Tab; wc: Electron.WebContents } | undefined {
-    if (space === 'agent' && this.#deps.isAgentControlling(id)) {
+    if (space === 'agent' && this.#deps.getLeases().isAgentControlling(id)) {
       throw Object.assign(new Error(`ENV_BUSY: Agent 正在操作 ${id}，请先接管控制权再${busyVerb}`), {
         code: 'ENV_BUSY',
       });
     }
-    const tab = this.#deps.getSpaceManager(id, space)?.active();
+    const tab = this.#deps.getLifecycle().spaceManager(id, space)?.active();
     const wc = tab?.webContents;
     if (!tab || !wc || wc.isDestroyed()) return undefined;
     if (this.#selected !== id) this.select(id, space);
-    else if (this.#deps.getActiveSpace(id) !== space) this.selectSpace(id, space);
+    else if (this.#deps.getLifecycle().activeSpaceOf(id) !== space) this.selectSpace(id, space);
     return { tab, wc };
   }
 
   #detachSelected(): void {
     if (!this.#selected) return;
     this.#devtools.activateTab(undefined);
-    this.#deps.getSpaceManager(this.#selected)?.detach();
-    this.#deps.detachShieldOnly(this.#selected);
+    this.#deps.getLifecycle().spaceManager(this.#selected)?.detach();
+    this.#deps.getLeases().detachShieldOnly(this.#selected);
   }
 
   #syncAfterDevToolsChange(): void {

@@ -1,5 +1,5 @@
 /**
- * 各命令组的子命令清单与统一 Flag 解析器 —— **唯一来源**。
+ * 各命令组的子命令清单、统一 Flag 解析器与声明式帮助文本 —— **唯一来源**。
  *
  * `help`、`default:` 用法提示、`tests/cli-help.test.ts`、`tests/skill-contract.test.ts`
  * 以及 `remedy` 自愈命令防漂移测试全部从这里取。
@@ -10,6 +10,8 @@ export const SUBS = {
     'create',
     'start',
     'stop',
+    'hibernate',
+    'wake',
     'remove',
     'update',
     'select',
@@ -100,7 +102,10 @@ export const SUBS = {
 /** 不在任何组里的顶层命令（`help` 必须也覆盖它们）。 */
 export const TOP_LEVEL = ['exec', 'events', 'evidence', 'call', 'batch', 'methods', 'help'];
 
-/** 明确不含参数的布尔 flag，防止 `warren batch --bail dev` 或 `--data dev` 误吞位置参数。 */
+/**
+ * 明确不含空格分隔值参数的布尔/可选等号 flag，防止后续位置参数被吞：
+ * 如 `--wait`（轮询等待传 `--wait=5000`）、`--headed=false`、`--clear=false`、`--links`、`-h`。
+ */
 export const BOOLEAN_FLAGS = new Set([
   'json',
   'bail',
@@ -114,6 +119,7 @@ export const BOOLEAN_FLAGS = new Set([
   'skill',
   'capabilities',
   'help',
+  'h',
   'expand',
   'background',
   'offline',
@@ -140,10 +146,146 @@ export const BOOLEAN_FLAGS = new Set([
   'mobile',
   'landscape',
   'no-background',
+  'wait',
+  'headed',
+  'clear',
+  'links',
 ]);
 
 /** 各组 `default:` 的用法提示，从 SUBS 生成，格式统一成 `[a|b|c]`。 */
 export const usageOf = (group, tail = '') => `用法: warren ${group} [${SUBS[group].join('|')}]${tail}`;
+
+/** 基于 SUBS 与 TOP_LEVEL 单源声明生成命令参考卡片，消除手写 help 漂移。 */
+const GROUP_DETAIL_LINES = {
+  env: [
+    'warren env list',
+    'warren env create <name> [--proxy=URL] [--start-url=URL] [--headed=false]',
+    'warren env start|stop|hibernate|wake|remove|select <name>',
+    'warren env update <name> [--name=新名字] [--proxy=URL] [--trusted-ca=PEM|none] [--start-url=URL] [--headed=false]',
+    'warren env acquire <name> [--wait=5000]   # 取控制权（--wait=ms 轮询）',
+    'warren env renew|release <name> --lease=<leaseId>',
+    'warren env takeover|egress <name>         # 人工接管 / 当前出口与页面状态',
+    'warren env doctor <name> [--ports=8323,8322]   # 代理 / 登录 / 规则 / 本地端口预检',
+    'warren env move <name> --group=<分组ID|none>',
+    'warren env reorder --group=<分组ID|none> <env-id...>',
+  ],
+  tab: [
+    'warren tab list <env>                        # 该环境的标签（● 是当前激活的）',
+    'warren tab new <env> [url] [--background]     # 新建标签',
+    'warren tab select|close <env> <序号|tabId>    # 切换或关闭标签',
+    'warren tab reopen <env>                      # 重新打开最近关掉的标签（⌘⇧T）',
+  ],
+  group: [
+    'warren group list|create <name>',
+    'warren group rename <分组ID> <name>',
+    'warren group remove <分组ID>                 # 环境保留，只移出分组',
+    'warren group collapse <分组ID> [--expand]',
+  ],
+  browser: [
+    'warren browser open <env> <url> [--wait-until=load|networkidle] [--read]',
+    'warren browser back|forward|reload <env>',
+    'warren browser click|dblclick|hover|focus <env> <target> [--new-tab] [--humanize] [--auto-dialog=accept|dismiss]',
+    'warren browser fill|type <env> <target> <value> [--submit] [--clear=false]',
+    'warren browser press <env> [target] <chord>',
+    'warren browser check|uncheck <env> <target>',
+    'warren browser select <env> <target> <value> [--by=auto|value|label|index]',
+    'warren browser drag|drop <env> <targetOrSrc> <destOrFiles...> [--placement=center|before|after]',
+    'warren browser scroll|scrollintoview <env> <dirOrTarget> [px]',
+    'warren browser upload <env> <target> <file...>',
+    'warren browser download <env> <status|save|cancel> <downloadId> [destPath]',
+    'warren browser wait <env> <ms|selector> [--text=...] [--url=...] [--load=networkidle] [--event=download]',
+    'warren browser dialog <env> <accept|dismiss|policy> [promptOrPolicy]',
+    'warren browser eval <env> <jsExpr>',
+    'warren browser frame <env> <list|main|index|frameId>',
+    'warren browser pdf <env> <output.pdf> [--landscape] [--scale=1]',
+    'warren browser set <env> <viewport|device|geo|offline|headers|media|tz|locale|reset> ...',
+    "warren browser webmcp <env> <list|call> [tool] [--args='{}']",
+    'warren browser vitals|a11y|react <env>',
+    'warren browser snapshot <env> [-i] [-u] [-d=<N>] [--filter=...] [--max-tokens=N] [--boxes] [--content-boundaries] [--json]',
+    'warren browser read <env> [url...] [-s <sel>] [--outline] [--filter=...] [--data] [--links] [--scroll] [--match=...] [--llms=index|full] [--out=<file>]',
+    'warren browser find <env> <by> <spec> <action> [val]',
+    'warren browser get <env> <url|title|text|html|value|attr|box> [target]',
+    'warren browser is <env> <visible|enabled|checked> <target>',
+    'warren browser diff <env> <snapshot|screenshot|urls> [a] [b] [--threshold=0.05] [--output=diff.png]',
+    'warren browser screenshot <env> [--output=<path>] [--full-page] [--annotate] [--format=png|jpeg] [--base64]',
+    'warren browser highlight <env> [选择器]',
+    'warren browser detect-login <env>',
+    'warren browser info|events|console|network <env>',
+  ],
+  notes: ['warren notes get|set|append|list|rm [site] [text]   # 站点记忆（自动注入 snapshot/read）'],
+  flow: ['warren flow steps|save|run|list|show|rm ...         # 只读参数化 GET API Flow'],
+  skills: ['warren skills install|status|refresh|plugin [target|pluginId]'],
+  net: [
+    'warren net rules <env>',
+    "warren net rule add <env> --match='*/api/*' (--mock='{\"id\":1}' | --block | --redirect=/new | --delay=2000 | --request-header=k=v | --response-header=k=v)",
+    'warren net rule enable|disable|remove <env> <ruleId>',
+    'warren net hits <env> [--limit=50]',
+    'warren net body <env> <序号>',
+    'warren net passthrough <env> <匹配串> [--for=30s] [--regex] [--method=GET]',
+    'warren net record start|stop <env> [--output=/abs/a.har]',
+    'warren net replay start|stop <env> [file.har] [--offline]',
+  ],
+  extension: [
+    'warren extension list <env>',
+    'warren extension add <env> <解包目录> [--name=<目录名>]',
+    'warren extension remove <env> <目录名>',
+  ],
+  shot: ['warren shot diff <a.png> <b.png>'],
+  vault: [
+    'warren vault list',
+    'warren vault add <provider> --label=<name>     # 从 stdin 读秘密',
+    'warren vault remove <ref>',
+    'warren vault fill <ref> --env=<env> [--field=password] [--target=JSON] [--domains=a.com]',
+  ],
+  plugin: [
+    'warren plugin list',
+    'warren plugin commands',
+    'warren plugin create <id> [--dir=路径] [--name=显示名]',
+    'warren plugin install <path:|npm:|git:>',
+    'warren plugin update|enable|disable|uninstall|reload <id>',
+    'warren plugin status [id]',
+    'warren plugin logs <id> [--n=50]',
+    'warren plugin config <id> [set <key> <value>]',
+    'warren plugin skill <id>',
+    'warren plugin skill-exposure <id> <on|off>',
+    'warren plugin grant <id> <perm...>',
+    'warren plugin run <id> <command> [--env=<env>] [--input=\'{"k":1}\'] [--lease=<leaseId>]',
+    'warren plugin rpc <id> <method> [--input=\'{"k":1}\'] [--lease=<leaseId>]',
+  ],
+};
+
+const TOP_LEVEL_LINES = {
+  batch: "  warren batch <env> [--bail] [--no-changes] [--auto-dialog=accept|dismiss] [--json] <<'EOF'",
+  exec: "  warren exec <env> <<'JS'   # VM 全局仅 page/console/setTimeout/clearTimeout/emitResult；warren exec --capabilities",
+  events: '  warren events [env] [--follow]',
+  evidence: '  warren evidence capture <env> [--name=<标签>] [--no-screenshot]',
+  methods: '  warren methods [name] [--json]',
+  call: '  warren call <method> [jsonParams]',
+  help: '  warren help',
+};
+
+/** 从命令注册表与子命令清单自动合成 help 正文（对 SUBS 漏项自动兜底补齐）。 */
+export function buildHelpText() {
+  const sections = ['warren —— Warren 的 Agent 接口\n'];
+  for (const [group, subs] of Object.entries(SUBS)) {
+    const lines = GROUP_DETAIL_LINES[group] ?? [];
+    const covered = new Set();
+    for (const line of lines) {
+      sections.push(`  ${line}`);
+      for (const m of line.matchAll(new RegExp(`warren ${group} ([a-z0-9|-]+)`, 'g'))) {
+        for (const s of m[1].split('|')) covered.add(s);
+      }
+    }
+    const missing = subs.filter((s) => !covered.has(s));
+    if (missing.length > 0) sections.push(`  warren ${group} ${missing.join('|')}`);
+    sections.push('');
+  }
+  for (const cmd of TOP_LEVEL) {
+    sections.push(TOP_LEVEL_LINES[cmd] ?? `  warren ${cmd}`);
+  }
+  sections.push('  warren --skill [--full|--base-only|--plugin=<id>]');
+  return sections.join('\n') + '\n';
+}
 
 /**
  * 统一命令行 flag 解析：
@@ -199,7 +341,7 @@ export function parseCliFlags(args) {
       let value;
       if (inline !== undefined) {
         value = inline;
-      } else if (BOOLEAN_FLAGS.has(key) || key === 'links') {
+      } else if (BOOLEAN_FLAGS.has(key)) {
         value = true;
       } else if (args[i + 1] && !args[i + 1].startsWith('-')) {
         value = args[++i];

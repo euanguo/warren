@@ -7,9 +7,11 @@ import { satisfiesEngines, validatePluginPackage } from '../src/main/plugins/pac
 import { PluginStorage, KV_MAX_VALUE_BYTES } from '../src/main/plugins/storage.ts';
 import { openDatabase } from '../src/main/db.ts';
 import { PluginSettings } from '../src/main/plugins/settings.ts';
-import { HostRuntime, SandboxRuntime } from '../src/main/plugins/runtime.ts';
+import { HostRuntime } from '../src/main/plugins/runtime-host.ts';
+import { SandboxRuntime } from '../src/main/plugins/runtime-sandbox.ts';
 import { buildForkEnv } from '../src/main/plugins/worker-process.ts';
-import { buildHostApi, createHandlers, dispatchHostCall } from '../src/main/plugins/api.ts';
+import { buildHostApi, dispatchHostCall } from '../src/main/plugins/api/index.ts';
+import { createTestHandlers } from './helpers/plugin-host.ts';
 
 const pluginPackage = {
   name: 'warren-plugin-notes',
@@ -241,19 +243,14 @@ test('settings：secret 存进 Vault，插件前端只看到「已配置」', as
 test('host API：权限门控 + 路径分发（两种运行时共用同一张表）', async () => {
   const calls: string[] = [];
   const granted = new Set(['environment.read']);
-  const handlers = createHandlers({
+  const handlers = createTestHandlers({
     pluginId: 'com.example.notes',
     currentEnvironmentId: () => 't1',
-    require: (permission) => {
-      if (!granted.has(permission)) {
-        throw Object.assign(new Error(`没有 ${permission}`), { code: 'PLUGIN_PERMISSION_DENIED' });
-      }
-    },
+    granted,
     manager: {
       list: () => [{ id: 't1', storagePath: '/tmp/t1', leaseId: 'lease-1', leaseExpiresAt: 123 }],
       get: () => ({ id: 't1', storagePath: '/tmp/t1', leaseId: 'lease-1', leaseExpiresAt: 123 }),
     } as never,
-    vault: { available: true, list: () => [], reveal: () => ({}) },
     storage: {
       get: () => null,
       set: async () => undefined,
@@ -262,11 +259,9 @@ test('host API：权限门控 + 路径分发（两种运行时共用同一张表
       db: () => ({}),
     } as never,
     settings: { get: () => ({ title: '笔记' }) } as never,
-    descriptors: [],
     record: (type) => calls.push(type),
     log: (level, message) => calls.push(`${level}:${message}`),
     signal: (channel) => calls.push(`signal:${channel}`),
-    withLease: async (_env, fn) => fn('lease'),
   });
 
   assert.deepEqual(await dispatchHostCall(handlers, 'environment.list', []), [{ id: 't1', storagePath: '/tmp/t1' }]);
@@ -294,15 +289,10 @@ test('host API：权限门控 + 路径分发（两种运行时共用同一张表
 
 test('plugin browser.waitForTimeout rejects missing / non-finite / negative milliseconds', async () => {
   const calls: number[] = [];
-  const granted = new Set(['browser.dom.read']);
-  const handlers = createHandlers({
+  const handlers = createTestHandlers({
     pluginId: 'com.example.timeout',
     currentEnvironmentId: () => 't1',
-    require: (permission) => {
-      if (!granted.has(permission)) {
-        throw Object.assign(new Error(`没有 ${permission}`), { code: 'PLUGIN_PERMISSION_DENIED' });
-      }
-    },
+    granted: new Set(['browser.dom.read']),
     manager: {
       controllerFor: () => ({
         waitForTimeout: (ms: number) => {
@@ -311,14 +301,6 @@ test('plugin browser.waitForTimeout rejects missing / non-finite / negative mill
         },
       }),
     } as never,
-    vault: { available: true, list: () => [], reveal: () => ({}) },
-    storage: {} as never,
-    settings: { get: () => ({}) } as never,
-    descriptors: [],
-    record: () => undefined,
-    log: () => undefined,
-    signal: () => undefined,
-    withLease: async (_env, fn) => fn('lease'),
   });
 
   assert.deepEqual(await dispatchHostCall(handlers, 'browser.waitForTimeout', [25]), { ok: true });
@@ -346,23 +328,11 @@ test('environment.write：换代理 / 信一张 CA / 启停，都要显式授权
     },
     stop: (id: string) => started.push(`stop:${id}`),
   };
-  const handlers = createHandlers({
+  const handlers = createTestHandlers({
     pluginId: 'com.warren.whistle',
     currentEnvironmentId: () => undefined,
-    require: (permission) => {
-      if (!granted.has(permission)) {
-        throw Object.assign(new Error(`没有 ${permission}`), { code: 'PLUGIN_PERMISSION_DENIED' });
-      }
-    },
+    granted,
     manager: manager as never,
-    vault: { available: true, list: () => [], reveal: () => ({}) },
-    storage: {} as never,
-    settings: { get: () => ({}) } as never,
-    descriptors: [],
-    record: () => undefined,
-    log: () => undefined,
-    signal: () => undefined,
-    withLease: async (_env, fn) => fn('lease'),
   });
 
   // 只读权限：三条写通道全部拒绝

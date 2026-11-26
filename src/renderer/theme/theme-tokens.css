@@ -280,16 +280,8 @@
   --shell-title-bar-height: 3rem;
   --shell-top-row-height: 2.5rem;
   --shell-frame-lip: 0px;
-  --shell-chrome-row-height: 2.25rem;
   --shell-address-row-height: 2.5rem;
   --shell-card-radius: var(--radius-xl);
-  --rail-padding: var(--space-4);
-  --rail-padding-y: var(--rail-padding);
-  --rail-control-size: var(--control-size-lg);
-  --rail-control-icon-size: var(--size-icon-sm);
-  --rail-control-radius: var(--control-radius);
-  --rail-gap: var(--space-1);
-  --rail-width: calc(var(--rail-control-size) + 2 * var(--rail-padding));
   --surface-recessed: #e2e7ef;
 
   color-scheme: light;

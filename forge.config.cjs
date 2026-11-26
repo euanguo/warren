@@ -30,9 +30,8 @@ module.exports = {
     appCopyright: 'Copyright © 2026 euanguo',
     // macOS 认 icon.icns，Windows/Linux 认 icon.png（assets/ 下两份都在）
     icon: './assets/icon',
-    // 自带 Skill 要跟着 app 走：主进程从 Resources/skills 读它装到 agent 目录
-    // （见 src/main/agent-integration.ts 与 main.ts 的 skillSourceDir）
-    extraResource: ['./skills'],
+    // 自带 Skill 与桌面图标等静态资产跟着 app 走：主进程从 Resources 读取
+    extraResource: ['./skills', './assets'],
     // 公证要用 hardened runtime + entitlements；不签名时不传，免得本地跑不起来
     ...(shouldSign
       ? {

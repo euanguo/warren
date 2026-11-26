@@ -3,7 +3,7 @@
  * 全部走 CDP `Emulation.*` / `Network.*`，由 RPC 写门控保护。
  */
 import type { PageContext } from '../ctx.ts';
-import { err } from '../page-helpers.ts';
+import { richErr } from '../errors.ts';
 
 export interface DevicePreset {
   name: string;
@@ -100,7 +100,10 @@ export async function applyEmulationSetting(
       const key = setting.device.trim().toLowerCase().replace(/\s+/g, '-');
       const preset = DEVICE_PRESETS[key];
       if (!preset) {
-        throw err('BAD_REQUEST', `未知设备预设：${setting.device}（可选：${Object.keys(DEVICE_PRESETS).join(', ')}）`);
+        throw richErr(
+          'BAD_REQUEST',
+          `未知设备预设：${setting.device}（可选：${Object.keys(DEVICE_PRESETS).join(', ')}）`,
+        );
       }
       await ctx.send('Emulation.setDeviceMetricsOverride', {
         width: preset.width,
@@ -116,7 +119,7 @@ export async function applyEmulationSetting(
     }
     case 'geo': {
       if (!Number.isFinite(setting.latitude) || !Number.isFinite(setting.longitude)) {
-        throw err('BAD_REQUEST', 'geo 需要合法的 latitude 与 longitude');
+        throw richErr('BAD_REQUEST', 'geo 需要合法的 latitude 与 longitude');
       }
       await ctx.send('Emulation.setGeolocationOverride', {
         latitude: setting.latitude,
@@ -156,12 +159,12 @@ export async function applyEmulationSetting(
       };
     }
     case 'tz': {
-      if (!setting.timezoneId.trim()) throw err('BAD_REQUEST', 'tz 不能为空（示例：Asia/Shanghai 或 UTC）');
+      if (!setting.timezoneId.trim()) throw richErr('BAD_REQUEST', 'tz 不能为空（示例：Asia/Shanghai 或 UTC）');
       await ctx.send('Emulation.setTimezoneOverride', { timezoneId: setting.timezoneId.trim() });
       return { ok: true, kind: 'tz', timezoneId: setting.timezoneId.trim() };
     }
     case 'locale': {
-      if (!setting.locale.trim()) throw err('BAD_REQUEST', 'locale 不能为空（示例：zh-CN 或 en-US）');
+      if (!setting.locale.trim()) throw richErr('BAD_REQUEST', 'locale 不能为空（示例：zh-CN 或 en-US）');
       await ctx.send('Emulation.setLocaleOverride', { locale: setting.locale.trim() });
       return { ok: true, kind: 'locale', locale: setting.locale.trim() };
     }

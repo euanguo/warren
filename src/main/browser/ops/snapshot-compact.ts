@@ -1,8 +1,5 @@
 import type { AxNode, SiteNote } from '../../../shared/types.ts';
-
-/** 交互角色白名单（含 ARIA 树项、网格单元、折叠三角、颜色选择器与 DOM 补盲节点）。 */
-export const INTERACTIVE_ROLE_RE =
-  /^(button|link|textbox|checkbox|radio|combobox|menuitem|menuitemcheckbox|menuitemradio|tab|switch|slider|searchbox|spinbutton|option|treeitem|listbox|gridcell|disclosuretriangle|colorwell|clickable|file_input)$/i;
+import { INTERACTIVE_ROLE_RE } from '../roles.ts';
 
 /** 语义上下文容器角色（在缩进树与 `--filter` 剪枝时保留作结构锚点）。 */
 const CONTAINER_CONTEXT_ROLE_RE =

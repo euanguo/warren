@@ -8,10 +8,9 @@
  *   `--limit N` 截断与字段漂移告警（`schemaDrift`）。
  */
 import type { FetchResult, NetworkEntry, SavedFlowRecord, SavedFlowSpec } from '../../../shared/types.ts';
-import { err } from '../page-helpers.ts';
+import { richErr } from '../errors.ts';
+import { isSensitiveHeader, isSensitiveKey } from '../redact.ts';
 
-const FORBIDDEN_HEADER_RE =
-  /^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|x-auth-token|x-access-token|x-csrf-token|x-xsrf-token)$/i;
 const SECRET_VALUE_RE = /(?:bearer\s+[a-z0-9._-]{12,}|sk-[a-z0-9]{16,}|ghp_[a-z0-9]{20,}|password\s*[:=]\s*\S+)/i;
 
 export interface FlowStepCandidate {
@@ -26,7 +25,7 @@ export interface FlowStepCandidate {
 export function normalizeFlowName(raw: string): string {
   const name = raw.trim().toLowerCase();
   if (!name || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) {
-    throw err('BAD_REQUEST', `非法 flow 名称：${raw}（只允许小写字母、数字、点、下划线、连字符）`);
+    throw richErr('BAD_REQUEST', `非法 flow 名称：${raw}（只允许小写字母、数字、点、下划线、连字符）`);
   }
   return name;
 }
@@ -35,29 +34,34 @@ export function normalizeFlowName(raw: string): string {
 export function sanitizeFlowSpec(input: Partial<SavedFlowSpec>): { site: string; spec: SavedFlowSpec } {
   const method = String(input.method ?? 'GET').toUpperCase();
   if (method !== 'GET') {
-    throw err('BAD_REQUEST', `安全约束：Saved Flow 仅允许只读 GET 请求，拒绝 ${method}`);
+    throw richErr('BAD_REQUEST', `安全约束：Saved Flow 仅允许只读 GET 请求，拒绝 ${method}`);
   }
   const urlTemplate = String(input.urlTemplate ?? '').trim();
-  if (!urlTemplate) throw err('BAD_REQUEST', 'Saved Flow 缺少 urlTemplate');
+  if (!urlTemplate) throw richErr('BAD_REQUEST', 'Saved Flow 缺少 urlTemplate');
   if (SECRET_VALUE_RE.test(urlTemplate)) {
-    throw err('BAD_REQUEST', 'Saved Flow 的 urlTemplate 包含疑似凭据明文，已拒绝保存');
+    throw richErr('BAD_REQUEST', 'Saved Flow 的 urlTemplate 包含疑似凭据明文，已拒绝保存');
   }
   let parsed: URL;
   try {
     // 把 {{param}} 替换成合法占位值来校验 URL 结构
     parsed = new URL(urlTemplate.replace(/\{\{\s*[a-zA-Z0-9_.-]+\s*\}\}/g, 'placeholder'));
   } catch {
-    throw err('BAD_REQUEST', `urlTemplate 不是合法的 http/https URL：${urlTemplate}`);
+    throw richErr('BAD_REQUEST', `urlTemplate 不是合法的 http/https URL：${urlTemplate}`);
   }
   if (!/^https?:$/i.test(parsed.protocol)) {
-    throw err('BAD_REQUEST', `Saved Flow 只允许 http/https 协议，拒绝 ${parsed.protocol}`);
+    throw richErr('BAD_REQUEST', `Saved Flow 只允许 http/https 协议，拒绝 ${parsed.protocol}`);
+  }
+  for (const key of parsed.searchParams.keys()) {
+    if (isSensitiveHeader(key) || isSensitiveKey(key)) {
+      throw richErr('BAD_REQUEST', `Saved Flow 的 urlTemplate 包含敏感查询参数 ${key}，已拒绝保存`);
+    }
   }
 
   const safeHeaders: Record<string, string> = {};
   if (input.headers && typeof input.headers === 'object') {
     for (const [k, v] of Object.entries(input.headers)) {
       const key = k.trim();
-      if (!key || FORBIDDEN_HEADER_RE.test(key)) continue;
+      if (!key || isSensitiveHeader(key) || isSensitiveKey(key)) continue;
       const val = String(v ?? '');
       if (SECRET_VALUE_RE.test(val)) continue;
       safeHeaders[key] = val;
@@ -72,7 +76,7 @@ export function sanitizeFlowSpec(input: Partial<SavedFlowSpec>): { site: string;
     : undefined;
   const description = input.description ? String(input.description).trim().slice(0, 200) : undefined;
   if (description && SECRET_VALUE_RE.test(description)) {
-    throw err('BAD_REQUEST', 'Saved Flow 的 description 包含疑似凭据明文，已拒绝保存');
+    throw richErr('BAD_REQUEST', 'Saved Flow 的 description 包含疑似凭据明文，已拒绝保存');
   }
 
   return {
@@ -97,10 +101,34 @@ export function renderFlowUrl(urlTemplate: string, params: Record<string, string
       missing.push(key);
       return '';
     }
-    return encodeURIComponent(String(val));
+    const raw = String(val);
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      decoded = raw;
+    }
+    if (
+      raw === '.' ||
+      raw === '..' ||
+      decoded === '.' ||
+      decoded === '..' ||
+      /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(decoded)
+    ) {
+      throw richErr('BAD_REQUEST', `Flow 参数 ${key} 包含非法路径段: ${raw}`);
+    }
+    return encodeURIComponent(raw);
   });
   if (missing.length > 0) {
-    throw err('BAD_REQUEST', `Flow 缺少必填参数：${missing.join(', ')}（请通过 --param key=val 传入）`);
+    throw richErr('BAD_REQUEST', `Flow 缺少必填参数：${missing.join(', ')}（请通过 --param key=val 传入）`);
+  }
+  try {
+    const u = new URL(rendered);
+    if (u.pathname.split('/').some((seg) => seg === '..' || seg === '%2e%2e' || seg.toLowerCase() === '%2e%2e')) {
+      throw richErr('BAD_REQUEST', 'Flow 渲染后 URL 包含非法 .. 路径段');
+    }
+  } catch (e) {
+    if ((e as { code?: string }).code === 'BAD_REQUEST') throw e;
   }
   return rendered;
 }

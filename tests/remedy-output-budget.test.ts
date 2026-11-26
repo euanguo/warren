@@ -6,8 +6,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseCliFlags, validateCliInvocation } from '../bin/commands.mjs';
 import { sampleBuiltInRemedies } from '../src/main/browser/ops/remedy.ts';
-import { applyOutputBudget, stripTerminalEscapes, wrapUntrustedContent } from '../src/main/browser/ops/output-guard.ts';
-import { computeRpcTimeoutMs } from '../src/main/browser/ops/budget.ts';
+import {
+  applyOutputBudget,
+  computeRpcTimeoutMs,
+  stripTerminalEscapes,
+  wrapUntrustedContent,
+} from '../bin/output-guard.mjs';
 
 test('所有内置 Remedy 自愈命令均为合法可执行 CLI 命令（防漂移守卫）', () => {
   const remedies = sampleBuiltInRemedies();
@@ -67,7 +71,8 @@ test('parseCliFlags 支持 POSIX -- 终止符和 -u 短参，避免把带连字�
   assert.deepEqual(parsed.flags, {});
 
   const snap = parseCliFlags(['browser', 'snapshot', 'dev', '-i', '-u', '-d', '3']);
-  assert.equal(snap.flags.interactive, true);
-  assert.equal(snap.flags.urls, true);
-  assert.equal(snap.flags.depth, '3');
+  const flags = snap.flags as Record<string, unknown>;
+  assert.equal(flags.interactive, true);
+  assert.equal(flags.urls, true);
+  assert.equal(flags.depth, '3');
 });

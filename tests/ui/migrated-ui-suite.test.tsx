@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppTitlebar } from '@/app/app-titlebar';
@@ -11,10 +12,17 @@ import { SettingsPage } from '@/features/settings/settings-page';
 import type { Environment } from '@shared/types';
 
 function makeEnvs(count: number): Environment[] {
+  const now = '2026-01-01T00:00:00.000Z';
   return Array.from({ length: count }, (_, index) => ({
     id: index === 0 ? 'cap' : `env-${index}`,
     name: index === 0 ? 'cap' : `环境 ${index}`,
+    storagePath: `/tmp/warren-ui-${index}`,
+    createdBy: 'human',
     status: index === 0 ? 'running' : 'stopped',
+    headed: true,
+    order: index,
+    createdAt: now,
+    updatedAt: now,
     owner: 'none',
     activeSpaceId: 'person',
     spaces: [
@@ -22,13 +30,35 @@ function makeEnvs(count: number): Environment[] {
         id: 'person',
         label: '我的',
         owner: 'none',
-        tabs: [{ id: 'p1', url: 'http://127.0.0.1:8899/cap/form.html', title: 'form fixture', loading: false }],
+        tabs: [
+          {
+            id: 'p1',
+            space: 'person',
+            url: 'http://127.0.0.1:8899/cap/form.html',
+            title: 'form fixture',
+            loading: false,
+            audible: false,
+            muted: false,
+            createdAt: now,
+          },
+        ],
       },
       {
         id: 'agent',
         label: 'Agent',
         owner: 'none',
-        tabs: [{ id: 'a1', url: 'http://127.0.0.1:8899/cap/form.html', title: 'agent tab', loading: false }],
+        tabs: [
+          {
+            id: 'a1',
+            space: 'agent',
+            url: 'http://127.0.0.1:8899/cap/form.html',
+            title: 'agent tab',
+            loading: false,
+            audible: false,
+            muted: false,
+            createdAt: now,
+          },
+        ],
       },
     ],
   }));
@@ -37,12 +67,13 @@ function makeEnvs(count: number): Environment[] {
 describe('无头迁移：原 scripts/regress/ui.cjs 核心外壳 / 工作台 / 设置 / 插件隔离用例', () => {
   it('7.1–7.2 侧栏列出 >=7 个环境行、分组段头（含未分组）与实时搜索过滤', () => {
     const envs = makeEnvs(7);
+    const now = '2026-01-01T00:00:00.000Z';
     render(
       <TooltipProvider>
         <SidebarProvider>
           <EnvironmentSidebar
             environments={envs}
-            groups={[{ id: 'g1', name: '工作组', collapsed: false }]}
+            groups={[{ id: 'g1', name: '工作组', collapsed: false, order: 0, createdAt: now, updatedAt: now }]}
             selected="cap"
             compact={false}
             pluginActions={[]}
@@ -298,7 +329,7 @@ describe('无头迁移：原 scripts/regress/ui.cjs 核心外壳 / 工作台 / �
 
   it('11.x 坏插件在 PluginSurfaceHost 内被隔离渲染错误卡片，不拖垮宿主节点', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    function BrokenPlugin() {
+    function BrokenPlugin(): ReactNode {
       throw new Error('simulated plugin crash');
     }
 

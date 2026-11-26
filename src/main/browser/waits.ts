@@ -14,10 +14,12 @@ import type {
   WaitPredicate,
 } from '../../shared/types.ts';
 import type { PageContext } from './ctx.ts';
+import { ELEMENT_VISIBLE_JS } from './dom-scripts.ts';
 import { evaluate } from './escape.ts';
-import { ACTION_TIMEOUT_DEFAULT, err, evalOnNode, nodeIdFor } from './page-helpers.ts';
+import { ACTION_TIMEOUT_DEFAULT, evalOnNode, nodeIdFor } from './page-helpers.ts';
+import { richErr } from './errors.ts';
 import { matchUrl } from './matcher.ts';
-import { readAxNodes } from './snapshot.ts';
+import { readAxNodes } from './ax-tree.ts';
 import { setFileChooserInterception } from './session.ts';
 
 /** 老三种 predicate 原样保留；新增 url/function/loadState/event。 */
@@ -67,7 +69,7 @@ export async function waitFor(
       // 页面正在导航，DOM 会短暂不可用
     }
     if (Date.now() > deadline) {
-      throw err('TIMEOUT', `waitFor timed out: ${JSON.stringify(predicate)}`);
+      throw richErr('TIMEOUT', `waitFor timed out: ${JSON.stringify(predicate)}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -83,7 +85,7 @@ export async function waitForURL(
     const url = ctx.wc.getURL();
     if (matchUrl(url, matcher)) return { url };
     if (Date.now() > deadline) {
-      throw err('TIMEOUT', `waitForURL timed out: ${JSON.stringify(matcher)} (at ${url})`);
+      throw richErr('TIMEOUT', `waitForURL timed out: ${JSON.stringify(matcher)} (at ${url})`);
     }
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -100,7 +102,7 @@ export async function waitForSelector(
     try {
       const found = await resolveQuiet(ctx, target);
       if (found) {
-        const ok = await checkState(ctx, found.backendId, state);
+        const ok = await checkState(ctx, found.backendId, state, found.sessionId);
         if (ok) return found.ref ? { ref: found.ref } : {};
       } else if (state === 'detached' || state === 'hidden') {
         return {};
@@ -109,7 +111,7 @@ export async function waitForSelector(
       if (state === 'detached' || state === 'hidden') return {};
     }
     if (Date.now() > deadline) {
-      throw err('TIMEOUT', `waitForSelector timed out: ${JSON.stringify(target)} state=${state}`);
+      throw richErr('TIMEOUT', `waitForSelector timed out: ${JSON.stringify(target)} state=${state}`);
     }
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -118,8 +120,12 @@ export async function waitForSelector(
 async function resolveQuiet(
   ctx: PageContext,
   target: TargetInput,
-): Promise<{ backendId: number; ref?: string } | null> {
+): Promise<{ backendId: number; sessionId?: string; ref?: string } | null> {
   try {
+    if (ctx.resolveTarget) {
+      const r = await ctx.resolveTarget(target);
+      return { backendId: r.backendNodeId, sessionId: r.sessionId };
+    }
     return { backendId: await ctx.backendIdFor(target) };
   } catch (e) {
     if ((e as { code?: string }).code === 'TARGET_AMBIGUOUS') throw e;
@@ -127,29 +133,22 @@ async function resolveQuiet(
   }
 }
 
-async function checkState(ctx: PageContext, backendId: number, state: SelectorState): Promise<boolean> {
+async function checkState(
+  ctx: PageContext,
+  backendId: number,
+  state: SelectorState,
+  resolvedSessionId?: string,
+): Promise<boolean> {
   try {
     // 跨源 iframe 里的元素要在它自己的会话里查（见 page-helpers 的 resolveTarget）
-    const sessionId = (await ctx.frameOf(backendId).catch(() => undefined))?.sessionId;
+    const sessionId = resolvedSessionId ?? (await ctx.frameOf(backendId).catch(() => undefined))?.sessionId;
     const nodeId = await nodeIdFor(ctx, backendId, sessionId);
     if (state === 'attached') return true;
     if (state === 'detached') return false;
-    const { model } = await ctx
-      .sendOn<{ model: { content: number[] } }>(sessionId, 'DOM.getBoxModel', { nodeId })
-      .catch(() => ({ model: null }) as never);
-    const hasBox = Boolean(model && model.content && model.content.length >= 6);
-    if (state === 'visible') {
-      if (!hasBox) return false;
-      // 盒模型非空 + computed style 非隐藏（display:none/零尺寸无盒模型）
-      const vis = await evalOnNode(
-        ctx,
-        nodeId,
-        `(el) => { const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none'; }`,
-        sessionId,
-      ).catch(() => true);
-      return hasBox && vis !== false;
+    if (state === 'visible' || state === 'hidden') {
+      const vis = await evalOnNode(ctx, nodeId, ELEMENT_VISIBLE_JS, sessionId).catch(() => false);
+      return state === 'visible' ? vis === true : vis !== true;
     }
-    if (state === 'hidden') return !hasBox;
     // enabled/disabled：经 DOM 属性 + 原生属性判定
     const disabled = await evalOnNode(
       ctx,
@@ -183,7 +182,7 @@ export async function waitForFunction(
       if ((e as { code?: string }).code === 'DIALOG_OPEN') throw e;
     }
     if (Date.now() > deadline) {
-      throw err('TIMEOUT', `waitForFunction timed out: ${fn.slice(0, 120)}`);
+      throw richErr('TIMEOUT', `waitForFunction timed out: ${fn.slice(0, 120)}`);
     }
     await new Promise((r) => setTimeout(r, polling));
   }
@@ -197,7 +196,7 @@ export async function waitForLoadState(
   const timeoutMs = options.timeoutMs ?? 15_000;
   if (state === 'commit') {
     const url = await waitForCommit(ctx, timeoutMs);
-    if (url === null) throw err('TIMEOUT', `waitForLoadState(commit) timed out at ${ctx.wc.getURL()}`);
+    if (url === null) throw richErr('TIMEOUT', `waitForLoadState(commit) timed out at ${ctx.wc.getURL()}`);
     return;
   }
   if (state === 'domcontentloaded') {
@@ -206,14 +205,17 @@ export async function waitForLoadState(
       const rs = await readyState(ctx);
       if (rs && rs !== 'loading') return;
       if (!ctx.wc.isLoading() && rs === '') return; // 已处在目标态
-      if (Date.now() > deadline) throw err('TIMEOUT', 'waitForLoadState(domcontentloaded) timed out');
+      if (Date.now() > deadline) throw richErr('TIMEOUT', 'waitForLoadState(domcontentloaded) timed out');
       await new Promise((r) => setTimeout(r, 150));
     }
   }
   // load / networkidle
-  const loaded = await awaitLoad(ctx, state, timeoutMs);
+  const loaded = await awaitLoad(ctx, state, timeoutMs, options.idleMs);
   if (loaded.timedOut) {
-    throw err('TIMEOUT', `waitForLoadState(${state}) timed out: url=${loaded.url} readyState=${await readyState(ctx)}`);
+    throw richErr(
+      'TIMEOUT',
+      `waitForLoadState(${state}) timed out: url=${loaded.url} readyState=${await readyState(ctx)}`,
+    );
   }
 }
 
@@ -262,7 +264,7 @@ async function waitForEventLoop(ctx: PageContext, kind: WaitEventKind, deadline:
     }
     if (Date.now() > deadline) {
       const hint = kind === 'popup' ? '（被拦的走 popup.denied 事件，可查 events.list）' : '';
-      throw err('TIMEOUT', `waitForEvent(${kind}) timed out${hint}`);
+      throw richErr('TIMEOUT', `waitForEvent(${kind}) timed out${hint}`);
     }
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -275,6 +277,7 @@ export async function awaitLoad(
   ctx: PageContext,
   waitUntil: 'commit' | 'domcontentloaded' | 'load' | 'networkidle' | undefined,
   timeoutMs: number,
+  idleMs?: number,
 ): Promise<{ url: string; committed: boolean; timedOut: boolean }> {
   const wc = ctx.wc;
   if (waitUntil === 'commit') {
@@ -313,7 +316,7 @@ export async function awaitLoad(
       }
     });
     const byEvent = await loaded;
-    if (byEvent && waitUntil === 'networkidle') await awaitIdle(ctx, timeoutMs);
+    if (byEvent && waitUntil === 'networkidle') await awaitIdle(ctx, timeoutMs, idleMs);
     return { url: wc.getURL(), committed: true, timedOut: !byEvent };
   }
   return { url: wc.getURL(), committed: true, timedOut: false };

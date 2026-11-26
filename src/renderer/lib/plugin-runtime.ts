@@ -3,99 +3,22 @@
  *
  * 插件产物是一个普通 ESM bundle，由主进程通过 `warren-plugin://<id>/app.js` 供给。
  * 这里做三件事：
- * 1. 把宿主 React / rpc / 信号钩子挂到 `window.__WARREN__`（插件不打包第二份 React，
- *    自带一份会让 hooks 直接崩）；
+ * 1. 把宿主 React / rpc / 信号钩子注入传给 `register(app)`（插件不打包第二份 React）；
  * 2. `import()` 插件的 bundle，调它的 `register(app)`；
  * 3. 收集它注册的「面」，**只接受清单里声明过的**（fail closed）。
  *
  * 面本身由 warren 自己的组件渲染，插件只提供组件与数据。
  */
-import { useEffect, useRef, type ComponentType } from 'react';
+import { useEffect, useRef } from 'react';
 import * as React from 'react';
 import { toast } from 'sonner';
-import { Icon } from '@/components/icons';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button, IconButton } from '@/components/ui/button';
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Input } from '@/components/ui/input';
-import { Kbd } from '@/components/ui/kbd';
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { StatusDot, StatusMark } from '@/components/ui/status-dot';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Spinner } from '@/components/ui/spinner';
-import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  ListRow,
-  ListRowActionButton,
-  ListRowActions,
-  ListRowLabel,
-  ListRowLabelText,
-  ListRowMain,
-  ListRowMeta,
-} from '@/components/ui/list-row';
-import {
-  cardSurfaceClass,
-  controlFieldClass,
-  elevatedMenuSurfaceClass,
-  menuItemInteractiveClass,
-} from '@/theme/surface';
-import { cn } from '@/lib/utils';
-import { openPluginPage, openSettings, type BuiltinSettingsSection } from '@/state/navigation-store';
+  openPluginPage,
+  openSettings,
+  requestPluginInspector,
+  requestPluginPopover,
+  type BuiltinSettingsSection,
+} from '@/state/navigation-store';
 import {
   beginPluginLoad,
   clearPluginBadgeSurface,
@@ -103,13 +26,10 @@ import {
   registerPluginBadgeSurface,
   setPluginEnvBadge,
   type PluginEnvBadge,
-  type PluginEnvBadgeSetter,
-  type PluginEnvBadgeSurface,
 } from '@/lib/plugin-badges';
-import type { HostEnvironmentSummary, InstalledPlugin, PluginSettingValue, PluginSignal, SpaceId } from '@shared/types';
-
-export const OPEN_PLUGIN_POPOVER_EVENT = 'warren:open-plugin-popover';
-export const OPEN_PLUGIN_INSPECTOR_EVENT = 'warren:open-plugin-inspector';
+import { emptyRegistry, type PluginAppApi, type PluginRegistry } from '@/lib/plugin-sdk-types';
+import { PLUGIN_UI } from '@/lib/plugin-ui';
+import type { InstalledPlugin, PluginSignal } from '@shared/types';
 
 function isPopoverWindow(): boolean {
   if (typeof window === 'undefined') return false;
@@ -127,333 +47,6 @@ const ALLOWED_PLUGIN_SETTINGS_SECTIONS: ReadonlySet<BuiltinSettingsSection> = ne
 
 export function isAllowedPluginSettingsSection(section: string): section is BuiltinSettingsSection {
   return ALLOWED_PLUGIN_SETTINGS_SECTIONS.has(section as BuiltinSettingsSection);
-}
-
-/**
- * 插件能用的宿主 UI —— **单一出口**。
- *
- * 为什么要有它：插件 bundle 是独立的一份 ESM，走 `warren-plugin://` 供给，**import 不到宿主的
- * 模块图**（`@/components/ui/*` 对它是不可见的）。没有这层，插件只能手写 `<div className="rounded-md
- * border border-border">` —— 那等于每个插件自己抄一遍设计契约，token / recipe / 角形状全绕过了。
- *
- * 规矩（和宿主自己的组件用法一致，见 `components/ui/README.md`）：
- * - 用这里的组件，**不要**自己拼 chrome；要特殊布局就用 `cn` 拼 Tailwind 工具类。
- * - 几何 / 颜色只从组件和 recipe（`cardSurfaceClass` / `controlFieldClass`）来，不写死 hex / `h-8`。
- * - 这份清单就是**兼容面**：插件只能拿到这里有的东西，加东西是加法，改/删要走 `apiVersion`。
- *
- * 这是 renderer 与插件之间的边界类型，所以放这儿而不是 `shared/`——它不过 RPC。
- */
-export const PLUGIN_UI = {
-  // 工具
-  cn,
-  toast,
-  cardSurfaceClass,
-  controlFieldClass,
-  elevatedMenuSurfaceClass,
-  menuItemInteractiveClass,
-  // 图标（`components/icons.tsx` 是图标单源，插件不引图标包）
-  Icon,
-  // 基础控件
-  Button,
-  IconButton,
-  Input,
-  Textarea,
-  Switch,
-  Checkbox,
-  Badge,
-  Kbd,
-  StatusDot,
-  StatusMark,
-  Separator,
-  Spinner,
-  Alert,
-  AlertTitle,
-  AlertDescription,
-  // 卡片与分栏
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardAction,
-  CardContent,
-  CardFooter,
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-  // 表单
-  Field,
-  FieldLabel,
-  FieldDescription,
-  FieldError,
-  // 对话框
-  Dialog,
-  DialogTrigger,
-  DialogClose,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  // 确认框（破坏性操作用它，别用 Dialog 自己拼）
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogAction,
-  AlertDialogCancel,
-  // 选择器
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-  SelectGroup,
-  SelectLabel,
-  SelectSeparator,
-  // 菜单
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  // 提示
-  Tooltip,
-  TooltipProvider,
-  TooltipTrigger,
-  TooltipContent,
-  // 容器
-  ScrollArea,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-  EmptyContent,
-  // 列表行（插件面板里的行用它，别手写 hover / 选中态）
-  ListRow,
-  ListRowMain,
-  ListRowLabel,
-  ListRowLabelText,
-  ListRowMeta,
-  ListRowActions,
-  ListRowActionButton,
-} as const;
-
-export type PluginUi = typeof PLUGIN_UI;
-
-export interface PluginSurfaceProps {
-  pluginId: string;
-  /** inspectorTab / popover / envAction / statusBadge 这类跟环境相关的面会拿到 */
-  environmentId?: string;
-  /** 当前环境激活的 Space（person / agent） */
-  space?: SpaceId;
-  /** 当前激活标签页的 URL */
-  url?: string;
-  /** railPage 的子路径（`warren-plugin://<id>/<path>` 里 path 之后的部分） */
-  subPath?: string;
-  /** popover 面用于主动关闭独立浮窗 */
-  closePopover?: () => void;
-  /** 跳转到本插件的全屏 railPage */
-  openPluginPage?: (surfaceId?: string) => void;
-  /** 打开右侧工作台并切到本插件的 inspectorTab */
-  openInspectorTab?: (surfaceId?: string) => void;
-}
-
-export interface PluginRailPage {
-  kind: 'railPage';
-  pluginId: string;
-  id: string;
-  title: string;
-  icon?: string;
-  path?: string;
-  component: ComponentType<PluginSurfaceProps>;
-}
-
-export interface PluginSettingsSection {
-  kind: 'settingsSection';
-  pluginId: string;
-  id: string;
-  title: string;
-  description?: string;
-  icon?: string;
-  component: ComponentType<PluginSurfaceProps>;
-}
-
-export interface PluginInspectorTab {
-  kind: 'inspectorTab';
-  pluginId: string;
-  id: string;
-  title: string;
-  icon?: string;
-  component: ComponentType<PluginSurfaceProps>;
-}
-
-/** envAction 是声明式的：界面由 warren 的环境菜单渲染，插件只给「动作 → 命令」。 */
-export interface PluginEnvAction {
-  pluginId: string;
-  id: string;
-  title: string;
-  icon?: string;
-  command: string;
-}
-
-export interface PluginPopoverSurface {
-  kind: 'popover';
-  pluginId: string;
-  id: string;
-  title: string;
-  icon?: string;
-  shortcut?: string;
-  width?: number;
-  height?: number;
-  component: ComponentType<PluginSurfaceProps>;
-}
-
-export interface PluginCommandBarAction {
-  kind: 'commandBarAction';
-  pluginId: string;
-  id: string;
-  title: string;
-  description?: string;
-  icon?: string;
-  shortcut?: string;
-  command?: string;
-  onTrigger?: (environmentId?: string) => Promise<void> | void;
-}
-
-export interface PluginStatusBadge {
-  kind: 'statusBadge';
-  pluginId: string;
-  id: string;
-  title: string;
-  icon?: string;
-  component?: ComponentType<PluginSurfaceProps>;
-}
-
-/** 声明式视图节点描述（供轻量插件无需手写 JS bundle 直接由宿主渲染，组件实现在 app/plugin-surfaces.tsx） */
-export type DeclarativeViewNode =
-  | { type: 'text'; value: string; muted?: boolean }
-  | { type: 'keyValue'; items: Array<{ label: string; value: string }> }
-  | { type: 'button'; label: string; rpcMethod?: string; command?: string; input?: unknown };
-
-export async function runDeclarativeButtonAction(
-  pluginId: string,
-  node: Extract<DeclarativeViewNode, { type: 'button' }>,
-  environmentId?: string,
-): Promise<void> {
-  if (node.rpcMethod) {
-    await callPluginRpc(pluginId, node.rpcMethod, node.input);
-    toast.success('操作已执行');
-  } else if (node.command && environmentId) {
-    await window.envApi.pluginRun(pluginId, node.command, environmentId);
-    toast.success('命令已执行');
-  }
-}
-
-export interface PluginRegistry {
-  railPages: PluginRailPage[];
-  settingsSections: PluginSettingsSection[];
-  inspectorTabs: PluginInspectorTab[];
-  envActions: PluginEnvAction[];
-  popovers: PluginPopoverSurface[];
-  commandBarActions: PluginCommandBarAction[];
-  statusBadges: PluginStatusBadge[];
-  errors: Array<{ pluginId: string; message: string }>;
-}
-
-/** 插件前端能直连的宿主只读能力（白名单见 shared/plugin-host-api.ts）。 */
-export interface PluginHostApi {
-  environment: {
-    list(): Promise<HostEnvironmentSummary[]>;
-    get(id: string): Promise<HostEnvironmentSummary | null>;
-    activeContext(): Promise<{
-      environmentId: string | null;
-      space: SpaceId;
-      tabId: string | null;
-      url: string;
-      title: string;
-    }>;
-  };
-  browser: {
-    info(environmentId: string, options?: { space?: SpaceId }): Promise<{ url: string; title: string }>;
-  };
-}
-
-/** 插件前端可用的外壳交互动作（统一兼容主窗与独立 PopoverHost 子窗）。 */
-export interface PluginShellApi {
-  closePopover(): Promise<void>;
-  resizePopover(size: { width: number; height: number }): Promise<void>;
-  openPopover(surfaceId: string, options?: { width?: number; height?: number }): void;
-  openPage(surfaceId?: string): void;
-  openSettings(section?: BuiltinSettingsSection): void;
-  openInspectorTab(surfaceId?: string): void;
-  openTab(environmentId: string, url: string, space?: SpaceId): Promise<void>;
-  highlight(environmentId: string, selector?: string, space?: SpaceId): Promise<void>;
-  notify(kind: 'success' | 'error' | 'info', title: string, description?: string): void;
-}
-
-export interface PluginSettingsHook {
-  values: PluginSettingValue[];
-  isLoading: boolean;
-  refresh(): Promise<void>;
-}
-
-export function emptyRegistry(): PluginRegistry {
-  return {
-    railPages: [],
-    settingsSections: [],
-    inspectorTabs: [],
-    envActions: [],
-    popovers: [],
-    commandBarActions: [],
-    statusBadges: [],
-    errors: [],
-  };
-}
-
-export interface PluginAppApi {
-  pluginId: string;
-  React: typeof React;
-  /** `React.createElement` 的短名——插件 bundle 没有构建步骤，用 h(...) 写界面 */
-  h: typeof React.createElement;
-  /** 宿主的通用组件库（见 `PLUGIN_UI` 的注释）。插件界面用它，不要手写 chrome。 */
-  ui: PluginUi;
-  rpc: { call<T = unknown>(method: string, input?: unknown): Promise<T> };
-  /** 只读宿主能力；写操作和插件自己的数据走 `rpc`。 */
-  host: PluginHostApi;
-  /** 宿主外壳协同能力（关闭/调整浮窗、切页、开设置、开标签、高亮页面元素、跨窗通知）。 */
-  shell: PluginShellApi;
-  /** 受控宿主导航（兼容别名，底层委托给 shell）。 */
-  navigation: {
-    openPage(surfaceId: string): void;
-    openSettings(section?: BuiltinSettingsSection): void;
-  };
-  /** 当前插件自己的设置快照；secret 只有 configured，没有 value。 */
-  settings: PluginSettingValue[];
-  /** 便利 hook：返回 settings 快照，并可走现有 `plugins()` 刷新。 */
-  useSettings(): PluginSettingsHook;
-  useSignal(channel: string, handler: (payload: unknown) => void): void;
-  log(message: string): void;
-  surfaces: {
-    railPage(surface: Omit<PluginRailPage, 'kind' | 'pluginId'>): void;
-    settingsSection(surface: Omit<PluginSettingsSection, 'kind' | 'pluginId'>): void;
-    inspectorTab(surface: Omit<PluginInspectorTab, 'kind' | 'pluginId'>): void;
-    popover(surface: Omit<PluginPopoverSurface, 'kind' | 'pluginId'>): void;
-    commandBarAction(surface: Omit<PluginCommandBarAction, 'kind' | 'pluginId'>): void;
-    statusBadge(surface: Omit<PluginStatusBadge, 'kind' | 'pluginId'>): void;
-    /** 环境行状态芯片：清单声明 + 返回 setter；宿主只负责一个槽的渲染。 */
-    envBadge(surface: PluginEnvBadgeSurface): PluginEnvBadgeSetter;
-  };
 }
 
 /** 订阅插件后端推来的信号。插件组件里直接调它。 */
@@ -519,11 +112,7 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
       closePopover: () => window.envApi.closePopover('plugin-popover'),
       resizePopover: (size) => window.envApi.updatePopover('plugin-popover', { size }),
       openPopover: (surfaceId, options) => {
-        window.dispatchEvent(
-          new CustomEvent(OPEN_PLUGIN_POPOVER_EVENT, {
-            detail: { pluginId: plugin.id, surfaceId, ...options },
-          }),
-        );
+        requestPluginPopover(plugin.id, surfaceId, options);
       },
       openPage: (surfaceId) => {
         const targetId = surfaceId ?? plugin.contributes.surfaces.find((s) => s.kind === 'railPage')?.id;
@@ -571,11 +160,7 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
           void window.envApi.closePopover('plugin-popover');
           return;
         }
-        window.dispatchEvent(
-          new CustomEvent(OPEN_PLUGIN_INSPECTOR_EVENT, {
-            detail: { pluginId: plugin.id, surfaceId: targetId },
-          }),
-        );
+        requestPluginInspector(plugin.id, targetId);
       },
       openTab: async (environmentId, url, space = 'person') => {
         try {
@@ -600,40 +185,6 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
         if (kind === 'error') toast.error(title, description ? { description } : undefined);
         else if (kind === 'info') toast.info(title, description ? { description } : undefined);
         else toast.success(title, description ? { description } : undefined);
-      },
-    },
-    navigation: {
-      openPage: (surfaceId: string) => {
-        if (!declared.has(`railPage:${surfaceId}`)) {
-          console.warn(`[plugin:${plugin.id}] 拒绝跳转未声明的 railPage: ${surfaceId}`);
-          return;
-        }
-        if (isPopoverWindow()) {
-          void window.envApi.dispatchPopoverAction({
-            id: 'plugin-popover',
-            action: 'openPluginPage',
-            payload: { pluginId: plugin.id, surfaceId },
-          });
-          void window.envApi.closePopover('plugin-popover');
-          return;
-        }
-        openPluginPage(plugin.id, surfaceId);
-      },
-      openSettings: (section?: BuiltinSettingsSection) => {
-        if (section && !isAllowedPluginSettingsSection(section)) {
-          console.warn(`[plugin:${plugin.id}] 拒绝跳转非法设置分节: ${String(section)}`);
-          return;
-        }
-        if (isPopoverWindow()) {
-          void window.envApi.dispatchPopoverAction({
-            id: 'plugin-popover',
-            action: 'openSettings',
-            payload: { section },
-          });
-          void window.envApi.closePopover('plugin-popover');
-          return;
-        }
-        openSettings(section);
       },
     },
     settings: plugin.settings,
@@ -789,12 +340,3 @@ export async function loadPluginApps(plugins: InstalledPlugin[]): Promise<Plugin
   prunePluginBadges(activeBadgePlugins);
   return registry;
 }
-
-/** 插件 bundle 里也可以直接从这里拿宿主能力（等价于 register 的入参）。 */
-declare global {
-  interface Window {
-    __WARREN__?: { React: typeof React; h: typeof React.createElement; ui: PluginUi };
-  }
-}
-
-window.__WARREN__ = { React, h: React.createElement, ui: PLUGIN_UI };

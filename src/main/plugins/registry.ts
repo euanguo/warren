@@ -3,8 +3,8 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 import { tx } from '../db.ts';
-import type { Permission } from './package.ts';
-import type { LogLevel } from './runtime.ts';
+import type { Permission } from '../../shared/permissions.ts';
+import type { LogLevel } from './runtime-base.ts';
 
 export interface PluginInstallRecord {
   installedAt: string;

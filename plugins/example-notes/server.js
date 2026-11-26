@@ -30,8 +30,7 @@ function toItem(row) {
 const COLUMNS =
   'id, scope, env_id, kind, title, body, status, priority, tags, source_url, source_title, created_at, updated_at';
 
-/** 老的 `list` 命令的形状（回归套件盯着 `.result.notes.length`，不能改） */
-const toLegacyNote = (item) => ({ id: item.id, text: item.title, createdAt: item.createdAt });
+/** @type {(item: any) => Record<string, unknown>} */
 
 function tagList(tags) {
   return String(tags || '')
@@ -208,8 +207,7 @@ module.exports = {
       tag: input.tag ? String(input.tag) : undefined,
       limit: input.limit,
     });
-    // `notes` 是老的形状：回归套件与既有脚本盯着它
-    return { items, notes: items.map(toLegacyNote) };
+    return { items };
   },
 
   async search(ctx) {
@@ -307,7 +305,7 @@ module.exports = {
       sourceTitle: await ctx.host.browser.title(),
     });
     await ctx.host.ui.notify(`已存成笔记：${title}`);
-    return { text: title, notes: (await query(ctx.host, { envId, limit: 200 })).map(toLegacyNote) };
+    return { text: title, items: await query(ctx.host, { envId, limit: 200 }) };
   },
 
   async clear(ctx) {
@@ -334,7 +332,7 @@ module.exports = {
         id: String(env.id),
         name: String(env.name),
       }));
-      return { items, notes: items.map(toLegacyNote), environments };
+      return { items, environments };
     },
 
     async context(input, ctx) {

@@ -198,7 +198,9 @@ export function acquireLease(
   now = Date.now(),
 ): Environment {
   if (environment.owner !== 'none' && environment.leaseExpiresAt && environment.leaseExpiresAt > now) {
-    throw new Error('ENV_BUSY');
+    throw Object.assign(new Error(`ENV_BUSY: environment ${environment.id} is controlled by ${environment.owner}`), {
+      code: 'ENV_BUSY',
+    });
   }
   return {
     ...environment,

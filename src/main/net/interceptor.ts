@@ -11,7 +11,7 @@
  *    「页面白屏」，不是报错——最难查的一类。所以透传分支整体 try/catch 兜底 + 记事件。
  */
 import { net, type Session } from 'electron';
-import { redactSecrets } from '../browser/redact.ts';
+import { redactHeaders } from '../browser/redact.ts';
 import type { HarEntry } from './har.ts';
 import { isActive, isExpired, nextExpiry, normalizeRule, pickRule } from './rules.ts';
 import type { NetHit, NetRule } from '../../shared/types';
@@ -60,6 +60,10 @@ export class NetInterceptor {
 
   /** 环境停止时摘掉，规则留着（下次 start 重新挂）。 */
   detach(): void {
+    if (this.#expiryTimer) {
+      clearTimeout(this.#expiryTimer);
+      this.#expiryTimer = undefined;
+    }
     const session = this.#session;
     if (!session) return;
     this.#session = undefined;
@@ -81,7 +85,7 @@ export class NetInterceptor {
         }
       }
     }
-    this.#scheduleExpiry();
+    if (session) this.#scheduleExpiry();
   }
 
   /**
@@ -104,6 +108,7 @@ export class NetInterceptor {
       this.#expiryTimer = undefined;
       this.#dropExpired();
     }, delay);
+    this.#expiryTimer.unref?.();
   }
 
   #dropExpired(): void {
@@ -367,22 +372,4 @@ export class NetInterceptor {
       // 同上
     }
   }
-}
-
-/**
- * 命中记录里的头一律脱敏。
- *
- * 复用 `browser/redact.ts` 的 `redactSecrets`（词表含 cookie / token / secret…），再补一道
- * `authorization`：它不在那个词表里，而 `browser/` 是另一条线的成果，不在这里改。
- */
-function redactHeaders(headers: Headers): Record<string, string> {
-  const plain: Record<string, string> = {};
-  headers.forEach((value, key) => {
-    plain[key] = value;
-  });
-  const redacted = redactSecrets(plain).value as Record<string, string>;
-  for (const key of Object.keys(redacted)) {
-    if (/^authorization$/i.test(key) || /^proxy-authorization$/i.test(key)) redacted[key] = '[REDACTED]';
-  }
-  return redacted;
 }

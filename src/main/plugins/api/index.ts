@@ -5,61 +5,14 @@
  * - `sandbox` / `host`：子进程通过 JSON-RPC 按路径调用，统一落到编译后的 handlers 表；
  * - 所有方法通过 `CapabilitySpec` 统一声明权限与 lease 规则，不散落手写守卫。
  */
-import type { Permission } from '../../../shared/permissions.ts';
-import type { PluginRpcCaller, PluginSettingDescriptor } from '../../../shared/types.ts';
-import type { EnvironmentManager } from '../../environments';
-import type { PluginSettings } from '../settings.ts';
-import type { PluginStorage } from '../storage.ts';
+import type { PluginRpcCaller } from '../../../shared/types.ts';
+import type { CapabilityContext, CapabilitySpec, HostApiDeps, HostHandler } from './types.ts';
 import { browserCapabilities } from './browser.ts';
 import { environmentCapabilities } from './environment.ts';
 import { eventsCapabilities } from './events.ts';
 import { netCapabilities } from './net.ts';
 import { storageCapabilities } from './storage.ts';
 import { vaultCapabilities } from './vault.ts';
-
-export interface HostApiDeps {
-  pluginId: string;
-  /**
-   * 当前这次调用绑定的环境。由核心的调用级上下文提供（AsyncLocalStorage），
-   * 不是插件级共享状态——否则同一插件的并发调用会互相覆盖环境。
-   */
-  currentEnvironmentId: () => string | undefined;
-  /** 本次调用的权威来源（ui / agent）。默认按 agent 兜底（更保守）。 */
-  currentCaller?: () => PluginRpcCaller;
-  require: (permission: Permission) => void;
-  manager: EnvironmentManager;
-  vault: {
-    available: boolean;
-    list(): Array<{ ref: string; provider: string; label: string; usernameHint: string }>;
-    reveal(ref: string): { username?: string; password?: string; token?: string; totp?: string };
-  };
-  storage: PluginStorage;
-  settings: PluginSettings;
-  descriptors: PluginSettingDescriptor[];
-  record: (type: string, message: string) => void;
-  log: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => void;
-  signal: (channel: string, payload: unknown) => void;
-  /** 写操作惰性取 lease：读操作不再把控制权从人手里抢走 */
-  withLease: <T>(envId: string, fn: (leaseId: string) => Promise<T>) => Promise<T>;
-  subscribeEvents?: (filter: unknown) => { subscriptionId: string } | Promise<{ subscriptionId: string }>;
-  unsubscribeEvents?: (subscriptionId: string) => void | Promise<void>;
-}
-
-export type HostHandler = (...args: unknown[]) => Promise<unknown> | unknown;
-
-export interface CapabilityContext {
-  deps: HostApiDeps;
-  env: () => string;
-  caller: () => PluginRpcCaller;
-  text: (value: unknown) => string;
-}
-
-export interface CapabilitySpec {
-  permission?: Permission | readonly Permission[];
-  needsLease?: boolean | ((ctx: CapabilityContext, args: unknown[]) => string | false);
-  validate?: (ctx: CapabilityContext, args: unknown[]) => void;
-  handler: (ctx: CapabilityContext, ...args: unknown[]) => Promise<unknown> | unknown;
-}
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : String(value ?? '');

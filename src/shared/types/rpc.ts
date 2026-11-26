@@ -7,18 +7,9 @@ import type {
   NetRule,
   NetworkEntry,
   SnapshotResult,
-  ViewportPresetId,
 } from './browser.ts';
-import type {
-  DomainPref,
-  Environment,
-  EventRecord,
-  Group,
-  SpaceId,
-  TabRef,
-  TabState,
-  UrlHistoryEntry,
-} from './environment.ts';
+import type { ApprovalMode, DevToolsDockMode, SpaceId, ViewportPresetId, ViewportRect } from './common.ts';
+import type { DomainPref, Environment, EventRecord, Group, TabRef, TabState, UrlHistoryEntry } from './environment.ts';
 import type {
   InstalledPlugin,
   PluginLogEntry,
@@ -26,23 +17,18 @@ import type {
   PluginSignal,
   PluginSkillDocument,
 } from './plugin.ts';
-import type {
-  AgentSkillStatus,
-  AppSettings,
-  ApprovalMode,
-  CredentialSummary,
-  SystemDiagnosticsReport,
-} from './settings.ts';
+import type { AgentSkillStatus, AppSettings, CredentialSummary, SystemDiagnosticsReport } from './settings.ts';
 import type {
   BrowserShortcut,
-  DevToolsDockMode,
   DownloadItemInfo,
   FindInPageResult,
   NativeMenuItem,
   OverlayRequest,
   PopoverActionEvent,
+  PopoverId,
   PopoverOpenOptions,
-  ViewportRect,
+  PopoverState,
+  PopoverUpdateOptions,
 } from './ui.ts';
 
 export interface RpcRequest {
@@ -122,8 +108,8 @@ export interface EnvApi {
   groupCollapse(id: string, collapsed: boolean): Promise<Group>;
   select(id: string): Promise<void>;
   selected(): Promise<string | null>;
-  takeover(id: string, space: SpaceId): Promise<unknown>;
-  release(id: string, space: SpaceId): Promise<void>;
+  takeover(id: string, space?: SpaceId): Promise<unknown>;
+  release(id: string, space?: SpaceId): Promise<void>;
   events(id?: string): Promise<EventRecord[]>;
   snapshot(id: string, space: SpaceId): Promise<SnapshotResult>;
   console(id: string): Promise<ConsoleEntry[]>;
@@ -135,7 +121,6 @@ export interface EnvApi {
   netHits(id: string, limit?: number): Promise<NetHit[]>;
   /** 人在界面上开关规则。写操作，走主进程的写门控。 */
   netRuleSet(id: string, ruleId: string, enabled: boolean): Promise<NetRule>;
-  netRuleRemove(id: string, ruleId: string): Promise<{ removed: boolean }>;
   navState(id: string, space: SpaceId): Promise<NavigationState | null>;
   humanNavigate(id: string, space: SpaceId, action: NavigationAction): Promise<NavigationState>;
   /** 所有环境共用的地址历史联想。空 query 返回最近访问。 */
@@ -169,13 +154,13 @@ export interface EnvApi {
   resolveOverlay(result: unknown): Promise<void>;
   onOverlayState(callback: (request: OverlayRequest | null) => void): () => void;
   openPopover(options: PopoverOpenOptions): Promise<void>;
-  updatePopover(id: string, options: Partial<PopoverOpenOptions>): Promise<void>;
-  closePopover(id?: string): Promise<void>;
-  getPopoverState(): Promise<{ id: string; props: Record<string, unknown> } | null>;
+  updatePopover<K extends PopoverId>(id: K, options: PopoverUpdateOptions<K>): Promise<void>;
+  closePopover(id?: PopoverId): Promise<void>;
+  getPopoverState(): Promise<PopoverState | null>;
   dispatchPopoverAction(event: PopoverActionEvent): Promise<void>;
-  onPopoverState(callback: (payload: { id: string; props: Record<string, unknown> } | null) => void): () => void;
+  onPopoverState(callback: (payload: PopoverState | null) => void): () => void;
   onPopoverAction(callback: (event: PopoverActionEvent) => void): () => void;
-  onPopoverDismissed(callback: (payload: { id: string; reason: string }) => void): () => void;
+  onPopoverDismissed(callback: (payload: { id: PopoverId; reason: string }) => void): () => void;
   onBrowserShortcut(callback: (shortcut: BrowserShortcut) => void): () => void;
   spaceSelect(id: string, space: SpaceId): Promise<void>;
   tabCreate(id: string, space: SpaceId, url?: string, activate?: boolean): Promise<TabState>;
@@ -239,18 +224,11 @@ export interface EnvApi {
   onPluginSignal(cb: (signal: PluginSignal) => void): () => void;
   setViewport(v: ViewportRect): Promise<void>;
   /**
-   * 页面当前画面（`data:image/jpeg` data URL），没有页面时是 null。
-   *
-   * 让开原生视图之前先取这一帧垫在占位区，否则整块页面会突然变成一个空底色。
-   */
-  pageSnapshot(): Promise<string | null>;
-  /**
    * 让开 / 收回原生页面视图。原生 `WebContentsView` 永远画在渲染层 DOM 之上，
    * 所以渲染层一开右键菜单 / 下拉 / 对话框，压到页面区域的部分会被它盖住。
    * 渲染层检测到重叠时调这里藏起来，关掉再放回去。
    */
   setViewVisible(visible: boolean): Promise<void>;
-  onStateChanged(cb: () => void): () => void;
   onEnvDelta(cb: (payload: { reason?: string }) => void): () => void;
   onPluginChanged(cb: (payload: { reason?: string }) => void): () => void;
 }

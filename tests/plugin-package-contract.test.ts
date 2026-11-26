@@ -2,13 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  PERMISSIONS,
-  diffPermissions,
-  needsUserConfirmation,
-  tierOf,
-  validatePluginPackage,
-} from '../src/main/plugins/package.ts';
+import { PERMISSIONS, tierOf } from '../src/shared/permissions.ts';
+import { diffPermissions, needsUserConfirmation, validatePluginPackage } from '../src/main/plugins/package.ts';
 
 const base = {
   name: 'warren-plugin-login',

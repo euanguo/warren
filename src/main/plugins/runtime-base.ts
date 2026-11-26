@@ -1,19 +1,13 @@
 /**
- * 插件的两种运行时（统一跑在可强杀的子进程边界内）。
- *
- * - `sandbox`：独立子进程内的受限 `vm.createContext` 能力插件。只有 JSON-RPC `host` Proxy、
- *   `log`、`events` 订阅回调及安全純 JS 辅助，没有 `require`/`process`/`fs`/`child_process`/`Buffer`/`fetch`/`setImmediate`。
- * - `host`：独立子进程内的全权 Node 插件。能直接用 fs / child_process / 第三方依赖，
- *   host API 仍然通过 JSON-RPC 代理回主进程 —— **权限门控在主进程这一侧**。
- *
- * 超时（`PLUGIN_TIMEOUT`）或 `dispose()` 超限都会强制 `child.kill()` 杀掉底层子进程；
- * 异常退出时对在途调用 fail-fast，标记 `crashed` 状态并触发 `onCrash`。
+ * 插件子进程运行时基类与共享 IPC 通信骨架（供 `runtime-host.ts` 与 `runtime-sandbox.ts` 复用）。
+ * 统一封装 `init` / `invoke` / `host-call` / `host-result` / `event` / `dispose` 消息协议、
+ * 超时强杀、崩溃Fail-Fast与错误序列化还原。
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { forkWorkerProcess, type WorkerProcess } from './worker-process.ts';
 import type { PluginRpcCaller } from '../../shared/types.ts';
+import { forkWorkerProcess, type WorkerProcess } from './worker-process.ts';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -60,18 +54,18 @@ const DEFAULT_CALL_TIMEOUT_MS = 30_000;
 const DISPOSE_GRACE_MAX_MS = 1500;
 const KILL_REAP_WAIT_MS = 500;
 
-function callTimeoutMs(): number {
+export function callTimeoutMs(): number {
   const raw = Number(process.env.WARREN_PLUGIN_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_CALL_TIMEOUT_MS;
 }
 
-function timeoutError(pluginId: string, label: string, ms: number): Error {
+export function timeoutError(pluginId: string, label: string, ms: number): Error {
   return Object.assign(new Error(`插件 ${pluginId} 的 ${label} 超过 ${ms}ms 没返回（PLUGIN_TIMEOUT）`), {
     code: 'PLUGIN_TIMEOUT',
   });
 }
 
-function serializeError(error: unknown): { message: string; code?: string; name?: string } {
+export function serializeError(error: unknown): { message: string; code?: string; name?: string } {
   const err = error as { message?: string; code?: string; name?: string };
   return {
     message: err?.message ?? String(error),
@@ -80,7 +74,7 @@ function serializeError(error: unknown): { message: string; code?: string; name?
   };
 }
 
-function reconstructError(
+export function reconstructError(
   payload: { message?: string; code?: string; name?: string } | undefined,
   fallback: string,
 ): Error {
@@ -91,7 +85,7 @@ function reconstructError(
 }
 
 /** 按点路径从内存 host 对象解析并调用方法（未传 onHostCall 时使用）。 */
-function resolveHostMethod(
+export function resolveHostMethod(
   host: unknown,
   callPath: string,
 ): { target: unknown; fn: (...args: unknown[]) => unknown } | null {
@@ -160,12 +154,28 @@ function serializeWorkerError(error) {
 }
 `;
 
+export interface WorkerBootstrapSpec {
+  imports: string;
+  preamble?: string;
+  normalizeArgExpr?: string;
+  normalizeFilterExpr?: string;
+  normalizeResultExpr?: string;
+  specialHostCallExpr?: string;
+  extraGlobalsExpr?: string;
+  loadEntryBody: string;
+}
+
 /**
- * 全权 `host` 运行时引导脚本。
+ * 构建 `host` 与 `sandbox` 共用的 Worker 引导脚本，避免两份 bootstrap 重复实现消息分发与 host Proxy。
  */
-export const HOST_BOOTSTRAP = `import { AsyncLocalStorage } from 'node:async_hooks';
-import { pathToFileURL } from 'node:url';
+export function buildWorkerBootstrap(spec: WorkerBootstrapSpec): string {
+  const normArg = spec.normalizeArgExpr ?? '((v) => v)';
+  const normFilter = spec.normalizeFilterExpr ?? '((v) => v)';
+  const normResult = spec.normalizeResultExpr ?? '((v) => v)';
+  return `import { AsyncLocalStorage } from 'node:async_hooks';
+${spec.imports}
 ${WORKER_IPC_SHIM}
+${spec.preamble ?? ''}
 let entry = null;
 const pending = new Map();
 const eventListeners = new Map();
@@ -188,216 +198,7 @@ async function subscribeEvents(filter, handler) {
     error.code = 'PLUGIN_BAD_REQUEST';
     throw error;
   }
-  const result = await callHost('events.subscribe', [filter ?? {}]);
-  const subscriptionId = result && result.subscriptionId ? String(result.subscriptionId) : String(result);
-  eventListeners.set(subscriptionId, handler);
-  let unsubscribed = false;
-  return async function unsubscribe() {
-    if (unsubscribed) return;
-    unsubscribed = true;
-    eventListeners.delete(subscriptionId);
-    await callHost('events.unsubscribe', [subscriptionId]);
-  };
-}
-
-/** host.storage.kv.get('a') → 路径 'storage.kv.get'，参数数组原样传回主进程 */
-function makeHost(prefix) {
-  return new Proxy(function () {}, {
-    get(_target, prop) {
-      if (typeof prop !== 'string' || prop === 'then') return undefined;
-      return makeHost(prefix ? prefix + '.' + prop : prop);
-    },
-    apply(_target, _this, args) {
-      if (prefix === 'events.subscribe') return subscribeEvents(args[0], args[1]);
-      return callHost(prefix, args);
-    },
-  });
-}
-
-const host = makeHost('');
-const writeLog = (level) => (...args) => send({ t: 'log', level, message: args.map(String).join(' ') });
-
-globalThis.host = host;
-globalThis.log = { debug: writeLog('debug'), info: writeLog('info'), warn: writeLog('warn'), error: writeLog('error') };
-
-async function loadEntry(entryPath) {
-  const module = await import(pathToFileURL(entryPath).href);
-  return module.default ?? module;
-}
-
-onMessage(async (message) => {
-  if (!message) return;
-
-  if (message.t === 'host-result') {
-    const waiting = pending.get(message.id);
-    if (!waiting) return;
-    pending.delete(message.id);
-    if (message.ok) waiting.resolve(message.value);
-    else {
-      const error = new Error(message.error?.message || 'host call failed');
-      if (message.error?.code) error.code = message.error.code;
-      if (message.error?.name) error.name = message.error.name;
-      waiting.reject(error);
-    }
-    return;
-  }
-
-  if (message.t === 'event') {
-    const listener = eventListeners.get(message.subscriptionId);
-    if (typeof listener === 'function') {
-      Promise.resolve()
-        .then(() => listener(message.event))
-        .catch((error) => {
-          send({ t: 'log', level: 'error', message: '事件处理器失败: ' + String(error?.message || error) });
-        });
-    }
-    return;
-  }
-
-  if (message.t === 'init') {
-    try {
-      entry = await loadEntry(message.entry);
-      if (typeof entry?.activate === 'function') {
-        await callContext.run(
-          { id: 'activate', environmentId: message.ctx?.environmentId },
-          () => entry.activate({ host, ...(message.ctx || {}) }),
-        );
-      }
-      send({ t: 'ready', ok: true });
-    } catch (error) {
-      send({ t: 'ready', ok: false, error: serializeWorkerError(error) });
-    }
-    return;
-  }
-
-  if (message.t === 'invoke') {
-    try {
-      const handler =
-        message.kind === 'rpc'
-          ? entry?.rpc?.[message.name] ?? entry?.[message.name]
-          : entry?.[message.name];
-      if (typeof handler !== 'function') {
-        const code = message.kind === 'rpc' ? 'PLUGIN_RPC_NOT_FOUND' : 'PLUGIN_COMMAND_NOT_FOUND';
-        const error = new Error('插件没有导出 ' + (message.kind === 'rpc' ? 'rpc 方法 ' : '命令 ') + message.name);
-        error.code = code;
-        throw error;
-      }
-      const ctx = { host, ...(message.ctx || {}) };
-      const value = await callContext.run(
-        { id: message.id, environmentId: message.ctx?.environmentId },
-        () => (message.kind === 'rpc' ? handler.call(entry, message.input, ctx) : handler.call(entry, ctx)),
-      );
-      send({ t: 'result', id: message.id, ok: true, value });
-    } catch (error) {
-      send({ t: 'result', id: message.id, ok: false, error: serializeWorkerError(error) });
-    }
-    return;
-  }
-
-  if (message.t === 'dispose') {
-    try {
-      if (typeof entry?.dispose === 'function') await entry.dispose({ host, ...(message.ctx || {}) });
-    } catch (error) {
-      send({ t: 'log', level: 'error', message: 'dispose 失败: ' + String(error?.message || error) });
-    }
-    process.exit(0);
-  }
-});
-`;
-
-/**
- * 受限 `sandbox` 运行时引导脚本（独立子进程内的 `vm.createContext`）。
- *
- * 绝对禁止向 VM 上下文暴露 require / process / fs / child_process / Buffer / 原生 fetch / setImmediate。
- */
-export const SANDBOX_BOOTSTRAP = `import { AsyncLocalStorage } from 'node:async_hooks';
-import nodeCrypto from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
-${WORKER_IPC_SHIM}
-let entry = null;
-let syncMaskHint = true;
-const pending = new Map();
-const eventListeners = new Map();
-let seq = 0;
-const callContext = new AsyncLocalStorage();
-
-function maskHint(username) {
-  const text = typeof username === 'string' ? username : String(username ?? '');
-  if (!text) return '';
-  const [local, domain] = text.split('@');
-  if (domain) return local.slice(0, 1) + '***@' + domain;
-  return text.slice(0, 1) + '***';
-}
-
-/** 跨 vm realm 对象规范化：转成宿主 realm 的纯值，避免 Promise/Error/原型跨界丢失或克隆失败。 */
-function normalizeIpcValue(value, depth = 0, seen = new WeakSet()) {
-  if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'string') {
-    return value;
-  }
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) {
-      const error = new Error('插件返回值里有非法数字');
-      error.code = 'PLUGIN_RPC_NON_JSON';
-      throw error;
-    }
-    return value;
-  }
-  if (typeof value === 'bigint' || typeof value === 'function' || typeof value === 'symbol') {
-    const error = new Error('插件返回值里有 ' + typeof value + '，不能跨进程传递');
-    error.code = 'PLUGIN_RPC_NON_JSON';
-    throw error;
-  }
-  if (depth > 64) {
-    const error = new Error('插件返回值嵌套过深');
-    error.code = 'PLUGIN_RPC_NON_JSON';
-    throw error;
-  }
-  const object = value;
-  if (seen.has(object)) {
-    const error = new Error('插件返回值里有循环引用');
-    error.code = 'PLUGIN_RPC_NON_JSON';
-    throw error;
-  }
-  seen.add(object);
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeIpcValue(item, depth + 1, seen));
-  }
-  if (typeof value.then === 'function') {
-    const error = new Error('插件返回值里有未解出的 Promise');
-    error.code = 'PLUGIN_RPC_NON_JSON';
-    throw error;
-  }
-  const proto = Object.getPrototypeOf(object);
-  const ctorName = proto === null ? 'Object' : proto.constructor?.name;
-  if (ctorName !== 'Object') {
-    const error = new Error('插件返回值里有 ' + (ctorName ?? '未知类型') + ' 实例，不能跨进程传递');
-    error.code = 'PLUGIN_RPC_NON_JSON';
-    throw error;
-  }
-  const out = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = normalizeIpcValue(item, depth + 1, seen);
-  }
-  return out;
-}
-
-function callHost(path, args) {
-  const id = ++seq;
-  const parent = callContext.getStore()?.id;
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    send({ t: 'host-call', id, path, args, parent });
-  });
-}
-
-async function subscribeEvents(filter, handler) {
-  if (typeof handler !== 'function') {
-    const error = new Error('events.subscribe 需要回调函数');
-    error.code = 'PLUGIN_BAD_REQUEST';
-    throw error;
-  }
-  const normalizedFilter = normalizeIpcValue(filter ?? {});
+  const normalizedFilter = (${normFilter})(filter ?? {});
   const result = await callHost('events.subscribe', [normalizedFilter]);
   const subscriptionId = result && result.subscriptionId ? String(result.subscriptionId) : String(result);
   eventListeners.set(subscriptionId, handler);
@@ -410,6 +211,7 @@ async function subscribeEvents(filter, handler) {
   };
 }
 
+/** host.storage.kv.get('a') → 路径 'storage.kv.get'，参数数组按策略规范化传回主进程 */
 function makeHost(prefix) {
   return new Proxy(function () {}, {
     get(_target, prop) {
@@ -417,36 +219,16 @@ function makeHost(prefix) {
       return makeHost(prefix ? prefix + '.' + prop : prop);
     },
     apply(_target, _this, args) {
-      if (prefix === 'vault.maskHint' && syncMaskHint) {
-        return maskHint(args[0]);
-      }
-      if (prefix === 'events.subscribe') {
-        return subscribeEvents(args[0], args[1]);
-      }
-      return callHost(prefix, args.map((item) => normalizeIpcValue(item)));
+      ${spec.specialHostCallExpr ?? ''}
+      if (prefix === 'events.subscribe') return subscribeEvents(args[0], args[1]);
+      return callHost(prefix, args.map(${normArg}));
     },
   });
 }
 
 const host = makeHost('');
 const writeLog = (level) => (...args) => send({ t: 'log', level, message: args.map(String).join(' ') });
-const scopedConsole = {
-  log: writeLog('info'),
-  info: writeLog('info'),
-  warn: writeLog('warn'),
-  error: writeLog('error'),
-  debug: writeLog('debug'),
-};
-const scopedLog = {
-  debug: writeLog('debug'),
-  info: writeLog('info'),
-  warn: writeLog('warn'),
-  error: writeLog('error'),
-};
-const safeCrypto = {
-  randomUUID: () => nodeCrypto.randomUUID(),
-  getRandomValues: (array) => nodeCrypto.getRandomValues(array),
-};
+${spec.extraGlobalsExpr ?? ''}
 
 onMessage(async (message) => {
   if (!message) return;
@@ -468,8 +250,11 @@ onMessage(async (message) => {
   if (message.t === 'event') {
     const listener = eventListeners.get(message.subscriptionId);
     if (typeof listener === 'function') {
-      Promise.resolve()
-        .then(() => listener(message.event))
+      const subId = 'event:' + String(message.subscriptionId);
+      callContext
+        .run({ id: subId, environmentId: message.event?.environmentId }, () =>
+          Promise.resolve().then(() => listener(message.event)),
+        )
         .catch((error) => {
           send({ t: 'log', level: 'error', message: '事件处理器失败: ' + String(error?.message || error) });
         });
@@ -479,31 +264,7 @@ onMessage(async (message) => {
 
   if (message.t === 'init') {
     try {
-      syncMaskHint = message.syncMaskHint !== false;
-      const source = typeof message.code === 'string' ? message.code : await readFile(message.entry, 'utf8');
-      const sandbox = {
-        module: { exports: {} },
-        exports: undefined,
-        host,
-        log: scopedLog,
-        console: scopedConsole,
-        setTimeout,
-        clearTimeout,
-        setInterval,
-        clearInterval,
-        queueMicrotask,
-        URL,
-        URLSearchParams,
-        TextEncoder,
-        TextDecoder,
-        crypto: safeCrypto,
-        globalThis: undefined,
-      };
-      sandbox.exports = sandbox.module.exports;
-      sandbox.globalThis = sandbox;
-      vm.createContext(sandbox);
-      vm.runInContext(source, sandbox, { filename: message.entry, timeout: 10_000 });
-      entry = sandbox.module?.exports ?? {};
+      ${spec.loadEntryBody}
       if (typeof entry?.activate === 'function') {
         await callContext.run(
           { id: 'activate', environmentId: message.ctx?.environmentId },
@@ -534,7 +295,7 @@ onMessage(async (message) => {
         { id: message.id, environmentId: message.ctx?.environmentId },
         () => (message.kind === 'rpc' ? handler.call(entry, message.input, ctx) : handler.call(entry, ctx)),
       );
-      const value = raw === undefined ? undefined : normalizeIpcValue(raw);
+      const value = raw === undefined ? undefined : (${normResult})(raw);
       send({ t: 'result', id: message.id, ok: true, value });
     } catch (error) {
       send({ t: 'result', id: message.id, ok: false, error: serializeWorkerError(error) });
@@ -554,8 +315,9 @@ onMessage(async (message) => {
   }
 });
 `;
+}
 
-abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
+export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
   abstract readonly kind: 'sandbox' | 'host';
 
   #entryPath: string;
@@ -567,7 +329,7 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
   #onCrash?: (info: PluginCrashInfo) => void;
   #child?: WorkerProcess;
   #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
-  #invocations = new Map<number, PluginInvocationContext>();
+  #invocations = new Map<string | number, PluginInvocationContext>();
   #seq = 0;
   #readyResolve?: () => void;
   #readyReject?: (error: Error) => void;
@@ -667,6 +429,7 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
       this.#readyResolve = resolve;
       this.#readyReject = reject;
     });
+    this.#invocations.set('activate', { pluginId: this.#pluginId, caller: 'ui' });
     child.postMessage({ t: 'init', ...initPayload, ctx: this.#context() });
 
     const ms = callTimeoutMs();
@@ -694,6 +457,7 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
       }
       throw error;
     } finally {
+      this.#invocations.delete('activate');
       if (timer) clearTimeout(timer);
       this.#readyResolve = undefined;
       this.#readyReject = undefined;
@@ -791,10 +555,22 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     }
     if (type === 'host-call') {
       const id = Number(message.id);
-      const parent = Number(message.parent);
+      const rawParent = message.parent;
+      const parent = typeof rawParent === 'number' || typeof rawParent === 'string' ? rawParent : Number.NaN;
       const context = this.#invocations.get(parent) ?? { pluginId: this.#pluginId };
       try {
-        const value = await this.#onHostCall(String(message.path), (message.args as unknown[]) ?? [], context);
+        const callPath = String(message.path);
+        const args = (message.args as unknown[]) ?? [];
+        const value = await this.#onHostCall(callPath, args, context);
+        if (callPath === 'events.subscribe' && value && typeof value === 'object' && 'subscriptionId' in value) {
+          const subId = String((value as { subscriptionId: unknown }).subscriptionId);
+          this.#invocations.set(`event:${subId}`, {
+            pluginId: this.#pluginId,
+            caller: context.caller,
+          });
+        } else if (callPath === 'events.unsubscribe' && args[0] !== undefined) {
+          this.#invocations.delete(`event:${String(args[0])}`);
+        }
         this.#child?.postMessage({ t: 'host-result', id, ok: true, value });
       } catch (error) {
         this.#child?.postMessage({ t: 'host-result', id, ok: false, error: serializeError(error) });
@@ -862,11 +638,11 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     });
   }
 
-  async command(name: string, ctx: unknown): Promise<unknown> {
+  command(name: string, ctx: unknown): Promise<unknown> {
     return this.#invoke({ t: 'invoke', kind: 'command', name, ctx });
   }
 
-  async rpc(method: string, input: unknown, ctx: unknown): Promise<unknown> {
+  rpc(method: string, input: unknown, ctx: unknown): Promise<unknown> {
     return this.#invoke({ t: 'invoke', kind: 'rpc', name: method, input, ctx });
   }
 
@@ -901,50 +677,5 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     }
     this.#child = undefined;
     await this.#cleanupOwnedBootstrap();
-  }
-}
-
-export class SandboxRuntime extends BaseWorkerRuntime {
-  readonly kind = 'sandbox' as const;
-  #code?: string;
-
-  constructor(options: RuntimeOptions & { code?: string }) {
-    super(options);
-    this.#code = options.code;
-  }
-
-  protected bootstrapSource(): string {
-    return SANDBOX_BOOTSTRAP;
-  }
-
-  protected bootstrapFilename(): string {
-    return 'sandbox-bootstrap.mjs';
-  }
-
-  protected async buildInitPayload(): Promise<Record<string, unknown>> {
-    const code = this.#code ?? (await readFile(this.entryPath, 'utf8'));
-    return {
-      entry: this.entryPath,
-      code,
-      syncMaskHint: true,
-    };
-  }
-}
-
-export class HostRuntime extends BaseWorkerRuntime {
-  readonly kind = 'host' as const;
-
-  protected bootstrapSource(): string {
-    return HOST_BOOTSTRAP;
-  }
-
-  protected bootstrapFilename(): string {
-    return 'host-bootstrap.mjs';
-  }
-
-  protected async buildInitPayload(): Promise<Record<string, unknown>> {
-    return {
-      entry: this.entryPath,
-    };
   }
 }

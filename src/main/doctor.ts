@@ -4,7 +4,6 @@
  * 只读，不修环境。每项给出 ok / warn / error + 可执行 hint，便于 agent 先自检再跑用例。
  */
 import type { EnvironmentManager } from './environments.ts';
-import type { Store } from './store.ts';
 
 export interface DoctorCheck {
   id: string;
@@ -31,7 +30,6 @@ async function probeLocalPort(port: number, pathname = '/'): Promise<boolean> {
 
 export async function runDoctor(
   manager: EnvironmentManager,
-  _store: Store,
   environmentId: string,
   options: { localPorts?: number[] } = {},
 ): Promise<DoctorResult> {

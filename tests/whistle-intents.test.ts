@@ -207,7 +207,7 @@ test('diffResponses 对比状态码、脱敏响应头与嵌套 JSON 增删改', 
   assert.deepEqual(diff.headersDiff.added, { 'x-new': '2' });
   assert.deepEqual(diff.headersDiff.removed, { 'x-old': '1' });
   // 默认脱敏敏感头（两边的 Set-Cookie 都脱敏为 [REDACTED]，因此不泄露原值）
-  assert.equal(diff.headersDiff.changed['set-cookie'], undefined);
+  assert.equal((diff.headersDiff.changed as Record<string, unknown>)['set-cookie'], undefined);
   assert.deepEqual(diff.jsonDiff?.added, [{ path: 'addedKey', value: 42 }]);
   assert.deepEqual(diff.jsonDiff?.removed, [{ path: 'removedKey', value: true }]);
   assert.deepEqual(diff.jsonDiff?.changed, [{ path: 'user.name', from: 'a', to: 'b' }]);

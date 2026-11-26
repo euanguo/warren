@@ -1,29 +1,28 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PluginBoundary } from '@/app/plugin-surfaces';
-import { Icon, isIconName, type IconName } from '@/components/icons';
+import { PluginBrandGlyph } from '@/components/identity-glyphs';
+import { Icon, type IconName } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { MenuLabel } from '@/components/ui/menu';
 import { Spinner } from '@/components/ui/spinner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { getPluginBrand } from '@/lib/plugin-brand';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { usePluginState } from '@/state/plugin-store';
 import { elevatedMenuSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
 import { ADDRESS_SUGGEST_MAX_HEIGHT, ADDRESS_SUGGEST_MIN_HEIGHT, clampPopoverHeight } from '@shared/popover-sizing';
-import type { DownloadItemInfo, FindInPageResult, SpaceId, UrlHistoryEntry, ViewportPresetId } from '@shared/types';
+import type {
+  DownloadItemInfo,
+  FindInPageResult,
+  PopoverPropsMap,
+  PopoverState,
+  ViewportPresetId,
+} from '@shared/types';
 
-interface PopoverStatePayload {
-  id: string;
-  props: Record<string, unknown>;
-}
-
-export function AddressSuggestView({ props }: { props: Record<string, unknown> }) {
-  const query = typeof props.query === 'string' ? props.query : '';
-  const entries = Array.isArray(props.entries) ? (props.entries as UrlHistoryEntry[]) : [];
-  const highlighted = typeof props.highlighted === 'number' ? props.highlighted : -1;
-  const preferredWidth = typeof props.width === 'number' && props.width >= 120 ? props.width : 320;
+export function AddressSuggestView({ props }: { props: PopoverPropsMap['address-suggest'] }) {
+  const { query, entries, highlighted } = props;
+  const preferredWidth = props.width >= 120 ? props.width : 320;
   const [hoverOverride, setHoverOverride] = useState<{ index: number; base: number } | null>(null);
   const activeIndex = hoverOverride && hoverOverride.base === highlighted ? hoverOverride.index : highlighted;
   const contentRef = useRef<HTMLDivElement>(null);
@@ -119,10 +118,9 @@ export function AddressSuggestView({ props }: { props: Record<string, unknown> }
   );
 }
 
-function FindInPageView({ props }: { props: Record<string, unknown> }) {
-  const envId = typeof props.envId === 'string' ? props.envId : '';
-  const space: SpaceId = props.space === 'agent' ? 'agent' : 'person';
-  const [query, setQuery] = useState(typeof props.initialQuery === 'string' ? props.initialQuery : '');
+function FindInPageView({ props }: { props: PopoverPropsMap['find-in-page'] }) {
+  const { envId, space } = props;
+  const [query, setQuery] = useState(props.initialQuery ?? '');
   const [result, setResult] = useState<FindInPageResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -228,19 +226,16 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function DownloadsView({ props }: { props: Record<string, unknown> }) {
-  const envId = typeof props.envId === 'string' ? props.envId : undefined;
+function DownloadsView({ props }: { props: PopoverPropsMap['downloads'] }) {
+  const { envId } = props;
   const [items, setItems] = useState<DownloadItemInfo[]>([]);
 
   useEffect(() => {
     const pull = () => void window.envApi.downloads(envId).then(setItems);
     pull();
-    const unsubDelta = window.envApi.onEnvDelta(pull);
-    const unsubState = window.envApi.onStateChanged(pull);
-    return () => {
-      unsubDelta();
-      unsubState();
-    };
+    return window.envApi.onEnvDelta((payload) => {
+      if (!payload?.reason || payload.reason === 'downloads') pull();
+    });
   }, [envId]);
 
   return (
@@ -312,10 +307,8 @@ const VIEWPORT_PRESETS: Array<{ id: ViewportPresetId; label: string; detail: str
   { id: 'mobile-390', label: '移动端设备', detail: '390 × 844 · Touch / DPR 2', icon: 'Mobile' },
 ];
 
-function ViewportView({ props }: { props: Record<string, unknown> }) {
-  const envId = typeof props.envId === 'string' ? props.envId : '';
-  const space: SpaceId = props.space === 'agent' ? 'agent' : 'person';
-  const currentPreset = (typeof props.preset === 'string' ? props.preset : 'auto') as ViewportPresetId;
+function ViewportView({ props }: { props: PopoverPropsMap['viewport'] }) {
+  const { envId, space, preset: currentPreset } = props;
 
   const choose = async (preset: ViewportPresetId) => {
     if (!envId) return;
@@ -357,19 +350,13 @@ function ViewportView({ props }: { props: Record<string, unknown> }) {
   );
 }
 
-function PluginPopoverView({ props }: { props: Record<string, unknown> }) {
+function PluginPopoverView({ props }: { props: PopoverPropsMap['plugin-popover'] }) {
   const { registry, loaded } = usePluginState();
-  const pluginId = typeof props.pluginId === 'string' ? props.pluginId : '';
-  const surfaceId = typeof props.surfaceId === 'string' ? props.surfaceId : '';
-  const environmentId = typeof props.environmentId === 'string' ? props.environmentId : undefined;
-  const space: SpaceId = props.space === 'agent' ? 'agent' : 'person';
-  const url = typeof props.url === 'string' ? props.url : '';
+  const { pluginId, surfaceId, environmentId, space, url } = props;
 
   const surface = registry.popovers.find((item) => item.pluginId === pluginId && item.id === surfaceId);
   const railPage = registry.railPages.find((item) => item.pluginId === pluginId);
   const inspectorTab = registry.inspectorTabs.find((item) => item.pluginId === pluginId);
-  const brand = getPluginBrand(pluginId, surface?.icon);
-  const iconName: IconName = isIconName(brand.icon) ? brand.icon : 'Plug';
 
   const closePopover = () => {
     void window.envApi.closePopover('plugin-popover');
@@ -420,11 +407,7 @@ function PluginPopoverView({ props }: { props: Record<string, unknown> }) {
         data-slot="plugin-popover-header"
         className="flex shrink-0 items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5"
       >
-        <Icon
-          name={iconName}
-          style={{ '--brand-hue': brand.hue } as CSSProperties}
-          className="plugin-brand-icon size-3.5 shrink-0"
-        />
+        <PluginBrandGlyph pluginId={pluginId} icon={surface?.icon} />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{surface?.title ?? '插件快捷面板'}</span>
         {surface?.shortcut && <Kbd className="shrink-0 text-[length:var(--font-size-micro)]">{surface.shortcut}</Kbd>}
         {inspectorTab && (
@@ -486,8 +469,9 @@ function PluginPopoverView({ props }: { props: Record<string, unknown> }) {
  * 依托操作系统 `parent` 子窗，直接凌驾于 `WebContentsView` 与主窗之上，绝不遮挡/节流页面。
  */
 export function PopoverRoot() {
-  useStandaloneThemeSync();
-  const [state, setState] = useState<PopoverStatePayload | null>(null);
+  const [state, setState] = useState<PopoverState | null>(null);
+  // plugin-popover 内部挂了 usePluginState() 订阅主题同步，避免同一窗口挂两份。
+  useStandaloneThemeSync(state !== null && state.id !== 'plugin-popover');
 
   useEffect(() => {
     void window.envApi.getPopoverState().then(setState);

@@ -75,14 +75,15 @@ test('Control/Alt/Meta 组合快捷键绝不发送 text，避免编辑器误插�
   assert.equal(desc.windowsVirtualKeyCode, 49);
 });
 
-test('PendingRelease 按 WebContents id 独立记录与一次性消费', () => {
-  clearPendingRelease(999);
-  assert.equal(hasPendingRelease(999), false);
-  setPendingRelease(999, { x: 120, y: 80, button: 'left', clickCount: 1 });
-  assert.equal(hasPendingRelease(999), true);
-  assert.deepEqual(takePendingRelease(999), { x: 120, y: 80, button: 'left', clickCount: 1 });
-  assert.equal(hasPendingRelease(999), false);
-  assert.equal(takePendingRelease(999), undefined);
+test('PendingRelease 按 WebContents 实例独立记录与一次性消费', () => {
+  const fakeWc = { id: 999 };
+  clearPendingRelease(fakeWc);
+  assert.equal(hasPendingRelease(fakeWc), false);
+  setPendingRelease(fakeWc, { x: 120, y: 80, button: 'left', clickCount: 1 });
+  assert.equal(hasPendingRelease(fakeWc), true);
+  assert.deepEqual(takePendingRelease(fakeWc), { x: 120, y: 80, button: 'left', clickCount: 1 });
+  assert.equal(hasPendingRelease(fakeWc), false);
+  assert.equal(takePendingRelease(fakeWc), undefined);
 });
 
 test('click-point 几何函数：多行折行最大多边形 + 旋转菱形内部整点', () => {

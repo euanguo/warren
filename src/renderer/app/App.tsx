@@ -10,13 +10,14 @@ import { EnvironmentSidebar } from '@/features/environments/environment-sidebar'
 import { EnvironmentStage } from '@/features/environments/environment-stage';
 import { SettingsPage } from '@/features/settings/settings-page';
 import { usePluginBadges } from '@/lib/plugin-badges';
-import { OPEN_PLUGIN_INSPECTOR_EVENT, OPEN_PLUGIN_POPOVER_EVENT } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
 import { environmentActions, useEnvironmentState } from '@/state/environment-store';
 import {
   openEnvironments,
   openPluginPage,
   openSettings,
+  requestPluginInspector,
+  requestPluginPopover,
   setSettingsSection,
   useNavigationState,
   type SettingsSection,
@@ -106,22 +107,10 @@ export function App() {
           openPluginPage(result.pluginId, result.surfaceId);
         } else if (result?.command === 'openPluginPopover' && result.pluginId && result.surfaceId) {
           openEnvironments();
-          window.requestAnimationFrame(() => {
-            window.dispatchEvent(
-              new CustomEvent(OPEN_PLUGIN_POPOVER_EVENT, {
-                detail: { pluginId: result.pluginId, surfaceId: result.surfaceId },
-              }),
-            );
-          });
+          requestPluginPopover(result.pluginId, result.surfaceId);
         } else if (result?.command === 'openPluginInspectorTab' && result.pluginId && result.surfaceId) {
           openEnvironments();
-          window.requestAnimationFrame(() => {
-            window.dispatchEvent(
-              new CustomEvent(OPEN_PLUGIN_INSPECTOR_EVENT, {
-                detail: { pluginId: result.pluginId, surfaceId: result.surfaceId },
-              }),
-            );
-          });
+          requestPluginInspector(result.pluginId, result.surfaceId);
         }
       });
   }, []);
@@ -231,7 +220,6 @@ export function App() {
     ...(settings.compactTopbar
       ? {
           '--shell-top-row-height': '2.125rem',
-          '--shell-chrome-row-height': '1.9rem',
           '--shell-address-row-height': '2.125rem',
         }
       : {}),
@@ -397,13 +385,7 @@ export function App() {
                           surfaceId ?? registry.inspectorTabs.find((t) => t.pluginId === activePluginPage.pluginId)?.id;
                         if (!targetId) return;
                         openEnvironments();
-                        window.requestAnimationFrame(() => {
-                          window.dispatchEvent(
-                            new CustomEvent(OPEN_PLUGIN_INSPECTOR_EVENT, {
-                              detail: { pluginId: activePluginPage.pluginId, surfaceId: targetId },
-                            }),
-                          );
-                        });
+                        requestPluginInspector(activePluginPage.pluginId, targetId);
                       },
                     }}
                   />

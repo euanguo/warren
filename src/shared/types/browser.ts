@@ -99,8 +99,6 @@ export interface NavigationState {
 export type NavigationAction =
   { kind: 'back' } | { kind: 'forward' } | { kind: 'reload' } | { kind: 'hardReload' } | { kind: 'goto'; url: string };
 
-export type ViewportPresetId = 'auto' | 'desktop-1440' | 'laptop-1280' | 'mobile-390';
-
 // ---------------------------------------------------------------------------
 // 浏览器能力（Ego / Playwright 对标，全量一次落地）
 // ---------------------------------------------------------------------------
@@ -240,6 +238,8 @@ export interface FillOptions {
   timeoutMs?: number;
   /** 填完后立即按 Enter 提交。 */
   submit?: boolean;
+  /** 是否为凭据/秘密填充（跳过回读校验与尾字符拆分）。 */
+  isSecret?: boolean;
 }
 
 export interface FillWarning {

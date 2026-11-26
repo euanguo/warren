@@ -7,14 +7,15 @@ const nodeW2 = {
   label: '/opt/homebrew/bin/w2',
   exists: true,
   executable: true,
+  runsWithExecPath: false,
   head: '#!/usr/bin/env node\nrequire("./bin");\n',
   nodeOnPath: '/opt/homebrew/bin/node',
   pathEnv: '/opt/homebrew/bin:/usr/bin:/bin',
   fileExists: () => true,
 };
 
-const codes = (result) => result.errors.map((item) => item.code);
-const warningCodes = (result) => result.warnings.map((item) => item.code);
+const codes = (result: { errors: Array<{ code: string }> }) => result.errors.map((item) => item.code);
+const warningCodes = (result: { warnings: Array<{ code: string }> }) => result.warnings.map((item) => item.code);
 
 test('w2 是 node 壳脚本但 PATH 里没有 node → WHISTLE_NODE_NOT_FOUND', () => {
   const result = checkW2({ ...nodeW2, nodeOnPath: null });
@@ -47,7 +48,7 @@ test('shebang 指到不存在的绝对 node 路径也算 node 缺失', () => {
   const result = checkW2({
     ...nodeW2,
     head: '#!/usr/local/bin/node\n',
-    fileExists: (file) => file !== '/usr/local/bin/node',
+    fileExists: (file: string) => file !== '/usr/local/bin/node',
   });
   assert.deepEqual(codes(result), ['WHISTLE_NODE_NOT_FOUND']);
 });
@@ -109,7 +110,7 @@ test('combine 汇总错误与警告', () => {
   ]);
   assert.equal(merged.ok, false);
   assert.deepEqual(
-    merged.errors.map((item) => item.code),
+    merged.errors.map((item: { code: string }) => item.code),
     ['WHISTLE_NODE_NOT_FOUND'],
   );
   assert.equal(merged.warnings.length, 1);

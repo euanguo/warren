@@ -1,13 +1,15 @@
-# 插件
+# Warren 插件开发指南
 
-插件是一个独立 npm 包。`package.json` 是唯一清单，插件元数据放在 `warren` 字段。
+插件是一个独立 npm 包。`package.json` 是唯一清单，插件元数据放在 `warren` 字段（不再读取 `manifest.json`，也不兼容 `apiVersion` 1 / 2 / 3）。完整 TypeScript 契约见 [`@warren/plugin-sdk`](../packages/plugin-sdk/index.d.ts)。
 
 ```text
 warren-plugin-example/
-  package.json       npm 身份 + warren 契约
-  server.js          runtime=sandbox 的后端入口
-  host.mjs           runtime=host 的后端入口
-  app.js             前端 ESM（可选）
+  package.json       npm 身份 + warren 契约（含 warren.skill 自动注入配置）
+  server.js          runtime=sandbox 的后端入口（可拆分只依赖内置 JS）
+  host.mjs           runtime=host 的后端入口（独立 Node 进程，可拆分 lib/*.mjs）
+  app.js             前端 ESM 入口（可选，可直接 ESM import 同目录下 ui/*.js）
+  ui/                前端子模块（零构建，经 warren-plugin://<id>/... 加载）
+  SKILL.md           插件专用 Agent 手册（启用后自动索引到 Warren 主 Skill）
 ```
 
 最小例子：
@@ -24,6 +26,11 @@ warren-plugin-example/
     "runtime": "sandbox",
     "server": "server.js",
     "permissions": ["environment.read"],
+    "skill": {
+      "entry": "SKILL.md",
+      "summary": "一句话能力摘要（≤240 字符）",
+      "triggers": ["示例", "keyword"]
+    },
     "contributes": {
       "commands": [{ "name": "hello", "summary": "打个招呼" }]
     }
@@ -43,33 +50,57 @@ warren plugin update com.warren.accounts
 安装流水线：
 
 1. 解析 `path:` / `npm:` / `git:`。
-2. `npm pack`，只接受包内容。
+2. `npm pack`，只接受包内容（更新失败时自动回滚，并保留 `data.db*` 运行时数据文件）。
 3. 校验 `package.json#warren` 与 `apiVersion: "4"`。
-4. 如果有 `dependencies` 且包里没有 `node_modules`，执行
-   `npm install --omit=dev --ignore-scripts`。
-5. 写入暂存目录并原子替换；启用中的插件更新失败会回滚。
+4. 如果有 `dependencies` 且包里没有 `node_modules`，执行 `npm install --omit=dev --ignore-scripts`。
+5. 写入暂存目录并原子替换；启停、授权或更新后自动触发 Agent Skill 目录重合成。
 
-不再读取 `manifest.json`，也不兼容 `apiVersion` 1 / 2 / 3。
+## `warren.skill` 与自动注入
 
-## 前端
+启用的插件默认开启 `skillExposed = true`（可通过 `warren plugin skill-exposure <id> on|off` 控制）：
 
-插件前端是一份普通 ESM，由主进程经 `warren-plugin://<id>/app.js` 供给。React 和宿主组件库由 `register(app)` 注入：
+- `entry`：包内 `SKILL.md` 相对路径；若省略，主进程按 `contributes.commands` 与 `rpc` 自动生成兜底手册。
+- `summary` / `triggers`：注入主 `warren/SKILL.md` 的 `<!-- warren:enabled-plugins:begin -->` 索引表，完整文档落盘至 `<agent>/skills/warren/plugins/<id>/SKILL.md`。
+- `references`：最多 8 个包内相对路径参考文件；单插件总正文受 `32KB`（`MAX_PLUGIN_SKILL_BYTES`）预算上限裁剪，且严禁在 Skill 文本中写入明文秘密。
+
+## 前端：`register(app)` 与 8 种挂载面
+
+插件前端是一份普通 ESM，由主进程经 `warren-plugin://<id>/app.js` 供给，可直接静态拆分并 `import` 同包内 `ui/*.js` 子模块（无需打包构建步骤）。React、组件库与宿主桥接均通过 `register(app)` 注入：
 
 ```js
 export default function register(app) {
-  const { h, React, ui } = app;
+  const { h, React, ui, rpc, host, shell, useSettings, useSignal, surfaces } = app;
   const { Button, Input, Field, FieldLabel, cardSurfaceClass } = ui;
-  // ...
+
+  const envBadge = surfaces.envBadge({ id: 'status', title: '状态', icon: 'Plug' });
+  surfaces.inspectorTab({
+    id: 'panel',
+    title: '面板',
+    icon: 'Plug',
+    component: ({ pluginId, environmentId, space, url, openPluginPage, openInspectorTab }) =>
+      h('div', { className: cardSurfaceClass }, `${pluginId} @ ${environmentId ?? '-'}`),
+  });
 }
 ```
 
-规则：
+### 8 种挂载面（Fail-Closed，必须在 `package.json#warren.contributes.surfaces` 预先声明）
 
-- 先用 `app.ui` 里的组件，不要手写 chrome。
-- token / recipe 从 `cardSurfaceClass`、`controlFieldClass` 和组件默认值来。
-- 不写死 hex，不写裸 `rounded-lg` / `h-8`。
-- 语义色用 `text-[var(--warning)]` 这类任意值语法。
-- 插件只能注册 `package.json#warren.contributes.surfaces` 里声明过的面。
+| kind | 落点 | 说明 |
+|---|---|---|
+| `railPage` | 全局导航栏插件全屏页 | 传 `{ id, title, icon?, path?, component }` |
+| `settingsSection` | 设置中心右侧附加分节 | 传 `{ id, title, description?, icon?, component }` |
+| `inspectorTab` | 右侧随行工作台抽屉页 | 传 `{ id, title, icon?, component }`，收到当前 `environmentId` / `space` / `url` |
+| `envAction` | 侧栏/标题栏环境右键动作菜单（声明式） | 清单声明 `{ kind: "envAction", id, title, command }`，无需前端代码 |
+| `envBadge` | 侧栏环境行状态芯片 | 返回 `{ set(envId, { label, tone }), clear() }`，最多 3 字符 |
+| `popover` | 地址栏右侧快捷胶囊 & 独立 OS 浮窗 | `props` 含 `closePopover` / `openPluginPage` / `openInspectorTab`，支持 `shortcut` |
+| `statusBadge` | 地址栏右侧精简微标（最多显示 3 个，其余折叠） | 传 `{ id, title, icon?, component? }` |
+| `commandBarAction` | `⌘K` 命令面板动作项 | 支持执行后端 `command` 或前端 `onTrigger(environmentId)` |
+
+### 前端 API 规范
+
+- `app.shell`（唯一导航/外壳协同通道，**无**历史 `app.navigation`）：`closePopover()`、`resizePopover({ width, height })`、`openPopover(surfaceId, opts)`、`openPage(surfaceId?)`、`openSettings(section?)`、`openInspectorTab(surfaceId?)`、`openTab(envId, url, space?)`、`highlight(envId, selector?, space?)`、`notify(kind, title, description?)`。
+- `app.host`（只读宿主信息，无需声明额外权限，受 `shared/plugin-host-api.ts` 白名单约束）：`environment.list()`、`environment.get(id)`、`environment.activeContext()`、`browser.info(envId, { space? })`。
+- `app.ui`：必须复用宿主组件库（见 [`src/renderer/lib/plugin-ui.ts`](../src/renderer/lib/plugin-ui.ts)），禁止写死 hex、裸 `rounded-lg`、`h-8` 或自造 chrome；语义色走 `text-[var(--warning)]` 这类 CSS 变量语法。
 
 ### base-ui 的坑
 
@@ -79,84 +110,56 @@ export default function register(app) {
 | `<Item onSelect={fn}>` | `<Item onClick={fn}>` | 类型通过，点击无反应 |
 | `<Label>` 随便放 | `<Label>` 必须在 `<Group>` 里 | 抛错，整个 React 树被卸载成白屏 |
 
-## 后端
+## 后端：`sandbox` / `host` 双运行时与子进程超时
 
-`runtime: "sandbox"`：
+两种运行时**均运行在独立的可强杀子进程**（Electron 下 `utilityProcess.fork`，单测下 `child_process.fork`），每次 `activate` / `command` / `rpc` 默认共享 **`30_000ms` 超时强制击杀**（可通过 `WARREN_PLUGIN_TIMEOUT_MS` 调整，超时报 `PLUGIN_TIMEOUT`）：
 
-- 入口：`warren.server`
-- 只有 `ctx.host`，没有 `require` / `process` / `fetch`
-- 适合普通 API 操作、SQLite、页面读写
+- `runtime: "sandbox"`（入口 `warren.server`）：子进程内部在受限 `node:vm` 上下文执行，**无 `require` / `process` / `fs` / `child_process` / 原生 `fetch`**，只有 `ctx.host`；`server.js` 保持单文件 CJS 导出。
+- `runtime: "host"`（入口 `warren.host`）：独立 Node ESM 子进程，可用完整 Node API 与原生 `node_modules`，但跨 Warren 环境与页面操作依然通过 `ctx.host` 权限门控；可通过 `lib/*.mjs` 拆分组织逻辑，安装时向用户明确提示为全权 Node 代码。
 
-`runtime: "host"`：
+> 两种运行时都不是 OS 级安全沙箱。权限表、`app.host` 白名单和 `app.rpc` 是契约与误用防护，不是恶意代码隔离，请仅安装受信任插件。
 
-- 入口：`warren.host`
-- 跑在独立 Node 进程里，有完整 fs / child_process / 第三方依赖
-- 仍然只能通过 host API 碰 Warren 的环境与页面
-- 安装时必须让用户知道它是全权 Node 代码
+### 调用方身份与双 Space 规则：`ctx.caller`
 
-两种运行时都不是安全沙箱。权限表、`app.host` 白名单和 `app.rpc` 是契约与误用防护，不是恶意代码隔离。
+| 来源 | `ctx.caller` | 控制权与 Space 行为 |
+|---|---|---|
+| 插件自身 UI（渲染层 `plugin:rpc` IPC） | `'ui'` | 默认跟随当前激活 Space；在 `Person Space` 点击或填充页面免占 Agent lease |
+| Agent / CLI（`warren plugin run` / `warren plugin rpc`） | `'agent'` | 强制锁定 `Agent Space`（显式传 `space: 'person'` 报 `SPACE_FORBIDDEN`），写操作惰性申请并释放 `plugin:<id>` lease |
 
-### 调用方类型：`ctx.caller`
+### 核心 `ctx.host` 能力摘要
 
-插件的 `rpc` 方法会拿到 `ctx.caller`：
+- **环境管理**：`host.environment.{list, get, update, start, stop}`（`update` 支持 `proxy` / `trustedCa` 传 `null` 清除）。
+- **表单探测与零手写填充**：`host.browser.detectLoginFields(envId, { space? })`（在隔离世界识别 `username` / `password` / `totp` / `submit` / 多步登录与验证码状态）、`host.browser.fillSecret(envId, target, value, { space?, allowedDomains?, requireDomains? }) => Promise<{ filled, space }>`（值只在主进程内部进页面，Agent 通道强制校验非空域名白名单）。
+- **完整页面控制与等待**：`browser.{url, title, info, snapshot, events, highlight, screenshot, navigate, reload, goBack, goForward, click, dblclick, hover, drag, fill, selectOption, focus, press, setInputFiles, openTab, acceptDialog, dismissDialog, console, network, waitFor, waitForSelector, waitForURL, waitForFunction, waitForLoadState, waitForTimeout, waitForEvent}`。
+- **Vault 与打码**：`host.vault.{listRefs, fill, maskHint}`（无明文 reveal）。
+- **受控 Cookie 搬运（`storage.cookie.port`）**：`host.cookie.{names, copy, import, clear}`（`names` 只返回名称、域与标志，**绝不返回 Cookie 值**；`copy` 在主进程内迁移；`storage.cookie.read` / `write` 永久 `denied`）。
+- **事件总线与消息**：`host.events.{emit, subscribe, unsubscribe}`（只读脱敏事件流：`nav.committed`、`lease.changed`、`tab.created`、`tab.activated`、`space.switched`、`env.status`、`net.hit`）、`host.signal.publish`、`host.ui.notify`、`host.log.{debug, info, warn, error}`。
+- **存储与设置**：`host.storage.kv.{get, set, delete, list}`、`host.storage.sql.{exec, run, query, migrate}`、`host.settings.get()`。
 
-| 来源 | `caller` |
-|---|---|
-| 插件自己的界面（渲染层 → `plugin:rpc` IPC） | `'ui'` |
-| CLI / agent（`warren plugin rpc` → RPC 派发表） | `'agent'` |
-
-默认按 `'agent'` 处理——漏标只会更保守，不会把「只给人看」的通道误开给 agent。
-典型用法是账号插件的 `reveal`：只有 `'ui'` 能拿到明文，agent 通道报 `ACCOUNT_REVEAL_UI_ONLY`。
-
-### 秘密进页面：`host.browser.fillSecret`
-
-```js
-await host.browser.fillSecret(environmentId, '#password', value);
-// → { filled: true }
-```
-
-- 权限是 `vault.fill`（confirm 层），语义就是「允许把秘密填进页面」。
-- 值只走主进程内部，不回传、不打日志、不进事件。
-- 和 RPC 的 `vault.fill` 共用 `src/main/browser/fill-secret.ts`（后台输入准备 + 域名名单）。
-
-### 打码：`host.vault.maskHint`
-
-`vault.maskHint(username)` 返回 Vault 列表同一套打码（首字符 + 域名）。sandbox 插件 import
-不了主进程模块，所以规则由宿主提供一份；它只变换调用方传进来的字符串，不读存储，因此不需要权限。
-
-
-## 数据
+## 数据与隔离边界
 
 ```text
 <WARREN_HOME>/core/plugins/<id>/       插件包 + node_modules + data.db
 ```
 
-- `data.db` 是插件自己的 SQLite，迁移只允许追加。
+- `data.db` 是插件自己的 SQLite，迁移统一通过 `host.storage.sql.migrate([...])` 追加执行。
 - 卸载会删除整个插件目录、`plugin_values` 和 `plugin_logs`。
-- `secret` 设置仍然存 Vault，前端只看到 `configured`。
+- `secret` 设置存储在 Vault，前端只看到 `configured: boolean`。
 
-## 账号管理插件
+### 账号管理插件产品例外
 
-`plugins/account-manager/` 是一个明确的产品例外：账号和密码**按用户要求明文存储**在插件自己的 `data.db`。
+`plugins/account-manager/` 是唯一明确的产品例外：账号、密码、TOTP 密钥与扩展字段**明文存储**在插件自身 `data.db`，不接 Vault，界面固定展示明文警示。**Agent 通道绝不回传明文**：`list`/`match`/`get` 只返回 `hasPassword` / `hasTotp` / `usernameHint`，`reveal` 与 `totpCode` 仅限 `'ui'`，自动填充走隔离世界 `detectFields` + `host.browser.fillSecret`。
 
-- 不接 Vault。
-- 界面固定显示明文存储警告。
-- 只用于不重要账号；不要把系统密码或生产高权限凭据放进去。
-- **agent 通道永远拿不到明文**：`list` / `get` 只回 `hasPassword` 与 `usernameHint`；
-  登录走 `fill`（值在宿主内部进页面，返回体只有字段名）；`reveal` 只对 `caller: 'ui'` 开放；
-  `export` 必须 `--input='{"confirm":"plaintext"}'`，且仅供人手工备份。
-
-## 验收
+## 验收示例（零手写选择器）
 
 ```bash
 node bin/warren.mjs plugin install path:plugins/account-manager
 node bin/warren.mjs plugin enable com.warren.accounts
 node bin/warren.mjs plugin run com.warren.accounts list --json
 node bin/warren.mjs plugin run com.warren.accounts create \
-  --input='{"name":"测试后台","username":"tester","password":"[REDACTED]","note":"本地 fixture"}'
-# list 不带密码（只有 hasPassword / usernameHint）
-node bin/warren.mjs plugin rpc com.warren.accounts list --input='{}'
-# 登录：按 id 填进页面字段，返回体不含值
-node bin/warren.mjs plugin rpc com.warren.accounts fill \
-  --input='{"id":1,"environmentId":"<env>","fields":{"username":"#account","password":"input[type=password]"}}'
+  --input='{"name":"测试后台","url":"http://127.0.0.1:8899/login.html","username":"tester","password":"[REDACTED]","note":"本地 fixture"}'
+# 匹配并返回脱敏结果（只有 hasPassword / usernameHint）
+node bin/warren.mjs plugin rpc com.warren.accounts match --input='{"environmentId":"<env>"}'
+# 零手写选择器自动探测并填充登录表单
+node bin/warren.mjs plugin rpc com.warren.accounts autoFill --input='{"environmentId":"<env>","submit":true}'
 ```

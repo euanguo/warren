@@ -46,7 +46,7 @@ export function guardScreenshotPath(input: string): string {
   const absolute = path.resolve(input);
   const roots = [path.join(warrenHome(), 'artifacts'), path.join(warrenHome(), 'evidence')];
   if (roots.some((root) => absolute === root || absolute.startsWith(root + path.sep))) return absolute;
-  return guardSavePath(absolute, 'saveAs');
+  return guardSavePath(absolute);
 }
 
 /** 从 PNG/JPEG 字节头读取尺寸，零图像依赖。读不出来时返回 undefined，不猜。 */

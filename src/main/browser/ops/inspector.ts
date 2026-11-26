@@ -1,6 +1,7 @@
 import type { TargetInput } from '../../../shared/types.ts';
 import type { PageContext } from '../ctx.ts';
-import { err, evalOnNode, nodeIdFor, resolveTarget } from '../page-helpers.ts';
+import { evalOnNode, nodeIdFor, resolveTarget } from '../page-helpers.ts';
+import { richErr } from '../errors.ts';
 
 export type InspectProp = 'url' | 'title' | 'text' | 'html' | 'value' | 'attr' | 'box';
 export type InspectState = 'visible' | 'enabled' | 'checked';
@@ -28,7 +29,7 @@ export function targetFromBy(by: string, spec: string, name?: string): TargetInp
     case 'xpath':
       return { kind: 'xpath', xpath: spec };
     default:
-      throw err('BAD_REQUEST', `不支持的定位类型 ${by}（支持 role/label/text/placeholder/testid/selector/xpath）`);
+      throw richErr('BAD_REQUEST', `不支持的定位类型 ${by}（支持 role/label/text/placeholder/testid/selector/xpath）`);
   }
 }
 
@@ -41,7 +42,7 @@ export async function readTargetProperty(
 ): Promise<unknown> {
   if (prop === 'url') return ctx.wc.getURL();
   if (prop === 'title') return ctx.wc.getTitle();
-  if (target === undefined) throw err('BAD_REQUEST', `${prop} 需要目标定位器`);
+  if (target === undefined) throw richErr('BAD_REQUEST', `${prop} 需要目标定位器`);
 
   const { backendNodeId, sessionId } = await resolveTarget(ctx, target);
   const nodeId = await nodeIdFor(ctx, backendNodeId, sessionId);
@@ -54,7 +55,7 @@ export async function readTargetProperty(
     case 'value':
       return evalOnNode(ctx, nodeId, '(el) => ("value" in el ? el.value : el.getAttribute("value"))', sessionId);
     case 'attr': {
-      if (!attrName) throw err('BAD_REQUEST', 'attr 需要指定属性名');
+      if (!attrName) throw richErr('BAD_REQUEST', 'attr 需要指定属性名');
       return evalOnNode(ctx, nodeId, `(el) => el.getAttribute(${JSON.stringify(attrName)})`, sessionId);
     }
     case 'box':
@@ -65,7 +66,7 @@ export async function readTargetProperty(
         sessionId,
       );
     default:
-      throw err('BAD_REQUEST', `未知属性 ${String(prop)}`);
+      throw richErr('BAD_REQUEST', `未知属性 ${String(prop)}`);
   }
 }
 
@@ -104,6 +105,6 @@ export async function checkTargetState(ctx: PageContext, state: InspectState, ta
         ),
       );
     default:
-      throw err('BAD_REQUEST', `未知状态检查 ${String(state)}`);
+      throw richErr('BAD_REQUEST', `未知状态检查 ${String(state)}`);
   }
 }

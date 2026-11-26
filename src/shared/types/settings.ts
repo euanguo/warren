@@ -2,11 +2,7 @@
 // 审批策略与应用设置（docs/APPROVAL-EMBED-MEMORY-PLAN.md）
 // ---------------------------------------------------------------------------
 
-/** 谁建的这个环境。 */
-export type Creator = 'human' | 'agent';
-
-/** 环境级审批策略。`inherit` = 跟随全局。 */
-export type ApprovalMode = 'inherit' | 'ask' | 'auto';
+import type { DevToolsDockMode, ViewportPresetId } from './common.ts';
 
 /**
  * 全局控制权策略。
@@ -16,9 +12,6 @@ export type ApprovalMode = 'inherit' | 'ask' | 'auto';
  * - `auto`：任何环境上 agent 都能接管
  */
 export type ControlPolicy = 'ask' | 'agent-created' | 'auto';
-
-import type { DevToolsDockMode } from './ui.ts';
-import type { ViewportPresetId } from './browser.ts';
 
 /** 插件能力确认策略。`auto` = confirm 层的权限视同已授予。 */
 export type PluginPolicy = 'ask' | 'auto';

@@ -8,9 +8,10 @@ import { runWithPluginContext } from './call-context.ts';
 import { dispatchHostRead } from './host-read.ts';
 import { pluginError } from './installer.ts';
 import { isNeedsConfiguration, type ActivePlugin } from './lifecycle.ts';
-import type { Permission, PluginPackage } from './package.ts';
+import type { Permission } from '../../shared/permissions.ts';
+import type { PluginPackage } from './package.ts';
 import { appendPluginLog, readPluginLogs, type PluginState } from './registry.ts';
-import type { LogLevel } from './runtime.ts';
+import type { LogLevel } from './runtime-base.ts';
 import type { PluginLogEntry, PluginRpcCaller, PluginRpcResponse, PluginStatus } from '../../shared/types.ts';
 
 export interface RunResult {
@@ -132,7 +133,13 @@ export class PluginInvoker {
         : undefined);
     return runWithPluginContext({ pluginId: id, environmentId, leaseId, caller }, async () => {
       try {
-        const result = await active.adapter.rpc(method, input ?? null, { pluginId: id, input, leaseId, caller });
+        const result = await active.adapter.rpc(method, input ?? null, {
+          pluginId: id,
+          environmentId,
+          input,
+          leaseId,
+          caller,
+        });
         return { ok: true, result: toJson(result) };
       } catch (error) {
         const err = error as Error & { code?: string };

@@ -14,10 +14,36 @@ export class WindowLayerManager {
   #window: BaseWindow;
   #model = new LayerOrderModel<WebContentsView>();
   #pageRadius = 8;
+  #viewport: ViewportRect = { x: 0, y: 0, width: 800, height: 600 };
+  #viewportReady = false;
+  #viewVisible = true;
 
   constructor(window: BaseWindow, pageRadius = 8) {
     this.#window = window;
     this.#pageRadius = pageRadius;
+  }
+
+  /** 窗口内容区基线视口与页面原生视图可见态单一真相源。 */
+  viewport(): ViewportRect {
+    return this.#viewport;
+  }
+
+  isViewportReady(): boolean {
+    return this.#viewportReady;
+  }
+
+  setViewport(rect: ViewportRect): void {
+    if (rect.width <= 0 || rect.height <= 0) return;
+    this.#viewport = rect;
+    this.#viewportReady = true;
+  }
+
+  viewVisible(): boolean {
+    return this.#viewVisible;
+  }
+
+  setViewVisible(visible: boolean): void {
+    this.#viewVisible = visible;
   }
 
   setPageRadius(radius: number): void {

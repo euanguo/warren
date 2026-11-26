@@ -12,31 +12,32 @@
 ## 仓库结构（当前基线）
 
 ```
-bin/warren.mjs              Agent CLI（唯一的 agent 入口）
-src/shared/                 跨进程共享：类型 + 权限（主进程与渲染层都从这里取）
+bin/warren.mjs              Agent CLI 薄入口（<40L，派发到 bin/cli.mjs + bin/commands/*.mjs）
+src/shared/                 跨进程共享：types/*.ts + permissions.ts + plugin-host-api.ts + popover-sizing.ts
 src/main/                   Electron 主进程
-  main.ts                   应用入口、窗口、IPC、coreDir
-  environments.ts           Environment 生命周期、Session、WebContentsView、Lease
-  tabs.ts                   Tab / TabManager：一个环境的标签集合、视图挂载、加载错误
-  browser/                  CDP 控制层（19 个文件：controller / snapshot / waits / actions / policy…）
-  input-shield.ts           Agent 持 lease 时的原生输入遮罩
-  telemetry.ts              Console / Network 环形缓冲
-  rpc.ts                    Unix socket RPC 服务端（token / socket / 协议，RUNTIME_DIR = ~/.warren）
-  rpc-dispatch.ts            RPC 派发表（方法 → manager/插件/凭据）。**不 import electron**，所以能被单测加载
-  store.ts                  持久化
-  domain/environment.ts     纯领域逻辑（可单测）
+  main.ts                   应用入口、窗口生命周期（已拆出 ipc-routes.ts / plugin-protocol.ts）
+  environments.ts + env/    Environment Facade + lifecycle / session-factory / lease-coordinator / view-coordinator
+  tabs.ts + domain/tabs.ts  Tab / TabManager：标签集合、WindowLayerManager 视图挂载、加载错误
+  ui/                       5 层原生视窗栈（layer-order / layer-manager / overlay-host / popover-host / devtools-host）
+  browser/                  CDP 控制层（controller / locator / actions / pointer-actions / form-actions / snapshot / screenshot / waits / dom-scripts / ops/*）
+  input-shield.ts           Agent 持 lease 时的透明原生输入遮罩与光标轨迹
+  telemetry.ts              Console / Network 持久化采集（warren.db，停/休眠保留、remove 才清理）
+  rpc.ts + rpc/             Unix socket RPC 服务端（~/.warren/runtime/envd.sock）+ 按域拆分的单一 RPC_REGISTRY
+  db.ts + store/            唯一 SQLite 连接 + 按域拆分的 store/{common,environments,memory}.ts
+  domain/environment.ts     纯领域逻辑（状态机、lease 规则，可单测）
   vault/                    safeStorage 凭据库
-  plugins/                  package.json#warren 校验 + 来源安装 + PluginHost
-src/renderer/               渲染层（见下节目录所有权）
-packages/plugin-sdk/        独立插件包的类型契约
+  plugins/                  package.json#warren 校验 + installer/lifecycle/host + runtime-{base,host,sandbox}.ts + api/*
+  skills/ + agent-integration.ts  内置与已启用插件 Skill 自动合成与刷新
+src/renderer/               渲染层（app/ + features/{environments,plugins,settings}/ + state/ + lib/ + theme/）
+packages/plugin-sdk/        独立插件包的类型契约（已纳入 tsconfig.check.json）
 plugins/README.md           插件作者入口：npm 包格式 / 安装来源 / app.ui / base-ui 的坑
-plugins/*/                  独立插件包（示例 / Whistle / 账号管理）
+plugins/*/                  独立插件包（示例 / Whistle lib+ui / 账号管理 ui）
 fixtures/login/             本地测试站点
-scripts/                    serve-fixture / serve-shots / ui-promote
-tests/                      node:test 单测
-assets/                     品牌资产（app icon.icns / icon.png + logo 源文件）
+scripts/                    serve-fixture / serve-shots / ui-promote / test-changed / regress/{lib.sh,*.sh}
+tests/                      node:test 单测 + Vitest/happy-dom 无头 UI 测试（tests/ui/） + helpers/
+assets/                     品牌资产（app icon.icns / icon.png + tray 图标）
 legacy/                     旧的独立 Chrome 看板原型（前身，勿参考）
-docs/                       PRD / 技术选型 / 设计语言 / 交接文档
+docs/                       PRD / 技术选型 / 设计语言 / 交接与改造文档
 ```
 
 ### 路径别名
@@ -235,14 +236,13 @@ constructor(deps: Deps) { this.#deps = deps; }   // 不要 constructor(private r
 
 ### 1. 命令输出「看着有内容其实全是 undefined」
 
-`bin/warren.mjs` 的 `print(value, asJson, format)` —— **`format` 必须由调用方显式传**。
+`bin/formatters.mjs` 的 `print(value, asJson, format)` —— **`format` 必须由调用方显式传**。
 不同命令的数组元素形状完全不同（环境 / 事件 / 插件），给一个通用 formatter 会让所有数组套上环境的字段。
 新增返回数组的命令时，必须同时写它的 `formatXxxLine`，否则默认逐条打 JSON（难看但不撒谎）。
 
 ### 2. 权限表出现两份
 
-已修：抽到 `src/shared/permissions.ts`。**不要再抄**。
-`main/plugins/package.ts` 只做转出，方便主进程按统一路径引用。
+已修：统一从 `src/shared/permissions.ts` 直接引入（已在 Wave 1 移除 `package.ts` 二次转出）。**不要再抄**。
 
 ### 3. CDP DOM 域报 `Document needs to be requested first`
 
@@ -257,7 +257,7 @@ constructor(deps: Deps) { this.#deps = deps; }   // 不要 constructor(private r
 ```bash
 pkill -f "electron-forge start"; pkill -f "node_modules/electron/dist"; sleep 3
 lsof -ti :5173 | xargs kill -9
-rm -f ~/.warren/envd.sock ~/.warren/runtime.json
+rm -f ~/.warren/runtime/envd.sock ~/.warren/runtime/runtime.json
 pgrep -f 'electron-forge start' | wc -l    # 必须是 0 再启动
 ```
 
@@ -391,7 +391,7 @@ screencapture -x -R x,y,w,h shots/out.png
 python3 -c "from PIL import Image;import numpy as np;a=np.asarray(Image.open('shots/out.png').convert('RGB'));print(a.mean(0).mean(0))"
 ```
 
-判据示例：左侧栏平均 RGB ≈ 26 对应 `--theme-surface: #181818`；区域暗像素占比可验证遮罩/横幅是否渲染。
+判据示例：暗色主题左侧栏对应 `--theme-surface: #181b21`（RGB ≈ 24, 27, 33）；区域暗像素占比可验证遮罩/横幅是否渲染。
 
 ---
 
@@ -425,6 +425,7 @@ python3 -c "from PIL import Image;import numpy as np;a=np.asarray(Image.open('sh
 | `docs/BROWSER-CAPABILITY-DEEP-DIVE.md` | **实现级**对标：Playwright 内部机制 vs `src/main/browser/` 逐模块，差距清单 + 补法排序 |
 | `docs/BROWSER-CAPABILITY-PORT-PLAN.md` | **移植计划**：要移植哪些算法/机制、落到哪个文件、逐条验收命令 + 自循环验证协议（RED→GREEN→REGRESS） |
 | `docs/NET-INTERCEPT-PLAN.md` | **网络拦截通用能力**：`ses.protocol.handle` 方案（R8–R11 已实测）、规则模型、批次与验收。whistle 降级为兜底 |
-| `docs/FULL-REGRESSION-2026-10-15.md` | **全量回归记录**：`scripts/regress/run-all.sh` 跑什么、117 PASS / 1 已知缺口、本轮修掉的 6 个问题（含 RED→GREEN 实测） |
+| `docs/FULL-REGRESSION-2026-10-15.md` | **全量回归记录**：`scripts/regress/run-all.sh` 跑什么与历史修复记录 |
+| `docs/CODE-ARCHITECTURE-QUALITY-PLAN-2026-11-27.md` | **全仓库零 Shim 代码质量与架构质量改造计划**：Wave 0–4 实施路线、第 5 节文档校准清单与第 6 节端到端实测协议 |
 
 `legacy/` 是前身原型（独立 Chrome 进程看板），**不作为当前实现依据**。

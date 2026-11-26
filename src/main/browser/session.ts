@@ -98,6 +98,14 @@ export async function attachSession(wc: WebContents): Promise<void> {
   s.count = 1;
   if (!s.wired) {
     s.wired = true;
+    wc.debugger.on('detach', () => {
+      const cur = states.get(wc);
+      if (!cur) return;
+      cur.count = 0;
+      cur.children.clear();
+      cur.dialog = undefined;
+      cur.dialogQueued = false;
+    });
     // 每个 webContents 只接一次 message（controller 换代不重复接）
     wc.debugger.on('message', (_event, method, params, sessionId) => {
       // 子会话的 attach / detach：跨源 iframe 进来和走了

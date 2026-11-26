@@ -12,6 +12,34 @@ export interface CredentialSecret {
   totp?: string;
 }
 
+export const ALLOWED_SECRET_FIELDS = ['username', 'password', 'token', 'totp'] as const;
+export type SecretField = (typeof ALLOWED_SECRET_FIELDS)[number];
+
+export function isSecretField(value: unknown): value is SecretField {
+  return typeof value === 'string' && (ALLOWED_SECRET_FIELDS as readonly string[]).includes(value);
+}
+
+/** 校验并清洗 Vault secret 负载：仅保留白名单字符串字段，拒绝数组与原型污染键。 */
+export function sanitizeCredentialSecret(raw: unknown): CredentialSecret {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    fail('BAD_REQUEST', 'secret must be a plain object');
+  }
+  const input = raw as Record<string, unknown>;
+  const secret: CredentialSecret = {};
+  for (const key of ALLOWED_SECRET_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+    const val = input[key];
+    if (val === undefined) continue;
+    if (typeof val !== 'string') {
+      fail('BAD_REQUEST', `secret.${key} must be a string`);
+    }
+    const normalized = key === 'password' ? val : val.trim();
+    if (normalized) secret[key] = normalized;
+  }
+  if (Object.keys(secret).length === 0) fail('BAD_REQUEST', 'secret is empty');
+  return secret;
+}
+
 export interface CredentialRecord {
   ref: string;
   id: string;
@@ -91,18 +119,20 @@ export class VaultStore {
 
   add(input: { provider: string; label: string; secret: CredentialSecret }): CredentialSummary {
     if (!this.#encryptor.available()) fail('VAULT_UNAVAILABLE', '系统密钥存储不可用');
-    if (!input.provider) fail('BAD_REQUEST', 'provider is required');
-    if (!input.secret || Object.keys(input.secret).length === 0) fail('BAD_REQUEST', 'secret is empty');
+    const provider = typeof input.provider === 'string' ? input.provider.trim() : '';
+    if (!provider) fail('BAD_REQUEST', 'provider is required');
+    const cleanSecret = sanitizeCredentialSecret(input.secret);
+    const label = typeof input.label === 'string' ? input.label.trim() : '';
 
     const id = crypto.randomUUID();
     const now = this.#now();
     const record: CredentialRecord = {
       ref: `vault://${id}`,
       id,
-      provider: input.provider,
-      label: input.label || input.provider,
-      usernameHint: maskHint(input.secret.username),
-      cipher: this.#encryptor.encrypt(JSON.stringify(input.secret)),
+      provider,
+      label: label || provider,
+      usernameHint: maskHint(cleanSecret.username),
+      cipher: this.#encryptor.encrypt(JSON.stringify(cleanSecret)),
       createdAt: now,
       updatedAt: now,
     };

@@ -8,6 +8,7 @@ const NOW = '2026-01-01T00:00:00.000Z';
 function tab(id: string): TabState {
   return {
     id,
+    space: 'person',
     title: id,
     url: `https://example.com/${id}`,
     loading: false,

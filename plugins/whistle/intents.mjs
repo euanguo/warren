@@ -57,12 +57,47 @@ export function isSensitiveHeader(name) {
   return SENSITIVE_HEADERS.has(String(name || '').toLowerCase());
 }
 
-function isSensitiveJsonKey(key) {
+export function isSensitiveJsonKey(key) {
   return SENSITIVE_JSON_KEYS.has(
     String(key || '')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, ''),
   );
+}
+
+export function redactJson(value) {
+  if (Array.isArray(value)) return value.map(redactJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => {
+      if (isSensitiveJsonKey(key)) {
+        return [key, item ? '[REDACTED]' : ''];
+      }
+      return [key, redactJson(item)];
+    }),
+  );
+}
+
+export function redactUrlSecrets(rawUrl) {
+  const input = String(rawUrl || '');
+  if (!input) return input;
+  try {
+    const parsed = new URL(input);
+    let mutated = false;
+    if (parsed.password) {
+      parsed.password = '[REDACTED]';
+      mutated = true;
+    }
+    for (const [key, val] of [...parsed.searchParams.entries()]) {
+      if (isSensitiveJsonKey(key) && val) {
+        parsed.searchParams.set(key, '[REDACTED]');
+        mutated = true;
+      }
+    }
+    return mutated ? parsed.toString() : input;
+  } catch {
+    return input;
+  }
 }
 
 function isFiniteNum(value) {
@@ -641,13 +676,36 @@ export function shellEscape(value) {
   return `'${String(value ?? '').replace(/'/g, "'\\''")}'`;
 }
 
+function redactCurlBody(bodyText, headers) {
+  if (!bodyText) return bodyText;
+  const parsed = tryParseJson(bodyText);
+  if (parsed) return JSON.stringify(redactJson(parsed));
+  const contentTypeEntry = Object.entries(headers || {}).find(([k]) => String(k).toLowerCase() === 'content-type');
+  const contentType = String(contentTypeEntry ? contentTypeEntry[1] : '').toLowerCase();
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    try {
+      const form = new URLSearchParams(bodyText);
+      let mutated = false;
+      for (const [k, v] of [...form.entries()]) {
+        if (isSensitiveJsonKey(k) && v) {
+          form.set(k, '[REDACTED]');
+          mutated = true;
+        }
+      }
+      if (mutated) return form.toString();
+    } catch {}
+  }
+  return bodyText;
+}
+
 /** 将抓包 session 或归一化条目转为安全可执行的 curl 命令。 */
 export function buildCurlCommand(session, options = {}) {
   if (!session || typeof session !== 'object') fail('BAD_REQUEST', 'buildCurlCommand 需要 session 对象');
   const includeSensitive = options.includeSensitive === true;
   const req = session.req || session.raw?.req || {};
-  const url = String(session.url || '').trim();
-  if (!url) fail('BAD_REQUEST', 'session 缺少 url');
+  const rawUrl = String(session.url || '').trim();
+  if (!rawUrl) fail('BAD_REQUEST', 'session 缺少 url');
+  const url = includeSensitive ? rawUrl : redactUrlSecrets(rawUrl);
   const method = String(req.method || session.method || 'GET').toUpperCase();
   const headers = req.headers || session.requestHeaders || {};
 
@@ -656,14 +714,12 @@ export function buildCurlCommand(session, options = {}) {
     bodyText = Buffer.from(req.base64, 'base64').toString('utf8');
   } else if (typeof req.body === 'string') {
     bodyText = req.body;
-  } else if (session.requestBodyRaw !== undefined && session.requestBodyRaw !== '') {
-    bodyText =
-      typeof session.requestBodyRaw === 'object'
-        ? JSON.stringify(session.requestBodyRaw)
-        : String(session.requestBodyRaw);
   } else if (session.requestBody !== undefined && session.requestBody !== '') {
     bodyText =
       typeof session.requestBody === 'object' ? JSON.stringify(session.requestBody) : String(session.requestBody);
+  }
+  if (!includeSensitive && bodyText) {
+    bodyText = redactCurlBody(bodyText, headers);
   }
 
   const parts = ['curl', '-X', method];

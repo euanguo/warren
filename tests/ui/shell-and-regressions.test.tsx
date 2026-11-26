@@ -20,10 +20,17 @@ import { installMockEnvApi } from './setup';
 const ROOT = path.resolve(import.meta.dirname, '../..');
 
 function makeEnv(overrides: Partial<Environment> = {}): Environment {
+  const now = '2026-01-01T00:00:00.000Z';
   return {
     id: 'cap',
     name: 'cap',
+    storagePath: '/tmp/warren-ui-cap',
+    createdBy: 'human',
     status: 'running',
+    headed: true,
+    order: 0,
+    createdAt: now,
+    updatedAt: now,
     owner: 'none',
     activeSpaceId: 'person',
     spaces: [
@@ -31,13 +38,35 @@ function makeEnv(overrides: Partial<Environment> = {}): Environment {
         id: 'person',
         label: '我的',
         owner: 'none',
-        tabs: [{ id: 't1', url: 'http://127.0.0.1:8899/cap/form.html', title: 'form fixture', loading: false }],
+        tabs: [
+          {
+            id: 't1',
+            space: 'person',
+            url: 'http://127.0.0.1:8899/cap/form.html',
+            title: 'form fixture',
+            loading: false,
+            audible: false,
+            muted: false,
+            createdAt: now,
+          },
+        ],
       },
       {
         id: 'agent',
         label: 'Agent',
         owner: 'none',
-        tabs: [{ id: 'a1', url: 'http://127.0.0.1:8899/cap/form.html', title: 'form fixture', loading: false }],
+        tabs: [
+          {
+            id: 'a1',
+            space: 'agent',
+            url: 'http://127.0.0.1:8899/cap/form.html',
+            title: 'form fixture',
+            loading: false,
+            audible: false,
+            muted: false,
+            createdAt: now,
+          },
+        ],
       },
     ],
     ...overrides,
@@ -45,11 +74,16 @@ function makeEnv(overrides: Partial<Environment> = {}): Environment {
 }
 
 function makeTabs(count: number): TabState[] {
+  const now = '2026-01-01T00:00:00.000Z';
   return Array.from({ length: count }, (_, i) => ({
     id: `tab-${i + 1}`,
+    space: 'person',
     url: `http://127.0.0.1:8899/cap/form.html?tab=${i + 1}`,
     title: `127.0.0.1:8899/cap/form-${i + 1}`,
     loading: false,
+    audible: false,
+    muted: false,
+    createdAt: now,
   }));
 }
 

@@ -1,20 +1,21 @@
 #!/bin/bash
 cd "$(cd "$(dirname "$0")/../.." && pwd)"
-W="node bin/warren.mjs"
-jq1() { node -e 'const fs=require("fs");let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch(e){console.log("BADJSON");return}console.log(eval(process.argv[1])(j))})' "$1"; }
-ok() { if [ "$2" = "$3" ]; then echo "PASS $1 | $3"; else echo "FAIL $1 | 期望[$2] 实际[$3]"; fi; }
-run() { $W plugin run "$@" 2>&1 | tail -1; }
+# shellcheck source=scripts/regress/lib.sh
+source "scripts/regress/lib.sh"
+
+REGR_TMP=$(mktemp -d "${TMPDIR:-/tmp}/warren-plugin-regr.XXXXXX")
+trap 'rm -rf "$REGR_TMP"' EXIT
 
 echo "===== 12. 插件：命令 / 存储 / 日志 / 设置 ====="
-N1=$($W plugin run com.example.notes list --env cap 2>&1 | jq1 '(j) => j.result.notes.length')
+N1=$($W plugin run com.example.notes list --env cap 2>&1 | jq1 '(j) => j.result.items.length')
 $W plugin run com.example.notes addNote --env cap > /dev/null
-N2=$($W plugin run com.example.notes list --env cap 2>&1 | jq1 '(j) => j.result.notes.length')
+N2=$($W plugin run com.example.notes list --env cap 2>&1 | jq1 '(j) => j.result.items.length')
 ok "12.1 插件命令写库（count $N1 → $N2）" "$((N1 + 1))" "$N2"
-$W plugin rpc com.example.notes stats '{}' > /tmp/regr/rpc.json 2>&1
+$W plugin rpc com.example.notes stats '{}' > "$REGR_TMP/rpc.json" 2>&1
 # stats 现在回 total（全部条目）+ todos + facts；以前那个 count 就是 total
-ok "12.2 plugin rpc 返回 total" "$((N2))" "$(cat /tmp/regr/rpc.json | jq1 '(j) => (j.result||j).total')"
-$W plugin logs com.example.notes --n=3 > /tmp/regr/logs.txt 2>&1
-ok "12.3 插件日志可读" "1" "$(grep -c . /tmp/regr/logs.txt | awk '{print ($1>0)?1:0}')"
+ok "12.2 plugin rpc 返回 total" "$((N2))" "$(jq1 '(j) => (j.result||j).total' < "$REGR_TMP/rpc.json")"
+$W plugin logs com.example.notes --n=3 > "$REGR_TMP/logs.txt" 2>&1
+ok "12.3 插件日志可读" "1" "$(grep -c . "$REGR_TMP/logs.txt" | awk '{print ($1>0)?1:0}')"
 $W plugin config com.example.notes set title 回归标题 > /dev/null
 ok "12.4 设置可写并回读" "回归标题" "$($W plugin list --json | jq1 '(j) => j.find(p=>p.id==="com.example.notes").settings.find(s=>s.key==="title").value')"
 $W plugin reload com.example.notes > /dev/null

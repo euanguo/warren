@@ -12,7 +12,7 @@ import { PluginEventBus } from './event-bus.ts';
 import { PluginInstaller } from './installer.ts';
 import { PluginInvoker, type RunResult } from './invoker.ts';
 import { PluginLifecycle } from './lifecycle.ts';
-import type { Permission } from './package.ts';
+import type { Permission } from '../../shared/permissions.ts';
 import { loadPluginState, savePluginState, type PluginState } from './registry.ts';
 import type { PluginSkillEntry } from '../skills/composer.ts';
 import type {

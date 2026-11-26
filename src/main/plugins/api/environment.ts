@@ -2,7 +2,7 @@
  * 插件环境域 host API。
  */
 import type { Environment } from '../../../shared/types.ts';
-import type { CapabilitySpec } from './index.ts';
+import type { CapabilitySpec } from './types.ts';
 
 /**
  * 插件后端的环境视图：leaseId / leaseExpiresAt 是主进程内部凭据形状，不出边界。

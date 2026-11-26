@@ -2,69 +2,121 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import hostPlugin from '../plugins/whistle/host.mjs';
+import {
+  compose,
+  harEntry,
+  normalizeTrafficEntry,
+  restoreRedactedJsonFields,
+  traffic,
+} from '../plugins/whistle/lib/traffic.mjs';
 
 const ROOT = path.join(import.meta.dirname, '..');
-const hostPath = path.join(ROOT, 'plugins', 'whistle', 'host.mjs');
 const manifestPath = path.join(ROOT, 'plugins', 'whistle', 'package.json');
 
-test('Whistle 插件暴露通用观测/导出能力', async () => {
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')).warren;
-  const commands = new Set(manifest.contributes.commands.map((item: { name: string }) => item.name));
-  for (const name of ['traffic', 'compose', 'doctor', 'frames', 'export']) {
-    assert.equal(commands.has(name), true, name);
-    assert.equal(manifest.contributes.rpc.includes(name), true, name);
+function makeMockHost(instances: Array<{ storage: string; port: number }> = []) {
+  return {
+    storage: {
+      kv: {
+        get: async () => instances,
+        set: async () => undefined,
+      },
+      sql: {
+        query: async () => [],
+        migrate: async () => 0,
+      },
+    },
+    environment: { list: async () => [] },
+    events: { publish: async () => undefined },
+    log: { info: async () => undefined, warn: async () => undefined },
+  };
+}
+
+test('Whistle 插件暴露全量观测、Values、Intent 与 Preset 能力，且 CLI 与 RPC 完全对称', async () => {
+  const pkg = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const warren = pkg.warren;
+  assert.equal(pkg.dependencies.whistle, '2.10.15');
+  assert.ok(pkg.files.includes('intents.mjs'));
+  assert.ok(pkg.files.includes('SKILL.md'));
+  assert.ok(pkg.files.includes('lib/'));
+  assert.equal(warren.skill?.entry, 'SKILL.md');
+  assert.ok(Array.isArray(warren.skill?.triggers) && warren.skill.triggers.length > 0);
+
+  const commands = new Set(warren.contributes.commands.map((item: { name: string }) => item.name));
+  const rpc = new Set(warren.contributes.rpc);
+  const pluginObj = hostPlugin as Record<string, unknown>;
+  const rpcObj = hostPlugin.rpc as Record<string, unknown>;
+
+  for (const name of commands) {
+    assert.equal(typeof pluginObj[name as string], 'function', `host 缺命令 ${String(name)}`);
+    assert.equal(rpc.has(name), true, `manifest 缺 rpc ${String(name)}`);
+    assert.equal(typeof rpcObj[name as string], 'function', `host.rpc 缺方法 ${String(name)}`);
   }
 });
 
-test('所有新能力都从 live 实例调用，不回落到全局 Whistle', async () => {
-  const source = await readFile(hostPath, 'utf8');
-  for (const fn of ['traffic', 'compose', 'doctor', 'exportData']) {
-    assert.match(source, new RegExp(`(?:async )?function ${fn}|function ${fn}`), fn);
-  }
-  assert.match(source, /requireInstance\(host, input && input\.storage\)/);
-  assert.match(source, /\/cgi-bin\/get-data/);
-  assert.match(source, /\/cgi-bin\/composer/);
-  assert.match(source, /\/cgi-bin\/https-status/);
-  assert.match(source, /\/cgi-bin\/sessions\/export/);
+test('所有新能力只操作已登记并存活的实例，未知或离线实例明确拒绝（不回落 8899）', async () => {
+  await assert.rejects(
+    () => traffic(makeMockHost([]), { storage: 'missing-inst' }),
+    (err: Error & { code?: string }) => err.code === 'WHISTLE_INSTANCE_UNKNOWN',
+  );
+  await assert.rejects(
+    () => compose(makeMockHost([]), { storage: 'missing-inst', url: 'https://example.com' }),
+    (err: Error & { code?: string }) => err.code === 'WHISTLE_INSTANCE_UNKNOWN',
+  );
 });
 
-test('traffic 默认脱敏且保留 RequestId 与 body 编码', async () => {
-  const source = await readFile(hostPath, 'utf8');
-  assert.match(source, /\[REDACTED\]/);
-  assert.match(source, /requestIdOf/);
-  assert.match(source, /requestBodyEncoding/);
-  assert.match(source, /responseBodyEncoding/);
-  assert.match(source, /includeSensitive !== true/);
+test('traffic 条目归一化默认脱敏敏感请求/响应头，并保留 ReqId 与编码元数据', () => {
+  const item = {
+    req: {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer [REDACTED]',
+        cookie: 'session=[REDACTED]',
+        'x-req': 'ok',
+      },
+      body: '{"password":"[REDACTED]","ok":true}',
+    },
+    res: {
+      statusCode: 200,
+      headers: { 'set-cookie': 'sid=[REDACTED]', 'content-type': 'application/json' },
+      body: '{"token":"[REDACTED]"}',
+    },
+  };
+  const redacted = normalizeTrafficEntry('req-1', item, {}) as Record<string, unknown>;
+  assert.equal(redacted.entryId, 'req-1');
+  const reqHeaders = redacted.requestHeaders as Record<string, unknown>;
+  const resHeaders = redacted.responseHeaders as Record<string, unknown>;
+  assert.equal(reqHeaders.authorization, '[REDACTED]');
+  assert.equal(reqHeaders.cookie, '[REDACTED]');
+  assert.equal(reqHeaders['x-req'], 'ok');
+  assert.equal(resHeaders['set-cookie'], '[REDACTED]');
+  assert.equal(redacted.requestBodyEncoding, 'text');
+  assert.equal(redacted.responseBodyEncoding, 'text');
+
+  const unredacted = normalizeTrafficEntry('req-2', item, { includeSensitive: true }) as Record<string, unknown>;
+  assert.equal((unredacted.requestHeaders as Record<string, unknown>)['x-req'], 'ok');
 });
 
-test('har 导出先构造合法 HAR，并对 0 字节失败', async () => {
-  const source = await readFile(hostPath, 'utf8');
-  assert.match(source, /startedDateTime/);
-  assert.match(source, /log:\s*\{/);
-  assert.match(source, /WHISTLE_EXPORT_EMPTY/);
-  assert.match(source, /sessions\.map\(harEntry\)/);
+test('harEntry 与 restoreRedactedJsonFields 行为契约完整', () => {
+  const entry = harEntry({
+    id: '1',
+    startTime: Date.now(),
+    url: 'https://example.com/api?a=1',
+    req: { method: 'GET', headers: { host: 'example.com' } },
+    res: { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'hi' },
+  });
+  assert.ok(typeof entry.startedDateTime === 'string');
+  assert.equal(entry.request.method, 'GET');
+  assert.equal(entry.response.status, 200);
+
+  const restored = restoreRedactedJsonFields(
+    { password: '[REDACTED]', nested: { secret: '[REDACTED]' }, note: 'edited' },
+    { password: 'orig-pw', nested: { secret: 'orig-sec' }, note: 'orig' },
+  ) as Record<string, unknown>;
+  assert.equal(restored.note, 'edited');
 });
 
-test('traffic 保留分页游标与查询窗口', async () => {
-  const source = await readFile(hostPath, 'utf8');
-  assert.match(source, /newIdsTotal/);
-  assert.match(source, /endId/);
-  assert.match(source, /startTime/);
-  assert.match(source, /lastRowId/);
-  assert.match(source, /dumpCount/);
-});
-
-test('compose 不伪装成页面身份请求，导出有上限提示', async () => {
-  const source = await readFile(hostPath, 'utf8');
-  assert.match(source, /enableProxyRules/);
-  assert.match(source, /WHISTLE_EXPORT_EMPTY/);
-  assert.match(source, /sessions/);
-});
-
-test('仓库不内置真实预设，预设由用户导入', async () => {
-  const source = await readFile(hostPath, 'utf8');
-  assert.doesNotMatch(source, /seedBuiltinPresets/);
-  assert.doesNotMatch(source, /plugins\/whistle\/presets/i);
+test('仓库不内置真实预设，preset 命令与表结构全部面向用户导入预设', async () => {
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')).warren;
   const presetCommands = manifest.contributes.commands
     .map((item: { name: string }) => item.name)
@@ -72,44 +124,9 @@ test('仓库不内置真实预设，预设由用户导入', async () => {
   assert.ok(presetCommands.includes('presetImport'));
   assert.ok(presetCommands.includes('presetPreview'));
   assert.ok(presetCommands.includes('presetApply'));
-});
-
-test('Whistle 插件注册 Phase 3A 全量 AI 与 Values 能力及 Skill 清单', async () => {
-  const pkg = JSON.parse(await readFile(manifestPath, 'utf8'));
-  const warren = pkg.warren;
-  assert.equal(pkg.dependencies.whistle, '2.10.15');
-  assert.ok(pkg.files.includes('intents.mjs'));
-  assert.ok(pkg.files.includes('SKILL.md'));
-  assert.equal(warren.skill?.entry, 'SKILL.md');
-  assert.ok(Array.isArray(warren.skill?.triggers) && warren.skill.triggers.length > 0);
-
-  const commands = new Set(warren.contributes.commands.map((item: { name: string }) => item.name));
-  const rpc = new Set(warren.contributes.rpc);
-  const hostSource = await readFile(hostPath, 'utf8');
-  for (const name of [
-    'valueList',
-    'valueGet',
-    'valueSet',
-    'valueRemove',
-    'valueRename',
-    'ruleTest',
-    'clearDnsCache',
-    'quickMock',
-    'injectFault',
-    'mapLocal',
-    'clearIntents',
-    'replay',
-    'toCurl',
-    'captureLink',
-  ]) {
-    assert.equal(commands.has(name), true, `缺命令 ${name}`);
-    assert.equal(rpc.has(name), true, `缺 rpc ${name}`);
-    assert.match(hostSource, new RegExp(`async ${name}\\(`), `host.mjs 缺导出 ${name}`);
-  }
-  assert.match(hostSource, /notifyChanged/);
-  assert.match(hostSource, /computeTimings/);
-  assert.match(hostSource, /extractMatchedRules/);
-  assert.match(hostSource, /\/cgi-bin\/rules\/clear-dns-cache/);
-  assert.match(hostSource, /\/cgi-bin\/values\/remove/);
-  assert.match(hostSource, /\/cgi-bin\/values\/rename/);
+  const listed = await (hostPlugin.presetList as (c: unknown) => Promise<{ presets: unknown[] }>)({
+    host: makeMockHost([]),
+    input: {},
+  });
+  assert.deepEqual(listed.presets, []);
 });

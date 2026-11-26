@@ -1,5 +1,5 @@
 import { controlModeFor } from '../domain/approval.ts';
-import { diagnoseLease, leaseDenialError, renewLease, revokedReason } from '../domain/environment.ts';
+import { acquireLease, diagnoseLease, leaseDenialError, releaseLease, renewLease } from '../domain/environment.ts';
 import type { InputShield, ShieldMode, ShieldTheme, ShieldVisualAction } from '../input-shield.ts';
 import type { TabManager } from '../tabs.ts';
 import type {
@@ -66,6 +66,7 @@ export interface LeaseCoordinatorDeps {
   createShield: (id: string, onTakeover: () => void) => ShieldLike;
   attachAndRaiseShield: (shield: ShieldLike, bounds: ViewportRect) => void;
   detachShield: (shield: ShieldLike) => void;
+  focusForInput?: (id: string, space: SpaceId) => Promise<void>;
   leaseTtlMs?: () => number;
   now?: () => number;
 }
@@ -255,37 +256,39 @@ export class LeaseCoordinator {
     const current = this.#leases.get(id);
     if (current && current.expiresAt > now) {
       // 同一 owner 再来一次 = 续租（CLI 的长脚本靠这条续命），leaseId 不变。
-      // 换了 owner（人正在用 / 别的 agent 持着）仍然是 ENV_BUSY。
       if (current.owner === owner) {
-        // 传的是 Environment（字段叫 leaseExpiresAt），不是 LeaseHandle（字段叫 expiresAt）——
-        // 传错了 renewLease 会直接抛 ENV_NOT_LEASED，续租就只剩 catch 兜底在生效。
         current.expiresAt = renewLease(env, current.leaseId, ttl, now).leaseExpiresAt ?? now + ttl;
         if (label) current.label = label;
         this.syncShield(id);
         this.#deps.onChange();
         return current;
       }
-      /*
-       * 换了 owner：默认仍然 ENV_BUSY（人点过接管，agent 就该等）。
-       *
-       * 但审批策略放行时，**agent** 可以直接从人手里接管 —— 这是「AI 自主性」那一档，
-       * 默认关。只放行 agent 这一个方向：人抢 agent 是 `takeover()` 的特权，不走这里。
-       * 见 docs/APPROVAL-EMBED-MEMORY-PLAN.md §3。
-       */
+      // 仅当审批策略为 auto 且 agent 接入时可自动接管；其余走 domain acquireLease 判忙碌拒绝
       if (owner !== 'agent' || this.#controlMode(id) !== 'auto') {
-        throw Object.assign(new Error(`environment ${id} is controlled by ${current.owner}`), {
-          code: 'ENV_BUSY',
-        });
+        acquireLease(
+          { ...env, owner: current.owner, leaseId: current.leaseId, leaseExpiresAt: current.expiresAt },
+          owner,
+          current.leaseId,
+          ttl,
+          now,
+        );
       }
       this.#deps.recordEvent('control.autoTakeover', `agent 按审批策略从 ${current.owner} 接管 ${id}`, 'agent', id);
     }
+    const acquired = acquireLease(
+      { ...env, owner: 'none', leaseId: undefined, leaseExpiresAt: undefined },
+      owner,
+      crypto.randomUUID(),
+      ttl,
+      now,
+    );
     const lease: LeaseHandle = {
       environmentId: id,
       space,
-      owner,
+      owner: acquired.owner,
       label,
-      leaseId: crypto.randomUUID(),
-      expiresAt: now + ttl,
+      leaseId: acquired.leaseId!,
+      expiresAt: acquired.leaseExpiresAt!,
     };
     this.#leases.set(id, lease);
     this.#deps.recordEvent('control.acquired', `${owner} acquired ${id}${label ? ` (${label})` : ''}`, owner, id);
@@ -303,13 +306,30 @@ export class LeaseCoordinator {
   release(id: string, leaseId: string, actor: 'agent' | 'human' = 'agent'): void {
     const current = this.#leases.get(id);
     if (!current) return;
-    if (current.leaseId !== leaseId) {
-      // 释放不看过期（过期租约也要能清掉），只说清「为什么这个 leaseId 不是一个 lease」
-      throw Object.assign(new Error('CONTROL_REVOKED'), {
-        code: 'CONTROL_REVOKED',
-        reason: revokedReason(current.owner),
-      });
-    }
+    const baseEnv = this.#deps.getEnvironment(id) ?? {
+      id,
+      name: id,
+      storagePath: '',
+      createdBy: 'human' as const,
+      status: 'stopped' as const,
+      headed: true,
+      order: 0,
+      createdAt: '',
+      updatedAt: '',
+      owner: 'none' as const,
+      activeSpaceId: 'person' as const,
+      spaces: [],
+    };
+    releaseLease(
+      {
+        ...baseEnv,
+        owner: current.owner,
+        leaseId: current.leaseId,
+        leaseExpiresAt: current.expiresAt,
+      },
+      leaseId,
+      this.#now(),
+    );
     this.#leases.delete(id);
     this.#deps.recordEvent('control.released', `${actor} released ${id}`, actor, id);
     this.#deps.emitBusEvent('lease.changed', id, {
@@ -481,6 +501,31 @@ export class LeaseCoordinator {
       ?.controller()
       ?.clearEmulatedViewport()
       .catch(() => {});
+  }
+
+  /**
+   * 统一输入上下文协作者：后台临时挂载 → 校验在屏/激活标签 → 仿真焦点 → 必要时补齐后台视口 → 执行并确保回收。
+   */
+  async withInputContext<T>(
+    id: string,
+    space: SpaceId,
+    tab: TabRef | undefined,
+    fn: () => Promise<T>,
+    options: { focusForInput?: () => Promise<void> } = {},
+  ): Promise<T> {
+    const temporary = this.ensureOperable(id, space);
+    let emulatedViewport = false;
+    try {
+      this.assertInputOnScreen(id, space);
+      this.assertActiveTab(id, tab, space);
+      if (options.focusForInput) await options.focusForInput();
+      else if (this.#deps.focusForInput) await this.#deps.focusForInput(id, space);
+      if (temporary) emulatedViewport = await this.prepareBackgroundInput(id, space);
+      return await fn();
+    } finally {
+      if (emulatedViewport) await this.clearBackgroundInput(id, space);
+      if (temporary) this.detachOperable(id, space);
+    }
   }
 
   /** 这个环境此刻的控制权策略（环境级 > 全局）。判定是纯函数，见 domain/approval.ts。 */

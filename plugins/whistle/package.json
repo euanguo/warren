@@ -10,6 +10,9 @@
     "preflight.mjs",
     "agent-api.mjs",
     "intents.mjs",
+    "lib/",
+    "ui/",
+    "references/",
     "SKILL.md",
     "README.md"
   ],
@@ -43,6 +46,9 @@
         "proxy",
         "https",
         "har"
+      ],
+      "references": [
+        "references/commands-and-api.md"
       ]
     },
     "engines": {

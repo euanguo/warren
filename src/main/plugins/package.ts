@@ -1,13 +1,5 @@
 export const PLUGIN_API_VERSION = '4' as const;
 
-// 权限清单与三层分级是跨进程共享的单一来源，见 src/shared/permissions.ts。
-// 这里只做转出，方便主进程内部按老路径引用。
-//
-// 注意：这两行是**运行时**导入（不是 import type），Node 的 ESM 解析要求显式
-// 扩展名——`node --test` 会直接加载本文件，缺扩展名会 ERR_MODULE_NOT_FOUND。
-export { PERMISSIONS, isPermission, tierOf, PERMISSION_TIERS } from '../../shared/permissions.ts';
-export type { Permission, PermissionTier } from '../../shared/permissions.ts';
-
 import { isPermission, tierOf } from '../../shared/permissions.ts';
 import type { Permission } from '../../shared/permissions.ts';
 import type {

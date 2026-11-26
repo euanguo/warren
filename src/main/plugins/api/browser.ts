@@ -1,10 +1,26 @@
 /**
  * 插件浏览器域 host API。
  */
-import { fillSecretInto } from '../../browser/fill-secret.ts';
-import type { BrowserController } from '../../browser/controller.ts';
 import type { SpaceId } from '../../../shared/types.ts';
-import type { CapabilityContext, CapabilitySpec } from './index.ts';
+import type { BrowserController } from '../../browser/controller.ts';
+import { fillSecretInto } from '../../browser/fill-secret.ts';
+import {
+  asClickOptions,
+  asFillOptions,
+  asFocusOptions,
+  asLoadState,
+  asNavigateOptions,
+  asOptionalTargetInput,
+  asScreenshotOptions,
+  asSelectValue,
+  asStringOrList,
+  asTargetInput,
+  asUrlMatcher,
+  asWaitEventKind,
+  asWaitOptions,
+  asWaitPredicate,
+} from '../../browser/parse-params.ts';
+import type { CapabilityContext, CapabilitySpec } from './types.ts';
 
 function optionSpaceOf(raw: unknown): SpaceId | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -29,12 +45,19 @@ function resolvePluginSpace(ctx: CapabilityContext, envId: string, requested?: S
   return current === 'agent' ? 'agent' : 'person';
 }
 
-function allowedDomainsOf(raw: unknown): string[] | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const list = (raw as { allowedDomains?: unknown }).allowedDomains;
-  if (!Array.isArray(list)) return undefined;
-  const cleaned = list.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  return cleaned.length ? cleaned : undefined;
+function allowedDomainsConfig(raw: unknown): { allowedDomains?: string[]; requireDomains: boolean } {
+  if (!raw || typeof raw !== 'object') return { allowedDomains: undefined, requireDomains: false };
+  const obj = raw as { allowedDomains?: unknown; requireDomains?: unknown };
+  const hasDomains = Object.hasOwn(obj, 'allowedDomains') && Array.isArray(obj.allowedDomains);
+  const cleaned = hasDomains
+    ? (obj.allowedDomains as unknown[]).filter(
+        (item): item is string => typeof item === 'string' && item.trim().length > 0,
+      )
+    : [];
+  return {
+    allowedDomains: cleaned.length ? cleaned : undefined,
+    requireDomains: Boolean(obj.requireDomains === true || (hasDomains && cleaned.length === 0)),
+  };
 }
 
 function cdpRead(
@@ -86,22 +109,24 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
     title: await c.title(),
     nodes: await c.snapshot(),
   })),
-  'browser.highlight': cdpRead('browser.dom.read', (c, [target]) => c.highlight(target as never)),
-  'browser.screenshot': cdpRead('browser.screenshot', async (c, [options]) => c.screenshot((options ?? {}) as never)),
+  'browser.highlight': cdpRead('browser.dom.read', (c, [target]) => c.highlight(asOptionalTargetInput(target))),
+  'browser.screenshot': cdpRead('browser.screenshot', async (c, [options]) =>
+    c.screenshot(asScreenshotOptions(options)),
+  ),
 
   // ── 读：等待 ────────────────────────────────────────────────────
-  'browser.waitFor': cdpRead('browser.dom.read', (c, [p, o]) => c.waitFor(p as never, (o ?? {}) as never)),
+  'browser.waitFor': cdpRead('browser.dom.read', (c, [p, o]) => c.waitFor(asWaitPredicate(p), asWaitOptions(o))),
   'browser.waitForSelector': cdpRead('browser.dom.read', (c, [t, o]) =>
-    c.waitForSelector(t as never, (o ?? {}) as never),
+    c.waitForSelector(asTargetInput(t), asWaitOptions(o)),
   ),
-  'browser.waitForURL': cdpRead('browser.dom.read', (c, [m, o]) => c.waitForURL(m as never, (o ?? {}) as never)),
+  'browser.waitForURL': cdpRead('browser.dom.read', (c, [m, o]) => c.waitForURL(asUrlMatcher(m), asWaitOptions(o))),
   'browser.waitForFunction': {
     permission: 'browser.dom.read',
     handler: ({ deps, env, text }, fn, arg, o) =>
-      deps.manager.controllerFor(env()).waitForFunction(text(fn), arg, (o ?? {}) as never),
+      deps.manager.controllerFor(env()).waitForFunction(text(fn), arg, asWaitOptions(o)),
   },
   'browser.waitForLoadState': cdpRead('browser.dom.read', (c, [state, o]) =>
-    c.waitForLoadState(state as never, (o ?? {}) as never),
+    c.waitForLoadState(asLoadState(state), asWaitOptions(o)),
   ),
   'browser.waitForTimeout': cdpRead(
     'browser.dom.read',
@@ -114,7 +139,7 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
     },
   ),
   'browser.waitForEvent': cdpRead('browser.dom.read', (c, [kind, o]) =>
-    c.waitForEvent(kind as never, (o ?? {}) as never),
+    c.waitForEvent(asWaitEventKind(kind), asWaitOptions(o)),
   ),
 
   // ── 写：导航 ────────────────────────────────────────────────────
@@ -123,7 +148,7 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
     needsLease: true,
     handler: ({ deps, env, text }, url) => deps.manager.controllerFor(env()).navigate(text(url)),
   },
-  'browser.reload': cdpWrite('browser.navigate', (c, [o]) => c.reload((o ?? {}) as never)),
+  'browser.reload': cdpWrite('browser.navigate', (c, [o]) => c.reload(asNavigateOptions(o))),
   'browser.goBack': cdpWrite('browser.navigate', (c) => {
     c.goBack();
     return c.navigationState();
@@ -148,28 +173,32 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
         options && typeof options === 'object' ? (options as { environmentId?: unknown; space?: unknown }) : {};
       const id = ctx.text(opts.environmentId) || ctx.env();
       const space = resolvePluginSpace(ctx, id, optionSpaceOf(opts));
-      return ctx.deps.manager.controllerFor(id, undefined, space).click(target as never, (options ?? {}) as never);
+      return ctx.deps.manager.controllerFor(id, undefined, space).click(asTargetInput(target), asClickOptions(options));
     },
   },
-  'browser.dblclick': cdpWrite('browser.input', (c, [t, o]) => c.dblclick(t as never, (o ?? {}) as never)),
-  'browser.hover': cdpWrite('browser.input', (c, [t, o]) => c.hover(t as never, (o ?? {}) as never)),
-  'browser.drag': cdpWrite('browser.input', (c, [s, t, o]) => c.drag(s as never, t as never, (o ?? {}) as never)),
+  'browser.dblclick': cdpWrite('browser.input', (c, [t, o]) => c.dblclick(asTargetInput(t), asClickOptions(o))),
+  'browser.hover': cdpWrite('browser.input', (c, [t, o]) => c.hover(asTargetInput(t), asClickOptions(o))),
+  'browser.drag': cdpWrite('browser.input', (c, [s, t, o]) =>
+    c.drag(asTargetInput(s), asTargetInput(t), asClickOptions(o)),
+  ),
   'browser.fill': {
     permission: 'browser.input',
     needsLease: true,
     handler: ({ deps, env, text }, t, v, o) =>
-      deps.manager.controllerFor(env()).fill(t as never, text(v), (o ?? {}) as never),
+      deps.manager.controllerFor(env()).fill(asTargetInput(t), text(v), asFillOptions(o)),
   },
   'browser.selectOption': cdpWrite('browser.input', (c, [t, v, o]) =>
-    c.selectOption(t as never, v as never, (o ?? {}) as never),
+    c.selectOption(asTargetInput(t), asSelectValue(v), o && typeof o === 'object' ? (o as { timeoutMs?: number }) : {}),
   ),
-  'browser.focus': cdpWrite('browser.input', (c, [t, o]) => c.focus(t as never, (o ?? {}) as never)),
+  'browser.focus': cdpWrite('browser.input', (c, [t, o]) => c.focus(asTargetInput(t), asFocusOptions(o))),
   'browser.press': {
     permission: 'browser.input',
     needsLease: true,
-    handler: ({ deps, env, text }, k) => deps.manager.controllerFor(env()).press(text(k) as never),
+    handler: ({ deps, env, text }, k) => deps.manager.controllerFor(env()).press(text(k)),
   },
-  'browser.setInputFiles': cdpWrite('browser.input', (c, [t, paths]) => c.setInputFiles(t as never, paths as never)),
+  'browser.setInputFiles': cdpWrite('browser.input', (c, [t, paths]) =>
+    c.setInputFiles(asTargetInput(t), asStringOrList(paths)),
+  ),
 
   // ── 写：弹框 ────────────────────────────────────────────────────
   'browser.acceptDialog': {
@@ -222,7 +251,7 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
       const id = ctx.text(environmentId) || ctx.env();
       const space = resolvePluginSpace(ctx, id, optionSpaceOf(options));
       const secret = ctx.text(value);
-      const allowedDomains = allowedDomainsOf(options);
+      const { allowedDomains, requireDomains } = allowedDomainsConfig(options);
       await fillSecretInto(
         {
           manager: ctx.deps.manager,
@@ -234,6 +263,7 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
         secret,
         {
           allowedDomains,
+          requireDomains: ctx.caller() !== 'ui' || requireDomains,
           onDenied: (host) => {
             ctx.deps.record('plugin.fillDenied', `凭据不允许填入 ${host || '当前页面'}`);
           },

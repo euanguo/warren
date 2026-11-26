@@ -3,15 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { closeDatabases, openDatabase } from '../src/main/db.ts';
-import { PluginHost } from '../src/main/plugins/host.ts';
 import { dispatchHostRead } from '../src/main/plugins/host-read.ts';
+import { createTestPluginHost } from './helpers/plugin-host.ts';
 
 test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Space，agent 严锁 Agent Space 与域名白名单', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'warren-dual-space-'));
   const pluginSrc = path.join(root, 'plugin-src');
-  const db = openDatabase(path.join(root, 'warren.db'));
-
   const fillCalls: Array<{ envId: string; space: string; target: unknown; value: string }> = [];
   const leaseAcquires: string[] = [];
   let currentUrl = 'https://good.example.test/login';
@@ -45,6 +42,7 @@ test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Sp
     prepareBackgroundInput: async () => false,
     clearBackgroundInput: async () => undefined,
     detachOperable: () => undefined,
+    withInputContext: async (_id: string, _space: unknown, _tab: unknown, fn: () => Promise<unknown>) => fn(),
     controllerFor: (envId: string, _tab: unknown, space: string = 'agent') => ({
       currentUrl: () => currentUrl,
       title: async () => '登录页',
@@ -69,20 +67,9 @@ test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Sp
     }),
   } as never;
 
-  const host = new PluginHost({
-    root: path.join(root, 'plugins'),
+  const { host, cleanup } = createTestPluginHost(root, {
     manager: fakeManager,
-    vault: {
-      available: false,
-      list: () => [],
-      add: () => ({ ref: '' }),
-      remove: () => true,
-      reveal: () => ({}),
-    } as never,
     store: { record: () => undefined, appSettings: () => ({ controlPolicy: 'ask', pluginPolicy: 'auto' }) } as never,
-    db,
-    saveVault: async () => undefined,
-    appVersion: '0.1.0',
     reconnectBaseMs: 0,
   });
 
@@ -195,8 +182,7 @@ test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Sp
       title: '登录页',
     });
   } finally {
-    await host.dispose();
-    closeDatabases();
+    await cleanup();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -1,8 +1,8 @@
 import type { BrowserWindow } from 'electron';
 import type { BrowserController } from './browser/controller.ts';
-import type { CookieFilter, CookieInput, CookieSummary } from './browser/cookies.ts';
+import type { CookieFilter, CookieInput } from './browser/cookies.ts';
 import { wireDownloads } from './browser/downloads.ts';
-import { acquireLease, makeEvent, releaseLease, type EnvironmentPatch } from './domain/environment.ts';
+import { makeEvent, type EnvironmentPatch } from './domain/environment.ts';
 import { LeaseCoordinator, type LeaseHandle } from './env/lease-coordinator.ts';
 import { EnvLifecycle, SPACE_IDS } from './env/lifecycle.ts';
 import { EnvSessionFactory } from './env/session-factory.ts';
@@ -14,6 +14,7 @@ import type { ConsoleEntry, NetworkEntry } from './telemetry.ts';
 import type { WindowLayerManager } from './ui/layer-manager.ts';
 import type {
   BrowserShortcut,
+  CookieSummary,
   Creator,
   DevToolsDockMode,
   DownloadItemInfo,
@@ -72,42 +73,13 @@ export class EnvironmentManager {
       window,
       layers: options.layers,
       store,
-      getSpaces: (id) => this.#lifecycle.spacesFor(id),
-      allSpacesEntries: () => this.#lifecycle.allSpacesEntries(),
-      getSpaceManager: (id, space) => this.#lifecycle.spaceManager(id, space),
-      getActiveSpace: (id) => this.#lifecycle.activeSpaceOf(id),
-      touch: (id) => this.#lifecycle.touch(id),
-      rememberRunning: () => this.#lifecycle.rememberRunning(),
-      rememberTabs: (id) => this.#lifecycle.rememberTabs(id),
-      onSpaceEmpty: (id, space) => this.#lifecycle.onSpaceEmpty(id, space),
+      sessions: this.#sessions,
+      getLifecycle: () => this.#lifecycle,
+      getLeases: () => this.#leases,
       onChange,
       onTargetUrl: options.onTargetUrl,
       onFindResult: options.onFindResult,
-      onVisualAction: (id, space, action) => {
-        if (space === 'agent') this.#leases.showVisualAction(id, action);
-      },
       emitBusEvent: (type, envId, payload) => this.#emitBusEvent(type, envId, payload),
-      attachTabTelemetry: (envId, tabId, wc) => this.#sessions.attachTabTelemetry(envId, tabId, wc),
-      detachTabTelemetry: (tabId) => this.#sessions.detachTabTelemetry(tabId),
-      lastActivityAt: (tabId) => this.#sessions.lastActivityAt(tabId),
-      inFlightCount: (tabId) => this.#sessions.inFlightCount(tabId),
-      lastNavigationError: (tabId) => this.#sessions.lastNavigationError(tabId),
-      syncShield: (id, syncOptions) => this.#leases.syncShield(id, syncOptions),
-      detachShieldOnly: (id) => this.#leases.detachShieldOnly(id),
-      repositionShield: (id, bounds) => this.#leases.repositionShield(id, bounds),
-      setShieldVisible: (id, visible) => this.#leases.setShieldVisible(id, visible),
-      isAgentControlling: (id) => this.#leases.isAgentControlling(id),
-      canHumanNavigate: (id, space) => this.#leases.canHumanNavigate(id, space),
-      assertAgentHumanWritable: (id) => this.#leases.assertHumanAgentWritable(id),
-      getLayoutExtra: (selected) => {
-        const lease = selected ? this.#leases.rawLease(selected) : undefined;
-        return {
-          telemetryWrite: this.#sessions.telemetryWriteStats,
-          maxRunning: this.#lifecycle.maxRunning,
-          shieldAttached: selected ? this.#leases.shieldAttached(selected) : false,
-          owner: lease && lease.expiresAt > Date.now() ? lease.owner : 'none',
-        };
-      },
     });
 
     this.#leases = new LeaseCoordinator({
@@ -133,12 +105,14 @@ export class EnvironmentManager {
         inputShield.raise(this.#window);
       },
       detachShield: (shield) => (shield as InputShield).detach(this.#window),
+      focusForInput: (id, space) => this.#views.focusForInput(id, space),
     });
 
     this.#lifecycle = new EnvLifecycle({
       store,
       prepareSession: (id, config) => this.#sessions.prepareSession(id, config),
       prepareWakeSession: (id, config) => this.#sessions.prepareWakeSession(id, config),
+      syncSessionNetwork: (id, config) => this.#sessions.syncSessionNetwork(id, config).then(() => undefined),
       clearStorageData: (id) => this.#sessions.clearStorageData(id),
       dropNet: (id) => this.#sessions.drop(id),
       wireDownloads: (ses, id, pendingFor) =>
@@ -152,9 +126,10 @@ export class EnvironmentManager {
       attachSessionTelemetry: (ses) => this.#sessions.attachSessionTelemetry(ses),
       detachNet: (id) => this.#sessions.detachNet(id),
       detachTelemetry: (id) => this.#sessions.detachTelemetry(id),
+      clearTelemetry: (id) => this.#sessions.clearTelemetry(id),
       isNetBusy: (id) => this.#sessions.isNetBusy(id),
       createSpaceManager: (id, space, ses, trustedCa, pending) =>
-        this.#views.createSpaceManager(id, space, ses, trustedCa, pending),
+        this.#views.createSpaceManager(id, space, ses, () => this.#sessions.trustedCaFor(id) ?? trustedCa, pending),
       newTabUrl,
       decorate: (env) => this.#decorate(env),
       selectEnv: (id) => this.#views.select(id),
@@ -182,9 +157,6 @@ export class EnvironmentManager {
   }
   setViewport(viewport: ViewportRect): void {
     this.#views.setViewport(viewport);
-  }
-  capturePage(): Promise<string | null> {
-    return this.#views.capturePage();
   }
   setViewVisible(visible: boolean): void {
     this.#views.setViewVisible(visible);
@@ -375,7 +347,7 @@ export class EnvironmentManager {
     startUrl?: string;
     headed?: boolean;
     createdBy?: Creator;
-  }): Promise<Environment> {
+  }): Environment {
     return this.#lifecycle.create(input);
   }
   remove(id: string): Promise<void> {
@@ -418,32 +390,32 @@ export class EnvironmentManager {
   listGroups(): Group[] {
     return this.#store.listGroups();
   }
-  async createGroup(input: { id?: string; name: string }): Promise<Group> {
-    const group = await this.#store.createGroup(input);
+  createGroup(input: { id?: string; name: string }): Group {
+    const group = this.#store.createGroup(input);
     this.#recordAndNotify('group.created', `group ${group.name} created`);
     return group;
   }
-  async renameGroup(id: string, name: string): Promise<Group> {
-    const group = await this.#store.renameGroup(id, name);
+  renameGroup(id: string, name: string): Group {
+    const group = this.#store.renameGroup(id, name);
     this.#recordAndNotify('group.renamed', `group ${id} renamed to ${group.name}`);
     return group;
   }
-  async setGroupCollapsed(id: string, collapsed: boolean): Promise<Group> {
-    const group = await this.#store.setGroupCollapsed(id, collapsed);
+  setGroupCollapsed(id: string, collapsed: boolean): Group {
+    const group = this.#store.setGroupCollapsed(id, collapsed);
     this.#onChange();
     return group;
   }
-  async removeGroup(id: string): Promise<{ detached: number }> {
-    const result = await this.#store.removeGroup(id);
+  removeGroup(id: string): { detached: number } {
+    const result = this.#store.removeGroup(id);
     this.#recordAndNotify('group.removed', `group ${id} removed, ${result.detached} environment(s) detached`);
     return result;
   }
-  async reorderGroups(orderedIds: string[]): Promise<void> {
-    await this.#store.reorderGroups(orderedIds);
+  reorderGroups(orderedIds: string[]): void {
+    this.#store.reorderGroups(orderedIds);
     this.#onChange();
   }
-  async moveToGroup(environmentId: string, groupId: string | undefined): Promise<Environment> {
-    const moved = await this.#store.moveToGroup(environmentId, groupId);
+  moveToGroup(environmentId: string, groupId: string | undefined): Environment {
+    const moved = this.#store.moveToGroup(environmentId, groupId);
     this.#recordAndNotify(
       'environment.moved',
       `environment ${environmentId} moved to ${groupId ?? '未分组'}`,
@@ -451,8 +423,8 @@ export class EnvironmentManager {
     );
     return this.#decorate(moved);
   }
-  async reorderEnvironments(groupId: string | undefined, orderedIds: string[]): Promise<void> {
-    await this.#store.reorderEnvironments(groupId, orderedIds);
+  reorderEnvironments(groupId: string | undefined, orderedIds: string[]): void {
+    this.#store.reorderEnvironments(groupId, orderedIds);
     this.#onChange();
   }
 
@@ -481,6 +453,9 @@ export class EnvironmentManager {
   }
   clearBackgroundInput(id: string, space: SpaceId = 'agent'): Promise<void> {
     return this.#leases.clearBackgroundInput(id, space);
+  }
+  withInputContext<T>(id: string, space: SpaceId, tab: TabRef | undefined, fn: () => Promise<T>): Promise<T> {
+    return this.#leases.withInputContext(id, space, tab, fn);
   }
   assertWritable(id: string, leaseId?: string, space: SpaceId = 'agent'): LeaseHandle {
     return this.#leases.assertWritable(id, leaseId, space);
@@ -575,5 +550,3 @@ export class EnvironmentManager {
     };
   }
 }
-
-export { acquireLease, releaseLease };

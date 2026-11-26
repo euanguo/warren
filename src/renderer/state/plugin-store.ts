@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { emptyRegistry, loadPluginApps, type PluginRegistry } from '@/lib/plugin-runtime';
+import { loadPluginApps } from '@/lib/plugin-runtime';
+import { emptyRegistry, type PluginRegistry } from '@/lib/plugin-sdk-types';
 import { applyTheme } from '@/lib/theme';
 import type { AppSettings, InstalledPlugin } from '@shared/types';
 

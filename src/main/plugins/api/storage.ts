@@ -1,7 +1,8 @@
 /**
  * 插件存储与 Cookie 受控通道 / 设置 host API。
  */
-import type { CapabilitySpec } from './index.ts';
+import { asCookieInputs, asSqlParams } from '../../browser/parse-params.ts';
+import type { CapabilitySpec } from './types.ts';
 
 export const storageCapabilities: Record<string, CapabilitySpec> = {
   // ── Cookie 受控通道（只搬运不返回，宽形状 read/write 留在 denied 层）────
@@ -35,7 +36,7 @@ export const storageCapabilities: Record<string, CapabilitySpec> = {
     needsLease: true,
     handler: ({ deps, env }, input) => {
       const cookies = (input as { cookies?: unknown } | undefined)?.cookies;
-      return deps.manager.cookieImport(env(), cookies as never);
+      return deps.manager.cookieImport(env(), asCookieInputs(cookies));
     },
   },
   'cookie.clear': {
@@ -79,13 +80,13 @@ export const storageCapabilities: Record<string, CapabilitySpec> = {
     permission: 'storage.write',
     handler: ({ deps, text }, sql, params) => {
       const statement = deps.storage.db().prepare(text(sql));
-      return statement.run(...(Array.isArray(params) ? (params as never[]) : []));
+      return statement.run(...asSqlParams(params));
     },
   },
   'storage.sql.query': {
     handler: ({ deps, text }, sql, params) => {
       const statement = deps.storage.db().prepare(text(sql));
-      return statement.all(...(Array.isArray(params) ? (params as never[]) : []));
+      return statement.all(...asSqlParams(params));
     },
   },
   'storage.sql.migrate': {

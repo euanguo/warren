@@ -4,9 +4,9 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../src/main/db.ts';
-import { createHandlers, dispatchHostCall } from '../src/main/plugins/api.ts';
+import { createHandlers, dispatchHostCall } from '../src/main/plugins/api/index.ts';
 import { currentCaller, runWithPluginContext } from '../src/main/plugins/call-context.ts';
-import { SandboxRuntime } from '../src/main/plugins/runtime.ts';
+import { SandboxRuntime } from '../src/main/plugins/runtime-sandbox.ts';
 import { PluginStorage } from '../src/main/plugins/storage.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -110,8 +110,9 @@ async function withPlugin(
         focusForInput: async () => undefined,
         prepareBackgroundInput: async () => false,
         clearBackgroundInput: async () => undefined,
+        withInputContext: async (_id: string, _space: unknown, _tab: unknown, fn: () => Promise<unknown>) => fn(),
       } as never,
-      vault: { available: false, list: () => [], reveal: () => ({}), add: () => ({ ref: '' }), remove: () => true },
+      vault: { available: false, list: () => [], reveal: () => ({}) },
       storage,
       settings: { get: () => ({}) } as never,
       descriptors: [],
@@ -156,16 +157,12 @@ interface PublicAccount {
   usernameHint: string;
   hasPassword: boolean;
   hasTotp: boolean;
-  totpConfigured: boolean;
   extraFieldKeys: string[];
   note: string;
   tags: string;
   displayAliases: string[];
-  expectedUin: string;
   appHints: string[];
-  loginProfile: string;
   manualVerificationHint: string;
-  frameAwareFill: boolean;
   selectors: Record<string, unknown>;
   allowedHosts: string[];
   envIds: string[];
@@ -297,11 +294,8 @@ test('旧版表结构在 activate 时幂等迁移并读写全量扩展列', asyn
             totpSecret: 'JBSWY3DPEHPK3PXP',
             extraFields: { tenant: 'acme' },
             displayAliases: ['示例平台', 'portal.example.test'],
-            expectedUin: '10086',
             appHints: ['web'],
-            loginProfile: 'sso',
             manualVerificationHint: '如遇滑块请人工完成',
-            frameAwareFill: true,
             selectors: { username: '#u', password: '#p', submit: '#go' },
             allowedHosts: ['auth.example.test'],
             envIds: [ENV],
@@ -312,14 +306,10 @@ test('旧版表结构在 activate 时幂等迁移并读写全量扩展列', asyn
         const created = res.accounts.find((a) => a.name === '新全量账号')!;
         assert.deepEqual(created.urls, ['https://sso.example.test']);
         assert.equal(created.hasTotp, true);
-        assert.equal(created.totpConfigured, true);
         assert.deepEqual(created.extraFieldKeys, ['tenant']);
         assert.deepEqual(created.displayAliases, ['示例平台', 'portal.example.test']);
-        assert.equal(created.expectedUin, '10086');
         assert.deepEqual(created.appHints, ['web']);
-        assert.equal(created.loginProfile, 'sso');
         assert.equal(created.manualVerificationHint, '如遇滑块请人工完成');
-        assert.equal(created.frameAwareFill, true);
         assert.deepEqual(created.selectors, { username: '#u', password: '#p', submit: '#go' });
         assert.deepEqual(created.allowedHosts, ['auth.example.test']);
         assert.deepEqual(created.envIds, [ENV]);

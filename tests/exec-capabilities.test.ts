@@ -44,7 +44,7 @@ test('沙箱按 EXEC_GLOBALS 装配，且拿不到 fs / require / process', () =
     setTimeout: () => 0,
     clearTimeout: () => undefined,
     emitResult: () => undefined,
-  });
+  }) as Record<string, unknown>;
 
   assert.deepEqual(Object.keys(sandbox).sort(), [...EXEC_GLOBALS].sort());
   assert.equal(typeof sandbox.emitResult, 'function');
@@ -75,7 +75,7 @@ test('createExecSandbox 少给一个全局就报错（不允许静默注入 unde
 });
 
 test('emitResult 打印同一前缀的哨兵行，并原样返回 payload', () => {
-  const lines = [];
+  const lines: string[] = [];
   const emitResult = createEmitResult((line) => lines.push(line));
   const payload = { ok: true, cases: [{ id: 'C01' }] };
 

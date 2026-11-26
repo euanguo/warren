@@ -7,8 +7,12 @@
  * - `callWebMcpTool` 必须经由 RPC 写门控（需要有效 Agent Space 租约）。
  */
 import type { PageContext } from '../ctx.ts';
-import { err } from '../page-helpers.ts';
-import { stripTerminalEscapes } from './output-guard.ts';
+import { richErr } from '../errors.ts';
+import { redactSecrets } from '../redact.ts';
+import { withTimeout } from '../timeout.ts';
+import { stripTerminalEscapes } from '../../../../bin/output-guard.mjs';
+
+const WEBMCP_CALL_TIMEOUT_MS = 15_000;
 
 export interface WebMcpToolSummary {
   name: string;
@@ -97,12 +101,13 @@ export async function callWebMcpTool(
   args: Record<string, unknown> = {},
 ): Promise<{ ok: true; tool: string; untrusted: true; result: unknown }> {
   const cleanName = toolName.trim();
-  if (!cleanName) throw err('BAD_REQUEST', 'webmcp call 需要指定工具名');
-  const res = await ctx.send<{
-    result?: { value?: { ok?: boolean; result?: unknown; error?: string } };
-    exceptionDetails?: { text?: string; exception?: { description?: string } };
-  }>('Runtime.evaluate', {
-    expression: `(async () => {
+  if (!cleanName) throw richErr('BAD_REQUEST', 'webmcp call 需要指定工具名');
+  const res = await withTimeout(
+    ctx.send<{
+      result?: { value?: { ok?: boolean; result?: unknown; error?: string } };
+      exceptionDetails?: { text?: string; exception?: { description?: string } };
+    }>('Runtime.evaluate', {
+      expression: `(async () => {
       const name = ${JSON.stringify(cleanName)};
       const args = ${JSON.stringify(args ?? {})};
       const mc = navigator.modelContext || window.__webmcp || window.__modelContext;
@@ -136,16 +141,19 @@ export async function callWebMcpTool(
       }
       return { ok: false, error: '页面未注册 WebMCP 工具: ' + name };
     })()`,
-    returnByValue: true,
-    awaitPromise: true,
-  });
+      returnByValue: true,
+      awaitPromise: true,
+    }),
+    WEBMCP_CALL_TIMEOUT_MS,
+    `WebMCP 工具 ${cleanName} 执行超时（>${WEBMCP_CALL_TIMEOUT_MS}ms）`,
+  );
   if (res.exceptionDetails) {
     const msg = res.exceptionDetails.exception?.description ?? res.exceptionDetails.text ?? 'unknown';
-    throw err('BAD_REQUEST', `WebMCP 工具调用异常: ${stripTerminalEscapes(String(msg)).slice(0, 200)}`);
+    throw richErr('BAD_REQUEST', `WebMCP 工具调用异常: ${stripTerminalEscapes(String(msg)).slice(0, 200)}`);
   }
   const value = res.result?.value;
   if (!value?.ok) {
-    throw err('TARGET_NOT_FOUND', value?.error ?? `未找到 WebMCP 工具: ${cleanName}`);
+    throw richErr('TARGET_NOT_FOUND', value?.error ?? `未找到 WebMCP 工具: ${cleanName}`);
   }
-  return { ok: true, tool: cleanName, untrusted: true, result: value.result };
+  return { ok: true, tool: cleanName, untrusted: true, result: redactSecrets(value.result).value };
 }

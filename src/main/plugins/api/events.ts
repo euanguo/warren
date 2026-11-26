@@ -1,7 +1,7 @@
 /**
  * 插件日志 / 事件 / 信号 / 通知 host API。
  */
-import type { CapabilitySpec } from './index.ts';
+import type { CapabilitySpec } from './types.ts';
 
 export const eventsCapabilities: Record<string, CapabilitySpec> = {
   'log.debug': {

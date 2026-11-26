@@ -1,3 +1,4 @@
+import type { X509Certificate } from 'node:crypto';
 import { session, type Session, type WebContents } from 'electron';
 import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -8,7 +9,6 @@ import {
   listCookies,
   type CookieFilter,
   type CookieInput,
-  type CookieSummary,
 } from '../browser/cookies.ts';
 import { makeEvent } from '../domain/environment.ts';
 import { leafSignedByCa, parseCa } from '../domain/trusted-ca.ts';
@@ -17,10 +17,10 @@ import { addExtension, listExtensions, removeExtension } from '../extensions.ts'
 import { NetInterceptor } from '../net/interceptor.ts';
 import { EnvironmentNetOps, type NetInterceptable } from '../net/ops.ts';
 import { newTabPage } from '../newtab.ts';
+import { redactUrl } from '../browser/redact.ts';
 import type { Store } from '../store.ts';
 import { Telemetry, type ConsoleEntry, type NetworkEntry } from '../telemetry.ts';
-import { redactBusUrl } from './lifecycle.ts';
-import type { EnvironmentConfig, PluginBusEventType } from '../../shared/types.ts';
+import type { CookieSummary, EnvironmentConfig, PluginBusEventType } from '../../shared/types.ts';
 
 export interface SessionFactoryDeps {
   store: Store;
@@ -28,6 +28,8 @@ export interface SessionFactoryDeps {
   emitBusEvent?: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
   createInterceptor?: (id: string, record: (type: string, message: string) => void) => NetInterceptable;
 }
+
+const ALLOWED_ENV_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write']);
 
 /**
  * 环境 Session 工厂与运行时资源管理：
@@ -38,6 +40,7 @@ export class EnvSessionFactory {
   #store: Store;
   #onChange: () => void;
   #sessions = new Map<string, Session>();
+  #trustedCas = new Map<string, X509Certificate | undefined>();
   #netOps: EnvironmentNetOps;
   #telemetry: Telemetry;
 
@@ -55,7 +58,7 @@ export class EnvSessionFactory {
               ruleId: hit.ruleId,
               action: hit.action,
               method: hit.method,
-              url: redactBusUrl(hit.url),
+              url: redactUrl(hit.url),
               status: hit.status,
             }),
           )),
@@ -72,11 +75,18 @@ export class EnvSessionFactory {
     return this.#sessions.get(id);
   }
 
+  trustedCaFor(id: string): X509Certificate | undefined {
+    return this.#trustedCas.get(id);
+  }
+
   sessionFor(id: string, storagePath: string): Session {
     const existing = this.#sessions.get(id);
     if (existing) return existing;
     const created = session.fromPath(storagePath);
     created.setUserAgent(chromeUserAgent(created.getUserAgent()));
+    created.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(ALLOWED_ENV_PERMISSIONS.has(permission));
+    });
     /*
      * 内置页面（`warren://newtab`）挂**每环境自己的 session**。
      *
@@ -106,13 +116,13 @@ export class EnvSessionFactory {
     return this.sessionFor(id, config.storagePath);
   }
 
-  /** 启动环境前准备 Session：落目录、清/设代理、装 CA 验签、挂拦截器与扩展。 */
-  async prepareSession(
+  /** 同步环境网络出口（代理与自定义 CA）到已创建的 Session，避免配置变更或休眠唤醒后分裂。 */
+  async syncSessionNetwork(
     id: string,
     config: EnvironmentConfig,
-  ): Promise<{ session: Session; trustedCa: ReturnType<typeof parseCa> }> {
-    await mkdir(config.storagePath, { recursive: true });
-    const ses = this.sessionFor(id, config.storagePath);
+    ses: Session | undefined = this.#sessions.get(id),
+  ): Promise<ReturnType<typeof parseCa>> {
+    if (!ses) return undefined;
     /*
      * **清掉代理也要显式设一次**。Session 是缓存的（`#sessions`），只在有代理时调
      * `setProxy` 的话，解绑之后这个 session 会**继续用上一次的代理**——配置里写着「直连」，
@@ -120,7 +130,17 @@ export class EnvSessionFactory {
      */
     await ses.setProxy(config.proxy ? { proxyRules: config.proxy } : { mode: 'direct' });
     // 证书钩子要早于第一次导航：结果会被网络服务缓存，晚装就对已经验过的域名不生效
-    const trustedCa = this.applyTrustedCa(id, ses, config.trustedCa);
+    return this.applyTrustedCa(id, ses, config.trustedCa);
+  }
+
+  /** 启动环境前准备 Session：落目录、清/设代理、装 CA 验签、挂拦截器与扩展。 */
+  async prepareSession(
+    id: string,
+    config: EnvironmentConfig,
+  ): Promise<{ session: Session; trustedCa: ReturnType<typeof parseCa> }> {
+    await mkdir(config.storagePath, { recursive: true });
+    const ses = this.sessionFor(id, config.storagePath);
+    const trustedCa = await this.syncSessionNetwork(id, config, ses);
     // 拦截器要在第一个页面加载之前挂上：晚挂的请求会走真实网络
     this.#netOps.for(id).attach(ses);
     // 扩展也要在**第一个页面加载之前**装上，否则内容脚本注入不到首个页面
@@ -128,20 +148,13 @@ export class EnvSessionFactory {
     return { session: ses, trustedCa };
   }
 
-  /** 透明唤醒用的同步准备：session / 代理 / 扩展在休眠前后都没动过，只重挂拦截器并解析 CA。 */
+  /** 透明唤醒用的同步准备：重挂拦截器并按当前配置同步 CA 验签钩子。 */
   prepareWakeSession(
     id: string,
     config: EnvironmentConfig,
   ): { session: Session; trustedCa: ReturnType<typeof parseCa> } {
     const ses = this.sessionFor(id, config.storagePath);
-    let trustedCa: ReturnType<typeof parseCa>;
-    if (config.trustedCa) {
-      try {
-        trustedCa = parseCa(readFileSync(config.trustedCa, 'utf8'));
-      } catch {
-        trustedCa = undefined;
-      }
-    }
+    const trustedCa = this.applyTrustedCa(id, ses, config.trustedCa);
     this.#netOps.for(id).attach(ses);
     return { session: ses, trustedCa };
   }
@@ -159,6 +172,7 @@ export class EnvSessionFactory {
   applyTrustedCa(id: string, ses: Session, pemPath: string | undefined): ReturnType<typeof parseCa> {
     if (!pemPath) {
       ses.setCertificateVerifyProc(null);
+      this.#trustedCas.delete(id);
       return undefined;
     }
     let ca: ReturnType<typeof parseCa>;
@@ -169,11 +183,13 @@ export class EnvSessionFactory {
     }
     if (!ca) {
       ses.setCertificateVerifyProc(null);
+      this.#trustedCas.delete(id);
       this.#store.record(
         makeEvent('environment.trustedCaUnreadable', `trustedCa 读不出来，已回到默认校验: ${pemPath}`, 'system', id),
       );
       return undefined;
     }
+    this.#trustedCas.set(id, ca);
     ses.setCertificateVerifyProc((request, callback) => {
       // -2 = 拒绝（Electron 文档：callback(0) 接受、callback(-2) 拒绝）
       callback(leafSignedByCa(request.certificate.data, ca) ? 0 : -2);
@@ -190,6 +206,13 @@ export class EnvSessionFactory {
   }
 
   detachTelemetry(id: string): void {
+    const ses = this.#sessions.get(id);
+    if (ses) this.#telemetry.detachSession(ses);
+    // 停/休眠只清理运行期内存映射，保留 console/network SQLite 历史便于事后排查
+    this.#telemetry.forgetEnv(id);
+  }
+
+  clearTelemetry(id: string): void {
     const ses = this.#sessions.get(id);
     if (ses) this.#telemetry.detachSession(ses);
     this.#telemetry.clear(id);

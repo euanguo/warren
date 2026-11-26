@@ -4,306 +4,179 @@
 
 面向 AI Agent 的本地隔离浏览器工作台。
 
-一个 **Environment** = 独立浏览器存储 + 独立代理 + 独立页面实例。
-AI 通过 `warren` CLI 操作指定环境，你在桌面端看同一个环境的同一个页面，需要时接管。
+一个 **Environment** = 独立浏览器存储（Cookie / localStorage / 登录态）+ 独立代理出口 + 独立双空间页面实例（**Person Space** 与 **Agent Space**）。
+AI 通过 `warren` CLI 操作 **Agent Space**，你在桌面端实时查看并可随时无缝接管，同时保留自己独立的 **Person Space** 浏览区。
 
 > **名字的由来**：warren 是兔子的地下洞网络——一整片地道，**每个洞有自己的出入口**。
-> 这正是这个项目要做的事：每个环境一个独立身份、一个独立出口，整片洞属于同一个系统。
-> 前身叫 `worktree-profiles`，那是错的：这个应用不认识 worktree，它只认识隔离的环境和隔离的代理。
-
-> 这个仓库的前身是一个独立 Chrome 进程看板，已移到 `legacy/`。
-> 当前产品形态见 `docs/PRD.md`，技术选型见 `docs/TECH-STACK-RESEARCH.md`。
+> 每个环境一个独立身份、一个独立出口，整片洞属于同一个系统。
+> 旧 Chrome 看板原型已移入 `legacy/`；产品契约见 [`docs/PRD.md`](docs/PRD.md)，技术选型见 [`docs/TECH-STACK-RESEARCH.md`](docs/TECH-STACK-RESEARCH.md)，总交接见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
 
 ## 快速开始
 
 ```bash
 npm install
-npm start                 # 启动桌面端（同时启动 Core 和本地 RPC）
+npm start                 # 启动桌面端（Electron Core + 本地 Unix Socket RPC）
 ```
 
 另一个终端：
 
 ```bash
 node bin/warren.mjs env list
+node bin/warren.mjs help
 ```
 
 ## 核心概念
 
 | 概念 | 含义 |
 |---|---|
-| Environment | 可寻址的隔离浏览器运行单元：独立 Session、独立代理、独立页面 |
-| Core | Electron 主进程。持有 Environment、Session、WebContentsView、控制权、事件流 |
-| `warren` | Agent 的接口。形态参考 ego-browser：一次调用可以跑一整段脚本 |
-| Lease | 写操作许可。同一环境同一时间只有一个主体（agent / human）能改页面 |
+| **Environment** | 可寻址的隔离浏览器运行单元：独立 `session`、独立代理、独立 `trustedCa` 与标签页集合 |
+| **Person / Agent Space** | 同环境共享 Cookie 与代理出口的两套独立 Tab 工作区：人用 Person Space 免 lease，Agent 默认只操作 Agent Space |
+| **Core** | Electron 主进程。管理生命周期、Session、5 层原生视窗栈、控制权、遥测与插件宿主 |
+| **`warren` CLI** | AI Agent 接口（`bin/warren.mjs` → `bin/cli.mjs`）：支持原子命令、`batch` 批处理、`exec` VM 脚本、`--skill` 动态说明书 |
+| **Lease** | Agent Space 写许可；同一时刻只有 Agent 或人一方能写。Agent 持锁时页上浮透明原生 AI 护盾挡住人工误触 |
 
 **读取不需要 lease，写入必须持 lease。左侧选中环境 ≠ 获得写权限。**
 
-## CLI
+## 桌面壳与原生视窗架构
+
+- **两层极简桌面壳 + 全球保活页**：
+  - Row 1 顶栏（`40px`）：侧栏折叠（`⌘B`）、当前环境胶囊、`我的 | Agent` Space 切换器、标签条、Agent 上下文控制权胶囊、`⌘K` 命令面板、全局设置；
+  - Row 2 地址栏（`40px`）：导航控制、URL 拆层高亮 + 一键复制、Omnibox 历史联想、插件快捷微标/浮窗槽（`statusBadge` / `popover`）、缩放/视口预设/下载/DevTools/检查器开关；
+  - 进入「设置」或插件全屏 `railPage` 时保留底层侧栏与网页状态，切回零重建。
+- **5 层固定原生视窗栈（`WindowLayerManager`）**：`below → page → devtools → shield → overlay`（统一 `8px` 圆角），彻底避免原生 `WebContentsView` 被渲染层 DOM 误遮挡或弹出浮层藏页。
+  - **`OverlayHost`**：透明无边框预热顶层窗，承载 `⌘K` 命令面板与新建/确认弹窗；
+  - **`PopoverHost`**：低延迟弹出宿主，承载地址栏历史联想、页内查找与插件 `popover` 独立浮窗；
+  - **`DevToolsHost`**：基于 `setDevToolsWebContents` 的停靠式原生 Chrome DevTools（支持 `right` / `bottom` / `detach` 三态切换）。
+- **右侧检查器 & 6+N 设置中心**：
+  - 右侧按需开关检查器 drawer 含 6 个内置面板（`events`、`snapshot`、`console`、`network`、`rules`、`storage`）与插件贡献 `inspectorTab`；
+  - 可搜索设置中心含 6 个内置分节（`general`、`browser`、`agent`、`vault`、`plugins`、`diagnostics`）与插件贡献 `settingsSection`；
+  - 支持浅色 / 深色（`#181b21`）/ 跟随系统 4-seed 主题体系（`src/renderer/theme/theme-tokens.css`），全局 `<Toaster position="top-center" />`。
+- **透明 AI 护盾（`src/main/input-shield.ts`）**：Agent 持 lease 时仅在四周浮现高对比光学光晕与阻尼虚拟动作光标/锚框，中心 100% 透视；拦人误点击但允许 Agent CDP 事件直达。
+
+## CLI 与能力总览
 
 ```bash
-# 环境
+# 环境与分组
 warren env list
 warren env create alpha --proxy=http://127.0.0.1:9001 --start-url=https://example.com
-warren env start|stop|remove|select <name>
-warren env hibernate|wake <name>   # 休眠 / 唤醒（休眠保留配置与标签快照）
-warren env acquire <name>          # 取写权限，返回 leaseId
-warren env release <name> --lease=<leaseId>
-warren env takeover <name>         # 模拟人工接管
-warren env egress <name>           # proxy / trustedCa / 页面状态（nodes 不再取 AX 快照）
+warren env start|stop|hibernate|wake|remove|select <name>
+warren env acquire <name> [--wait=5000]          # 获取 Agent Space 控制权
+warren env renew|release <name> --lease=<leaseId>
+warren env doctor <name>                        # 代理 / 证书 / 登录 / 本地端口体检
+warren env egress <name>                        # 查看出口代理、CA 与当前状态
 
-# 读
-warren browser snapshot <env>
-warren browser screenshot <env> --output=/tmp/a.png
+# 高密读取、语义查找与增量差分
+warren browser open <env> <url> [--read]
+warren browser snapshot <env> -i -u [--filter=...] [--content-boundaries]
+warren browser read <env> --outline --links --data
+warren browser click|fill|check|select <env> @1 ...
+warren browser find <env> role button click --name=登录
+warren browser get <env> title|url|text|html|value|attr|box [target]
+warren browser is <env> visible|enabled|checked <target>
+warren browser diff <env> snapshot|screenshot|urls
+warren browser screenshot <env> [--annotate] [--output=/tmp/a.png]
+warren browser set <env> viewport 1280 800
+warren browser vitals|a11y|react|webmcp <env>
+warren browser console|network|events <env>
 
-# 写
-warren browser open <env> <url> --lease=<leaseId>
+# 批处理（带 Delta Receipt）与站点笔记 / 只读 API Flow
+warren batch <env> --bail <<'EOF'
+goto https://example.com
+snapshot -i
+EOF
+warren notes set example.com "登录需要两步跳转"
+warren flow steps <env>
 
-# 页面内取数（cache 可选：reload / no-store / force-cache 等标准 RequestCache）
-warren exec alpha <<'JS'
-const result = await page.fetch('https://cdn.example/app.js', {
-  cache: 'reload',
-  saveAs: '/tmp/app.js',
-});
-console.log(result.status);
-JS
-
-# Agent 主入口：一次调用跑一整段，自动 acquire/release
+# VM 脚本（仅暴露 5 个全局：page, console, setTimeout, clearTimeout, emitResult）
 warren exec alpha <<'JS'
 await page.goto('https://example.com');
 const snap = await page.snapshot();
-console.log(snap.url, snap.nodes.length);
-await page.getByRole('link', { name: 'Learn more' }).click();
+emitResult({ url: snap.url, count: snap.nodes.length });
 JS
 
-warren events [env]
-
-# 凭据：只暴露「列清单」和「填进页面」，没有 reveal
-warren vault list
-warren vault add <provider> --label=<name>     # 秘密从 stdin 读，不走 argv
-warren vault remove <ref>
-warren vault fill <ref> --env=<env> --field=password --target='{"kind":"label","text":"密码"}'
-
-# 插件
-warren plugin list
-warren plugin install path:<目录>
-warren plugin install npm:<包名>[@版本]
-warren plugin install git:<仓库>#<ref>
-warren plugin update <id>
-warren plugin enable|disable|uninstall <id>
-warren plugin grant <id> <permission...>
-warren plugin run <id> <command> --env=<env>
+# RPC 目录、Skill 合成与外部同步
+warren methods
+warren --skill [--base-only|--full|--plugin=<id>]
+warren skills status|install|refresh|plugin
 ```
 
-Whistle 预设可按场景组合，避免每次手选规则组：
+`warren exec` 脚本运行在独立 `node:vm` 受限上下文内，只注入 `page` / `console` / `setTimeout` / `clearTimeout` / `emitResult`，绝不暴露 `process` / `require` / `fs` / 网络模块。
 
-```bash
-# online：仅预发布 CDN
-# test：预发布 CDN + 官方完整测试后端
-# local：本地静态资源替换（预发布 CDN 仍在）
-# preview：预发布 CDN，显式关闭本地静态资源替换
-warren plugin run com.warren.whistle presetPreview --env=<env> --input='{"scenario":"test"}'
-warren plugin run com.warren.whistle presetApply --env=<env> \
-  --input='{"storage":"<instance>","scenario":"test","expectedHash":"<preview-hash>"}'
-```
+## 数据根目录与 Vault 凭据
 
-`page` 可用：`goto` `snapshot` `screenshot` `waitFor` `click` `fill` `press`
-`getByRole().click()/fill()` `getByText().click()` `getByLabel().fill()` `locator().click()/fill()`。
+- **统一数据根目录（`src/main/paths.ts` / `bin/paths.mjs`）**：默认 `~/.warren`（可用 `WARREN_HOME` 覆盖）：
+  - `<WARREN_HOME>/app/`：Electron 窗体 `userData`
+  - `<WARREN_HOME>/core/warren.db`：唯一 SQLite 数据库（WAL），保存环境、分组、历史、遥测、域名偏好、站点笔记、`saved_flows`、插件注册表与 **Vault 密文表（`vault`）**
+  - `<WARREN_HOME>/core/sessions/<env>/` & `plugins/<id>/`
+  - `<WARREN_HOME>/runtime/envd.sock` & `runtime.json`：本地 Unix Socket RPC 端点与随机 `0600` token
+  - `<WARREN_HOME>/whistle/`：Whistle 实例注册表与共用根证书（`WHISTLE_PATH`）
+- **Vault 安全边界**：
+  - 使用 Electron `safeStorage` 加密，CLI `warren vault add <provider> --label=<name>` **只从 stdin 读秘密**；
+  - 对外只有 `vault.list`（返回 `ref` + 打码 `usernameHint`）与 `vault.fill`（受控域白名单校验并直填页面字段），**没有明文 `reveal` 通道**，并拒绝 `"toString"` 等原型字段访问；
+  - 代理认证在 `app.on('login')` 按 host 查找 `provider=proxy` 凭据，未命中直接拒绝认证。
 
-脚本运行在 `node:vm` 受限上下文里，只有 `page` / `console` / 定时器；
-不暴露 `process` / `require` / `fs` / 子进程 / 网络模块。
+## 插件体系（v4）
 
-## 凭据（Vault）
+插件是独立 npm 包，契约声明在 `package.json#warren`（只接受 `apiVersion: "4"`），类型声明见 [`packages/plugin-sdk`](packages/plugin-sdk/index.d.ts)，详细开发规范见 [`plugins/README.md`](plugins/README.md)。
 
-- 用 Electron `safeStorage` 加密，密钥由系统密钥存储保管（macOS 走 Keychain）
-- 落盘文件 `<userData>/core/vault.json`，权限 `0600`，内容是密文
-- **对外只有两个动作**：`vault.list`（返回 `ref` + 打码用户名 `v***@example.com`）和
-  `vault.fill`（把值填进页面字段，返回 `{filled:true, field}`）。**没有 reveal 通道**
-- CLI 的 `vault add` 从 stdin 读秘密，不走 argv——否则会出现在 `ps` 和 shell history 里
-- 代理认证：`app.on('login')` 里按 host 去 Vault 找 `provider=proxy` 的凭据；找不到就
-  拒绝认证，**不会静默放行**
+内置与示例插件包括：`account-manager`（`com.warren.accounts`）、`whistle`（`com.warren.whistle`，内置 `whistle@2.10.15`）、`example-login`、`example-cookies`、`example-notes`、`example-host`。
 
-## 插件
+> **账号管理插件产品例外**：`com.warren.accounts` 按产品设计将账号/密码/TOTP/扩展字段明文存入自身 `data.db`（界面持续展示警示），但 **Agent 通道绝不返回明文**：`list`/`match`/`get` 只返回 `usernameHint` / `hasPassword` / `hasTotp`，`reveal` 与 `totpCode` 仅限 `'ui'`，自动填充强制校验非空 `allowedDomains`。
 
-插件是独立 npm 包，契约在 `package.json#warren`。不再使用独立的 `manifest.json`；
-`apiVersion` 只接受 `"4"`。安装来源支持 `path:` / `npm:` / `git:`，详见 `plugins/README.md`。
+### 权限三层（单一来源：`src/shared/permissions.ts`，共 19 项）
 
-```bash
-node scripts/serve-fixture.mjs 8899 &
-echo '{"username":"tester@example.com","password":"[REDACTED]"}' | warren vault add example --label=fixture
-warren plugin install path:plugins/example-login
-warren plugin enable com.example.login
-warren plugin run com.example.login login --env=alpha
-warren plugin grant com.example.login browser.navigate browser.input vault.fill
-warren plugin run com.example.login login --env=alpha
-```
-
-现有插件：`example-login`、`example-cookies`、`example-notes`、`example-host`、
-`whistle`、`account-manager`。Whistle 的 npm 依赖在插件自己的安装目录里，默认不需要系统预装 `w2`。
-
-账号管理插件 `com.warren.accounts` **按产品要求明文存储**账号、密码和备注，不接 Vault；
-只放不重要账号。
-
-### 权限分三层
-
-| 层 | 权限 | 行为 |
+| 层级 | 权限项 | 行为 |
 |---|---|---|
-| `granted` | `environment.read` `browser.dom.read` `browser.screenshot` | 安装即授予 |
-| `confirm` | `browser.navigate` `browser.input` `vault.fill` `network.observe` | 必须显式 `plugin grant` |
-| `denied` | `browser.evaluate` `storage.cookie.*` `process.spawn` `filesystem.read` | **声明了也不给**，只会被静默降级并显示给用户 |
+| `granted` (6) | `environment.read`、`browser.dom.read`、`browser.screenshot`、`ui.mount`、`storage.write`、`rpc.serve` | 安装即授予 |
+| `confirm` (8) | `environment.write`、`browser.navigate`、`browser.input`、`vault.fill`、`network.observe`、`network.fetch`、`storage.cookie.port`、`events.subscribe` | 须显式批准（`warren plugin grant` 或界面授权） |
+| `denied` (5) | `browser.evaluate`、`storage.cookie.read`、`storage.cookie.write`、`process.spawn`、`filesystem.read` | **永久禁用**，声明了也不会授予 |
 
-`denied` 那层是刻意的：**「声明的权限都自动给」等于把清单当成提权手段。**
+### 插件运行时边界与强杀超时
 
-升级新增的 `granted` 权限自动生效；新增的 `confirm` 权限留在待确认列表，必须再批准。
-
-### 插件能拿到什么
-
-`host` API 覆盖环境、浏览器、Vault 受控填充、插件 kv/SQLite、设置、日志、信号和 UI 通知；
-具体能力看 `src/main/plugins/api.ts`，权限门控看 `src/shared/permissions.ts`。
-
-**没有** `fs`、`child_process`、`require`、`process`、raw Session、raw WebContents、
-明文密码。插件调用 `vault.fill` 得到的只有「填好了」。
-
-插件写页面会自动 acquire 一个 `plugin:<id>` 的 lease，跑完在 `finally` 里释放——
-所以插件和 agent / 人不会同时写同一个环境。
-
-### 插件的真实边界（别当成沙箱）
-
-- `sandbox` 插件跑在 `node:vm` 上下文里，**这不是安全沙箱**；它挡住的是误用和越权 API 调用，
-  不是恶意代码。
-- `host` 插件跑在独立 Node 进程里，有完整 `fs` / `child_process` / 第三方依赖能力。
-- `vm` 的 `timeout` 只覆盖模块求值，**不覆盖插件异步 `run()` 的执行时间**。
-- 因此只应安装你信任的插件；UI 上也必须如实这么写。
-
-## 桌面端
-
-左侧 Environment 列表，右侧当前环境的真实页面（`WebContentsView`），底部四个标签页：
-**事件 / Agent 快照 / Console / Network**。顶部显示当前 URL、控制者和接管/交还按钮，
-左侧顶部有「插件」入口（插件列表 + 权限确认 + 凭据管理）。
-
-### 输入遮罩（同一时间只有一个主体能操作）
-
-Agent 持有 lease 时，页面会被一个原生遮罩盖住，人点不动；点顶部「接管」后遮罩立刻撤掉。
-
-为什么必须是原生 View：环境页面本身就是 `WebContentsView`，它不参与 DOM 层叠，
-渲染层放什么都会被它盖住。要挡住它只能在它上面再放一个原生视图。
-
-**遮罩只拦人**：Agent 走 CDP 直接对目标渲染进程发输入事件，不经过遮罩。实测确认——
-遮罩盖上时 Agent 的 `click` 依然生效。
-
-`warren call debug.layout` 可以看当前几何和遮罩状态：
-
-```json
-{ "viewport": {...}, "selected": "alpha", "viewBounds": {...},
-  "shieldAttached": true, "owner": "agent" }
-```
-
-如果它显示默认的 `0,0,800,600`，说明渲染层没挂载。
-
-### Console / Network
-
-用 Electron 原生事件采集（`console-message` + `webRequest.onCompleted`），
-**不碰 CDP 的 `Runtime.enable` / `Network.enable`** —— 既省掉检测面，也不用为了看日志
-把页面置于调试状态。
+- **`runtime: "sandbox"` 与 `runtime: "host"` 均运行在可强杀子进程内**（Electron 下 `utilityProcess.fork` / 测试下 `child_process.fork`），单次 `activate` / `command` / `rpc` 调用均受 **`30_000ms` 默认超时强制击杀保护**（可通过 `WARREN_PLUGIN_TIMEOUT_MS` 调整，超时返回 `PLUGIN_TIMEOUT`）。
+- `sandbox` 在子进程内加一层受限 `node:vm` 挡住误用与越权 API（无 `require` / `fs` / `process`）；`host` 在独立 Node ESM 子进程拥有完整 Node API。
+- **两者均非 OS 级恶意代码安全沙箱**，只应安装受信任的插件。
 
 ```bash
-warren browser console <env>
-warren browser network <env>
+# Whistle 预设模板示例（基于 instance storage 合成并防并发覆盖）
+warren plugin run com.warren.whistle presetPreview --input='{"storage":"<instance>","scenario":"test"}'
+warren plugin run com.warren.whistle presetApply --input='{"storage":"<instance>","scenario":"test","expectedHash":"<preview-hash>"}'
 ```
 
-两者都是主进程侧的环形缓冲（各 300 条），界面每 1.5 秒轮询一次。
+## CDP 与遥测边界
 
-前端用 **shadcn/ui + Tailwind v4**：
+- **禁止长驻 `Runtime.enable` / `Network.enable`**：`browser/session.ts` 只长开 `Page.enable` 与按需 `Target.setAutoAttach`（OOPIF 跨源 iframe 支持）；Console / Network 遥测完全走 Electron 原生 `console-message` 与 `webRequest` 事件并持久化入 `warren.db`（每标签保留 300 条，停用/休眠保留历史、删除环境彻底清理）。
+- 页面定位与操控在**隔离世界**（`Page.createIsolatedWorld`）或受控 `Runtime.callFunctionOn` / `DOM.*` / `Accessibility.getFullAXTree` / `Input.*` / `Emulation.*`（`browser set` 与视口覆盖）上运行，绝不向页面全局挂载可被反爬脚本篡改的变量。
+
+## 仓库结构
+
+```text
+bin/                          Agent CLI（入口 warren.mjs + cli.mjs / commands/*.mjs / exec-runtime.mjs / output-guard.mjs）
+src/shared/                   跨进程单一契约（permissions.ts / plugin-host-api.ts / popover-sizing.ts / types/*.ts）
+src/main/                     Electron 主进程（Core）
+  main.ts / ipc-routes.ts     应用入口、窗口装配、IPC 路由与自定义协议（plugin-protocol.ts）
+  environments.ts / env/      Environment Facade 与 lifecycle / session-factory / lease-coordinator / view-coordinator
+  ui/                         5 层原生窗口栈（layer-order / layer-manager / overlay-host / popover-host / devtools-host）
+  browser/                    CDP 控制与高阶浏览器能力（controller / locator / actions / waits / snapshot / screenshot / ops/*）
+  net/                        网络拦截器与 HAR 录放（interceptor / ops / rules / har）
+  plugins/                    插件宿主（host / package / source / installer / lifecycle / registry / api/* / runtime-* / worker-process）
+  skills/ & agent-integration.ts  内置 Skill 与已启用插件 Skill 自动合成同步
+  rpc/                        按域拆分的单一 RPC_REGISTRY 与派发器
+  store/ & db.ts & vault/     SQLite WAL 数据库、分域仓储与 safeStorage 凭据库
+src/preload/                  contextBridge 类型安全 IPC 桥
+src/renderer/                 React 19 + Vite 8 + Tailwind v4 + base-ui 桌面界面（app/ / features/ / state/ / lib/ / theme/）
+packages/plugin-sdk/          @warren/plugin-sdk 类型契约（已纳入 tsconfig.check.json）
+plugins/                      内置与示例插件（account-manager / whistle / example-*）
+scripts/                      fixture 服务、变更筛选测试及 regress 套件
+tests/                        node:test 单元测试 + Vitest/happy-dom 无头 UI 测试（tests/ui/）
+docs/                         架构设计、交接（HANDOFF.md）与改造记录
+```
+
+## 开发与校验
 
 ```bash
-npx shadcn@latest add <component>     # 加组件
-npx shadcn@latest info                # 看当前配置
-```
-
-- 全局样式：`src/renderer/globals.css`（shadcn 语义 token，固定深色，`<html class="dark">`）
-- 组件：`src/renderer/components/ui/`，业务组件在 `src/renderer/components/`
-- 别名：`@/*` → `src/renderer/*`（`components.json` + `tsconfig.json` + vite alias 三处已对齐）
-- 图标统一走 `@/components/icons`（Hugeicons 单源），组件内图标用 `data-icon`，不加尺寸类
-
-`WebContentsView` 是原生视图，不遵守 DOM 布局，所以渲染层会把右侧占位区的实际矩形
-通过 IPC 报给主进程，由主进程设置视图 bounds。`warren call debug.layout` 可以看到
-渲染层实际报上来的几何——如果它显示默认的 `0,0,800,600`，说明渲染层没挂载。
-
-## Agent-first 的设计取舍
-
-- **寻址，不切换**：每个调用都带环境 ID，没有隐式的「当前环境」。
-- **结构化观察优先**：`snapshot()` 返回可访问性树（role + name + backendNodeId），
-  不是截图。截图只给人和视觉模型。
-- **只用 CDP 的干净子集**：`Page.navigate` / `Page.captureScreenshot` /
-  `Accessibility.getFullAXTree` / `DOM.*` / `Input.*`。不碰 `Runtime.*`、`Console.*`、`Emulation.*`。
-- **不引入第二套浏览器**：Agent 操作的就是右侧那个页面实例，不是 Playwright 起的另一个浏览器。
-
-## 当前状态
-
-已完成：
-
-- Electron 桌面端（shadcn/ui + Tailwind v4）：Environment 列表、右侧真实页面、快速切换、事件 / Agent 快照面板
-- Environment 独立 Session（`session.fromPath`）+ 独立代理（`session.setProxy`）
-- 本地 RPC（Unix socket + 启动时生成的随机 token，权限 0600）
-- `warren` CLI：环境管理、快照、导航、点击、输入、按键、等待、截图
-- 控制权 Lease：acquire / release / takeover，写操作校验
-- 代理认证走主进程 `login` 事件 + Vault，密码不进入页面
-- **M3 Vault**：`safeStorage` 加密、无 reveal 通道、`vault.fill` 直填页面
-- **M4 PluginHost**：npm 包契约、三层权限、sandbox / host 运行时、自动 lease、插件存储
-- **第一个插件**：`plugins/example-login`（本地 fixture，含 3 个命令）
-- **M2 输入遮罩**：Agent 持 lease 时原生遮罩挡住人工输入，接管后立刻撤掉
-- **M2 遥测**：Console / Network 面板（Electron 原生事件，不碰 CDP 的 enable）
-- **插件 UI**：插件列表、三层权限展示与授权、凭据列表
-
-未完成（按 `docs/PRD.md` 的里程碑）：
-
-- **M2 剩余**：超时与取消（`vm` 的 timeout 不覆盖异步体）、trace ID
-- **M4 剩余**：插件市场
-- **M5**：打包签名（LRU 环境回收、崩溃恢复、SQLite 迁移已落地）
-
-已知边界：
-
-- 插件不是安全沙箱（见上文「插件的真实边界」）。
-- 插件异步 `run()` 没有执行时限——`vm` 的 timeout 只管模块求值。要真限制得放进子进程。
-- `storage.cookie.*` 宽形状权限仍在 `denied` 层；Cookie 插件只能走
-  `storage.cookie.port` 的「只搬运元数据 / 不返回值」通道。
-- 环境数量没有上限，也还没有 LRU 休眠；同时开很多环境会吃内存。
-- 点击依赖 `DOM.scrollIntoViewIfNeeded`，视口外的元素会先滚进来。
-- 应用退出时不会 kill 掉 Electron 的辅助进程；`manager.shutdown()` 只销毁 WebContentsView。
-- 遥测缓冲在主进程内存里，环境重启即清空。
-
-## 结构
-
-```
-src/main/            Electron 主进程 = Core
-  main.ts            应用入口、窗口、IPC
-  environments.ts    Environment 生命周期、Session、WebContentsView、Lease、遮罩联动
-  tabs.ts            Tab / TabManager：标签集合、新窗口分流、视图挂载
-  input-shield.ts    Agent 持 lease 时盖在页面上的原生输入遮罩
-  telemetry.ts       Console / Network 环形缓冲（Electron 原生事件）
-  browser/           CDP 浏览器控制层（controller / snapshot / waits / actions / policy…）
-  rpc.ts             本地 Unix socket RPC 服务端 + token
-  rpc-dispatch.ts    RPC 派发表（不 import electron，所以能被单测加载）
-  store.ts           持久化（M0 用 JSON，M5 迁 SQLite）
-  domain/            纯领域逻辑（状态机、lease 规则），有单元测试
-  vault/             safeStorage 加密的凭据库（无 reveal 通道）
-  plugins/           package.json#warren 校验、来源安装、三层权限、PluginHost
-src/preload/         contextBridge 白名单 IPC
-src/renderer/        React 界面（shadcn/ui + Tailwind v4）
-  globals.css        shadcn 语义 token
-  components/ui/     shadcn 组件
-  components/        业务组件（sidebar / stage / plugins-sheet）
-bin/warren.mjs       Agent 的 CLI
-plugins/             独立插件包（示例 / Whistle / 账号管理）
-fixtures/            本地测试站点
-scripts/             fixture server
-tests/               node:test 单元测试
-legacy/              旧的独立 Chrome 看板原型
-```
-
-## 开发
-
-```bash
-npm run typecheck
-npm test
-node node_modules/vite/bin/vite.js build --config vite.renderer.config.mjs   # 单独验证渲染层构建
+npm run check:changed         # 日常推荐：lint + format:check + typecheck + 关联无头单测与 UI 测试
+npm run test:ui               # 仅跑无头 React UI 测试（Vitest + happy-dom）
+npm run check                 # 重大改造全量门禁：oxlint + prettier + tsc + 全量 node:test + vitest + vite build
+npx tsc -p tsconfig.check.json  # 覆盖 src/ + tests/ + packages/plugin-sdk/index.d.ts 的全量类型检查
 ```

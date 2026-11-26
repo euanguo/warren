@@ -5,7 +5,10 @@
  */
 import type { PageContext } from './ctx.ts';
 import { hitTestLocation, isHitAcceptable, localQuadClickPoint } from './click-point.ts';
-import { ACTION_TIMEOUT_DEFAULT, describeAxBlocker, err, evalOnNode, nodeIdFor } from './page-helpers.ts';
+import { ACTIONABILITY_STATE_JS } from './dom-scripts.ts';
+import { richErr } from './errors.ts';
+import { describeAxBlocker } from './locator.ts';
+import { ACTION_TIMEOUT_DEFAULT, evalOnNode, nodeIdFor } from './page-helpers.ts';
 
 export type ActionName =
   | 'click'
@@ -82,7 +85,7 @@ export async function runAction<T>(options: {
       history.push(`#${retry + 1} ${code}: ${message.slice(0, 200)}`);
       if (!isRetryable(error)) throw error;
       if (Date.now() >= deadline) {
-        throw err(
+        throw richErr(
           'TIMEOUT',
           `${options.name} 超时 ${timeoutMs}ms（${retry + 1} 次尝试）\n  ${history.slice(-10).join('\n  ')}`,
           lastDetails ? { data: lastDetails } : undefined,
@@ -103,184 +106,6 @@ interface StateSnapshot {
   floatingFlyout: boolean;
   hit: { ok: true } | { ok: false; blocker: string; modalBlocker?: string };
 }
-
-/**
- * 深度元素状态与命中检测脚本（免疫 DOM Clobbering，支持 Shadow DOM / `display:contents` /
- * `checkVisibility` / `inert` / `<fieldset disabled>` / Portal 浮层识别 / 顶层模态识别）。
- */
-const STATE_SCRIPT = `(el) => new Promise((resolve) => {
-  const tagGetter = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName')?.get;
-  const safeTag = (n) => {
-    try { return n && n.nodeType === 1 ? String(tagGetter ? tagGetter.call(n) : n.tagName).toLowerCase() : ''; }
-    catch { return ''; }
-  };
-  const safeAttr = (n, k) => {
-    try { return typeof n.getAttribute === 'function' ? n.getAttribute(k) : null; }
-    catch { return null; }
-  };
-  const parentOf = (n) => n.assignedSlot || n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
-  const readRect = () => {
-    const r = el.getBoundingClientRect();
-    return [r.left, r.top, r.width, r.height];
-  };
-  const isDisabledByFieldset = (node) => {
-    let cur = node;
-    while (cur && cur.nodeType === 1) {
-      const parent = cur.parentElement;
-      if (parent && safeTag(parent) === 'fieldset' && parent.hasAttribute('disabled')) {
-        const firstLegend = Array.from(parent.children).find((c) => safeTag(c) === 'legend');
-        if (!firstLegend || !firstLegend.contains(node)) return true;
-      }
-      cur = parentOf(cur);
-    }
-    return false;
-  };
-  const isInert = (node) => {
-    let cur = node;
-    while (cur && cur.nodeType === 1) {
-      if (cur.inert === true || cur.hasAttribute?.('inert')) return true;
-      cur = parentOf(cur);
-    }
-    return false;
-  };
-  const isFloatingFlyout = (node) => {
-    const role = (safeAttr(node, 'role') || '').toLowerCase();
-    if (!/^(menuitem|menuitemcheckbox|menuitemradio|option)$/.test(role)) return false;
-    let cur = node;
-    for (let depth = 0; cur && cur.nodeType === 1 && depth < 12; depth++) {
-      const pos = getComputedStyle(cur).position;
-      if (pos === 'fixed' || pos === 'absolute') return true;
-      cur = parentOf(cur);
-    }
-    return false;
-  };
-  const isVisibleEl = (node) => {
-    const cs = getComputedStyle(node);
-    if (cs.visibility === 'hidden' || cs.visibility === 'collapse' || cs.display === 'none') return false;
-    if (typeof node.checkVisibility === 'function') {
-      try {
-        if (!node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) {
-          if (cs.display !== 'contents') return false;
-        }
-      } catch {}
-    } else if (Number(cs.opacity) === 0) {
-      return false;
-    }
-    if (cs.display === 'contents') {
-      for (const child of node.children) {
-        const cr = child.getBoundingClientRect();
-        if (cr.width > 0 && cr.height > 0) return true;
-      }
-      return false;
-    }
-    const r = node.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
-  };
-  const describe = (n) => {
-    if (!n || n.nodeType !== 1) return '未知元素';
-    const tag = safeTag(n) || 'element';
-    const id = safeAttr(n, 'id');
-    const cls = (safeAttr(n, 'class') || '').trim().split(/\\s+/).filter(Boolean).slice(0, 3).join('.');
-    return tag + (id ? '#' + id : '') + (cls ? '.' + cls : '');
-  };
-  const findTopmostModal = () => {
-    const modals = [...document.querySelectorAll(':modal, [aria-modal="true"], dialog[open]')];
-    for (let i = modals.length - 1; i >= 0; i--) {
-      const m = modals[i];
-      if (!isVisibleEl(m)) continue;
-      const mr = m.getBoundingClientRect();
-      const samples = [
-        [mr.left + mr.width / 2, mr.top + mr.height / 2],
-        [mr.left + mr.width * 0.25, mr.top + mr.height * 0.25],
-        [mr.left + mr.width * 0.75, mr.top + mr.height * 0.25],
-        [mr.left + mr.width * 0.25, mr.top + mr.height * 0.75],
-        [mr.left + mr.width * 0.75, mr.top + mr.height * 0.75],
-      ];
-      for (const [sx, sy] of samples) {
-        if (sx < 0 || sy < 0 || sx >= innerWidth || sy >= innerHeight) continue;
-        let hit = document.elementFromPoint(sx, sy);
-        while (hit && hit.shadowRoot) {
-          const inner = hit.shadowRoot.elementFromPoint(sx, sy);
-          if (!inner || inner === hit) break;
-          hit = inner;
-        }
-        let c = hit;
-        while (c) {
-          if (c === m) return m;
-          c = parentOf(c);
-        }
-      }
-    }
-    return null;
-  };
-
-  const before = readRect();
-  requestAnimationFrame(() => {
-    const after = readRect();
-    const visible = isVisibleEl(el);
-    const inert = isInert(el);
-    const disabled =
-      inert ||
-      el.disabled === true ||
-      safeAttr(el, 'aria-disabled') === 'true' ||
-      isDisabledByFieldset(el);
-    const stable = before.every((v, i) => Math.abs(v - after[i]) < 0.5);
-    const inViewport =
-      after[2] > 0 &&
-      after[3] > 0 &&
-      after[0] + after[2] > 0 &&
-      after[1] + after[3] > 0 &&
-      after[0] < innerWidth &&
-      after[1] < innerHeight;
-    let hit = { ok: true };
-    if (visible && after[2] > 0 && after[3] > 0) {
-      const x = Math.min(Math.max(after[0] + after[2] / 2, 0), innerWidth - 1);
-      const y = Math.min(Math.max(after[1] + after[3] / 2, 0), innerHeight - 1);
-      let node = document.elementFromPoint(x, y);
-      while (node && node.shadowRoot) {
-        const inner = node.shadowRoot.elementFromPoint(x, y);
-        if (!inner || inner === node) break;
-        node = inner;
-      }
-      let ok = false;
-      let cur = node;
-      while (cur) {
-        if (cur === el) { ok = true; break; }
-        cur = parentOf(cur);
-      }
-      if (!ok && node && node.nodeType === 1) {
-        // 允许关联 <label> 激活（前提是路径上没有拦截事件的 <a>/<button>）
-        let c = node;
-        let blocked = false;
-        while (c && c.nodeType === 1) {
-          const t = safeTag(c);
-          if (t === 'label') {
-            if (!blocked && c.control === el) ok = true;
-            break;
-          }
-          if (c !== el && (t === 'a' || t === 'button')) blocked = true;
-          c = parentOf(c);
-        }
-      }
-      if (!ok) {
-        const modal = findTopmostModal();
-        const modalDesc = modal && !modal.contains(el) ? describe(modal) : undefined;
-        hit = { ok: false, blocker: describe(node), ...(modalDesc ? { modalBlocker: modalDesc } : {}) };
-      }
-    }
-    const readOnly = el.readOnly === true || safeAttr(el, 'aria-readonly') === 'true';
-    resolve({
-      visible,
-      stable,
-      enabled: !disabled,
-      editable: !disabled && !readOnly,
-      inert,
-      inViewport,
-      floatingFlyout: isFloatingFlyout(el),
-      hit,
-    });
-  });
-})`;
 
 /**
  * 判断目标是否为已在视口内的浮动 Portal 菜单项（如 Radix/Base UI/MUI 的 menuitem/option）。
@@ -328,22 +153,22 @@ export async function checkActionable(
 ): Promise<void> {
   if (states.length === 0) return;
   const nodeId = await nodeIdFor(ctx, backendNodeId, sessionId);
-  const snapshot = (await evalOnNode(ctx, nodeId, STATE_SCRIPT, sessionId)) as StateSnapshot | null;
-  if (!snapshot) throw err('NODE_DETACHED', '元素在检查过程中被移除');
+  const snapshot = (await evalOnNode(ctx, nodeId, ACTIONABILITY_STATE_JS, sessionId)) as StateSnapshot | null;
+  if (!snapshot) throw richErr('NODE_DETACHED', '元素在检查过程中被移除');
   if (states.includes('visible') && !snapshot.visible) {
-    throw err('NOT_ACTIONABLE', '元素不可见（零尺寸、visibility:hidden 或 opacity:0）');
+    throw richErr('NOT_ACTIONABLE', '元素不可见（零尺寸、visibility:hidden 或 opacity:0）');
   }
   if (states.includes('stable') && !snapshot.stable) {
-    throw err('NOT_ACTIONABLE', '元素正在移动（连续两帧位置不一致）');
+    throw richErr('NOT_ACTIONABLE', '元素正在移动（连续两帧位置不一致）');
   }
   if (states.includes('enabled') && !snapshot.enabled) {
-    throw err(
+    throw richErr(
       'NOT_ACTIONABLE',
       snapshot.inert ? '元素位于 inert 子树中，无法交互' : '元素是 disabled（或位于禁用的 fieldset 内）',
     );
   }
   if (states.includes('editable') && !snapshot.editable) {
-    throw err('NOT_ACTIONABLE', '元素不可编辑（disabled、inert 或 readonly）');
+    throw richErr('NOT_ACTIONABLE', '元素不可编辑（disabled、inert 或 readonly）');
   }
   if (states.includes('receivesEvents')) {
     // 优先使用浏览器引擎级 CDP `DOM.getNodeForLocation` 校验（防 elementFromPoint 伪造 + 穿透 Shadow DOM）
@@ -356,7 +181,7 @@ export async function checkActionable(
         const blockerDesc = await describeAxBlocker(ctx, cdpHit.backendNodeId, sessionId);
         const modalNote =
           !snapshot.hit.ok && snapshot.hit.modalBlocker ? `；顶层模态框：<${snapshot.hit.modalBlocker}>` : '';
-        throw err('TARGET_OCCLUDED', `目标被 ${blockerDesc} 遮挡${modalNote}`, {
+        throw richErr('TARGET_OCCLUDED', `目标被 ${blockerDesc} 遮挡${modalNote}`, {
           data: {
             blocker: blockerDesc,
             ...(modalNote && !snapshot.hit.ok ? { modalBlocker: snapshot.hit.modalBlocker } : {}),
@@ -366,7 +191,7 @@ export async function checkActionable(
     }
     if (!snapshot.hit.ok) {
       const modalNote = snapshot.hit.modalBlocker ? `；顶层模态框：<${snapshot.hit.modalBlocker}>` : '';
-      throw err('TARGET_OCCLUDED', `目标被 <${snapshot.hit.blocker}> 遮挡${modalNote}`, {
+      throw richErr('TARGET_OCCLUDED', `目标被 <${snapshot.hit.blocker}> 遮挡${modalNote}`, {
         data: {
           blocker: snapshot.hit.blocker,
           ...(snapshot.hit.modalBlocker ? { modalBlocker: snapshot.hit.modalBlocker } : {}),

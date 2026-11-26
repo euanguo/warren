@@ -1,347 +1,15 @@
 /**
- * 观察：层次化 AX 树取数（带短 TTL 缓存与 per-frame loaderId）、混合 DOM 补盲
- * （密码定宽脱敏 / 幽灵文本过滤 / cursor:pointer 与隐藏控件救回 / `-u` 链接解析）、
- * 稳定自愈 ref 分配、截图（含 `--annotate` 编号叠加）。
+ * 观察：混合 DOM 补盲（密码定宽脱敏 / 幽灵文本过滤 / cursor:pointer 与隐藏控件救回 / `-u` 链接解析）
+ * 与稳定自愈 `@N` 引用分配。
  *
- * **只有 `assignRefs()` 会往 `RefTable` 注册 ref。** 别的模块要读 AX 树一律走 `readAxNodes()`。
+ * **只有 `assignRefs()` 会往 `RefTable` 注册 ref。** 别的模块要读 AX 树一律走 `ax-tree.ts#readAxNodes()`。
  */
-import type {
-  AxNode,
-  ScreenshotAnnotation,
-  ScreenshotOptions,
-  ScreenshotResult,
-  SnapshotOptions,
-} from '../../shared/types.ts';
-import type { AxFrame, PageContext } from './ctx.ts';
-import { defaultScreenshotPath, guardScreenshotPath, imageSize, sha256Buffer, writeArtifact } from '../artifacts.ts';
-import { INTERACTIVE_ROLE_RE } from './ops/snapshot-compact.ts';
-import { boxRect, err } from './page-helpers.ts';
-import {
-  canFallbackToElectronScreenshot,
-  SCREENSHOT_CDP_TIMEOUT_MS,
-  screenshotFallbackError,
-  withTimeout,
-} from './screenshot-policy.ts';
-
-/** 同一轮等待里的多次取树复用一份。 */
-const AX_CACHE_TTL_MS = 300;
-const axCache = new Map<number, { frames: AxFrame[]; at: number }>();
-
-/** 导航/销毁后丢掉缓存，别把上一页的结构喂给下一步。 */
-export function invalidateAxCache(wcId: number): void {
-  axCache.delete(wcId);
-}
-
-interface RawFrameTreeNode {
-  frame?: { id?: string; loaderId?: string; url?: string; name?: string };
-  childFrames?: RawFrameTreeNode[];
-}
-
-/**
- * 各 frame 的 AX 节点（含同源子 frame 与 OOPIF 跨源子 frame），附带每个 frame 的 `loaderId`。
- */
-export async function readAxFrames(ctx: PageContext): Promise<AxFrame[]> {
-  const cached = axCache.get(ctx.wc.id);
-  if (cached && Date.now() - cached.at < AX_CACHE_TTL_MS && sessionsAlive(ctx, cached.frames)) return cached.frames;
-
-  const tree = await ctx.send<{ frameTree?: RawFrameTreeNode }>('Page.getFrameTree').catch(() => null);
-  const frameMetas: Array<{ frameId: string; loaderId?: string; url?: string; name?: string }> = [];
-  const walk = (node: RawFrameTreeNode | undefined) => {
-    if (!node?.frame?.id) return;
-    frameMetas.push({
-      frameId: node.frame.id,
-      loaderId: node.frame.loaderId,
-      url: node.frame.url,
-      name: node.frame.name,
-    });
-    for (const child of node.childFrames ?? []) walk(child);
-  };
-  walk(tree?.frameTree);
-
-  const out: AxFrame[] = [];
-  for (const meta of frameMetas) {
-    try {
-      const r = await ctx.send<{ nodes?: Array<Record<string, unknown>> }>('Accessibility.getFullAXTree', {
-        frameId: meta.frameId,
-      });
-      out.push({
-        frameId: meta.frameId,
-        loaderId: meta.loaderId,
-        url: meta.url,
-        name: meta.name,
-        nodes: r.nodes ?? [],
-      });
-    } catch {
-      // frame 可能在取的过程中销毁
-    }
-  }
-  // OOPIF：每个子会话自己就是一棵树，主会话的 frame tree 里根本没有它
-  for (const child of ctx.childSessions()) {
-    if (!child.frameId) continue;
-    try {
-      const [childTree, r] = await Promise.all([
-        ctx.sendOn<{ frameTree?: RawFrameTreeNode }>(child.sessionId, 'Page.getFrameTree').catch(() => null),
-        ctx.sendOn<{ nodes?: Array<Record<string, unknown>> }>(child.sessionId, 'Accessibility.getFullAXTree'),
-      ]);
-      out.push({
-        frameId: child.frameId,
-        sessionId: child.sessionId,
-        loaderId: childTree?.frameTree?.frame?.loaderId,
-        url: childTree?.frameTree?.frame?.url ?? child.url,
-        name: childTree?.frameTree?.frame?.name,
-        nodes: r.nodes ?? [],
-      });
-    } catch {
-      // 子 frame 可能在取的过程中销毁
-    }
-  }
-  axCache.set(ctx.wc.id, { frames: out, at: Date.now() });
-  return out;
-}
-
-function sessionsAlive(ctx: PageContext, frames: AxFrame[]): boolean {
-  const alive = new Set(ctx.childSessions().map((child) => child.sessionId));
-  return frames.every((frame) => !frame.sessionId || alive.has(frame.sessionId));
-}
-
-/** 这个 backendNodeId 属于哪个 frame / 会话。没在 AX 树里（比如裸 div）返回 undefined。 */
-export async function frameOfBackendId(
-  ctx: PageContext,
-  backendNodeId: number,
-): Promise<{ frameId: string; sessionId?: string } | undefined> {
-  const frames = await readAxFrames(ctx).catch(() => []);
-  const alive = new Set(ctx.childSessions().map((child) => child.sessionId));
-  for (const frame of frames) {
-    if (frame.nodes.some((node) => node.backendDOMNodeId === backendNodeId)) {
-      if (frame.sessionId && !alive.has(frame.sessionId)) {
-        throw Object.assign(new Error('跨源子会话已经换掉了，重新解析目标'), {
-          code: 'NODE_DETACHED',
-        });
-      }
-      return { frameId: frame.frameId, sessionId: frame.sessionId };
-    }
-  }
-  return undefined;
-}
-
-function propValue(node: Record<string, unknown>, name: string): unknown {
-  const props = node.properties as Array<{ name?: string; value?: { value?: unknown } }> | undefined;
-  return props?.find((p) => p.name === name)?.value?.value;
-}
-
-function statesOf(node: Record<string, unknown>) {
-  const bool = (v: unknown): boolean | undefined =>
-    typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : undefined;
-  const tri = (v: unknown): boolean | 'mixed' | undefined => (v === 'mixed' ? 'mixed' : bool(v));
-  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
-  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
-  return {
-    disabled: bool(propValue(node, 'disabled')),
-    checked: tri(propValue(node, 'checked')),
-    expanded: bool(propValue(node, 'expanded')),
-    selected: bool(propValue(node, 'selected')),
-    pressed: tri(propValue(node, 'pressed')),
-    level: num(propValue(node, 'level')),
-    readonly: bool(propValue(node, 'readonly')),
-    required: bool(propValue(node, 'required')),
-    focused: bool(propValue(node, 'focused')),
-    valuetext: str(propValue(node, 'valuetext')),
-  };
-}
-
-/** 噪音包裹角色：不增加语义缩进层，透传给子节点。 */
-const TRANSPARENT_ROLE_RE =
-  /^(RootWebArea|generic|none|presentation|LayoutTable|LayoutTableRow|LayoutTableCell|InlineTextBox|LineBreak)$/i;
-
-/**
- * 基于 `childIds` 深度优先遍历单帧 AX 树，还原真实语义缩进 `depth`，
- * 同时完成：
- * 1. `MenuListPopup` / `<select>` 的选项摘要合并到父 `combobox.optionsSummary`；
- * 2. 剪除与父按钮/链接完全同名的冗余子 `StaticText`；
- * 3. 合并同一层级下相邻的 `StaticText`。
- */
-export function buildHierarchicalAxNodes(
-  rawNodes: Array<Record<string, unknown>>,
-  frame: Pick<AxFrame, 'frameId' | 'loaderId'>,
-  includeFrameId: boolean,
-  limit: number,
-): AxNode[] {
-  if (rawNodes.length === 0) return [];
-  const byId = new Map<string, Record<string, unknown>>();
-  const hasParent = new Set<string>();
-  for (const n of rawNodes) {
-    const id = n.nodeId !== undefined && n.nodeId !== null ? String(n.nodeId) : '';
-    if (id) byId.set(id, n);
-  }
-  for (const n of rawNodes) {
-    const kids = n.childIds as unknown[] | undefined;
-    if (Array.isArray(kids)) {
-      for (const k of kids) hasParent.add(String(k));
-    }
-  }
-  const roots: string[] = [];
-  for (const n of rawNodes) {
-    const id = n.nodeId !== undefined && n.nodeId !== null ? String(n.nodeId) : '';
-    if (id && !hasParent.has(id)) roots.push(id);
-  }
-  // 兜底：若原始测试数据没带 nodeId/childIds，退回顺序拍平
-  if (roots.length === 0 || byId.size === 0) {
-    return rawNodes
-      .filter((n) => !n.ignored)
-      .slice(0, limit)
-      .map((node) => {
-        const role = (node.role as { value?: string } | undefined)?.value ?? '';
-        const name = (node.name as { value?: string } | undefined)?.value ?? '';
-        const value = (node.value as { value?: string } | undefined)?.value;
-        return {
-          role,
-          name: typeof name === 'string' ? name : '',
-          backendNodeId: node.backendDOMNodeId as number | undefined,
-          value: typeof value === 'string' ? value : undefined,
-          description: (node.description as { value?: string } | undefined)?.value,
-          depth: 0,
-          loaderId: frame.loaderId,
-          ...statesOf(node),
-          ...(includeFrameId ? { frameId: frame.frameId } : {}),
-        };
-      });
-  }
-
-  const out: AxNode[] = [];
-  const visited = new Set<string>();
-
-  const collectMenuOptions = (nodeId: string): string[] => {
-    const opts: string[] = [];
-    const queue = [nodeId];
-    const seen = new Set<string>();
-    while (queue.length > 0 && opts.length < 20) {
-      const id = queue.shift()!;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const n = byId.get(id);
-      if (!n) continue;
-      const role = String((n.role as { value?: string } | undefined)?.value ?? '');
-      const name = String((n.name as { value?: string } | undefined)?.value ?? '').trim();
-      if (/^(MenuListOption|option)$/i.test(role) && name) {
-        opts.push(name);
-      }
-      const kids = n.childIds as unknown[] | undefined;
-      if (Array.isArray(kids)) {
-        for (const k of kids) queue.push(String(k));
-      }
-    }
-    return opts;
-  };
-
-  const dfs = (nodeId: string, depth: number, parentRole: string, parentNameNorm: string) => {
-    if (out.length >= limit || visited.has(nodeId)) return;
-    visited.add(nodeId);
-    const node = byId.get(nodeId);
-    if (!node) return;
-    const kids = (node.childIds as unknown[] | undefined)?.map(String) ?? [];
-
-    if (node.ignored) {
-      for (const kid of kids) dfs(kid, depth, parentRole, parentNameNorm);
-      return;
-    }
-
-    const role = String((node.role as { value?: string } | undefined)?.value ?? '');
-    const rawName = String((node.name as { value?: string } | undefined)?.value ?? '');
-    const nameNorm = rawName.replace(/\s+/g, ' ').trim();
-    const value = (node.value as { value?: string } | undefined)?.value;
-    const backendId = node.backendDOMNodeId as number | undefined;
-
-    // 跳过已折叠进父 combobox 的 MenuListPopup
-    if (/^MenuListPopup$/i.test(role)) return;
-
-    // 剪除与父交互控件（button/link/tab/menuitem/heading）完全同名的冗余子 StaticText
-    if (
-      /^StaticText$/i.test(role) &&
-      nameNorm &&
-      parentNameNorm &&
-      nameNorm.toLowerCase() === parentNameNorm.toLowerCase() &&
-      /^(button|link|tab|menuitem|heading|option|treeitem|checkbox|radio|switch)$/i.test(parentRole)
-    ) {
-      return;
-    }
-
-    const isTransparent = TRANSPARENT_ROLE_RE.test(role);
-    const isInteractive = INTERACTIVE_ROLE_RE.test(role);
-    const isMeaningful = !isTransparent && (Boolean(nameNorm) || isInteractive || Boolean(value));
-
-    let nextDepth = depth;
-    let nextParentRole = parentRole;
-    let nextParentName = parentNameNorm;
-
-    if (isMeaningful) {
-      // 合并同一深度连续的 StaticText，削减碎片段
-      const prev = out[out.length - 1];
-      if (
-        /^StaticText$/i.test(role) &&
-        prev &&
-        /^StaticText$/i.test(prev.role) &&
-        (prev.depth ?? 0) === depth &&
-        prev.frameId === (includeFrameId ? frame.frameId : undefined)
-      ) {
-        if (nameNorm && !prev.name.includes(nameNorm)) {
-          prev.name = `${prev.name} ${nameNorm}`.trim();
-        }
-        return;
-      }
-
-      let optionsSummary: string[] | undefined;
-      if (/^(combobox|PopUpButton)$/i.test(role)) {
-        const collected: string[] = [];
-        for (const kid of kids) {
-          const kn = byId.get(kid);
-          const kr = String((kn?.role as { value?: string } | undefined)?.value ?? '');
-          if (/^MenuListPopup$/i.test(kr)) collected.push(...collectMenuOptions(kid));
-        }
-        if (collected.length > 0) optionsSummary = collected;
-      }
-
-      out.push({
-        role,
-        name: nameNorm,
-        backendNodeId: backendId,
-        value: typeof value === 'string' ? value : undefined,
-        description: (node.description as { value?: string } | undefined)?.value,
-        depth,
-        loaderId: frame.loaderId,
-        ...(optionsSummary ? { optionsSummary } : {}),
-        ...statesOf(node),
-        ...(includeFrameId ? { frameId: frame.frameId } : {}),
-      });
-      nextDepth = depth + 1;
-      nextParentRole = role;
-      nextParentName = nameNorm;
-    }
-
-    for (const kid of kids) {
-      dfs(kid, nextDepth, nextParentRole, nextParentName);
-      if (out.length >= limit) break;
-    }
-  };
-
-  for (const r of roots) {
-    dfs(r, 0, '', '');
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-/** 把 AX 树整理成层次节点数组。只读，不注册 ref。 */
-export async function readAxNodes(ctx: PageContext, limit = 2000): Promise<AxNode[]> {
-  const frames = await readAxFrames(ctx);
-  const out: AxNode[] = [];
-  for (const frame of frames) {
-    const remaining = limit - out.length;
-    if (remaining <= 0) break;
-    const part = buildHierarchicalAxNodes(frame.nodes, frame, frames.length > 1, remaining);
-    out.push(...part);
-  }
-  return out;
-}
+import type { AxNode, SnapshotOptions } from '../../shared/types.ts';
+import type { PageContext } from './ctx.ts';
+import { buildHierarchicalAxNodes, readAxFrames, sessionOfAxNode, tagAxNodeSession } from './ax-tree.ts';
+import { richErr } from './errors.ts';
+import { boxRect } from './locator.ts';
+import { INTERACTIVE_ROLE_RE, isActionableRole } from './roles.ts';
 
 /** 以某个 backendId 为根，在它所属的那个 frame 里按 childIds 收子树。 */
 function collectSubtree(nodes: Array<Record<string, unknown>>, rootBackendId: number): Set<number> {
@@ -383,27 +51,34 @@ interface DomAugmentResult {
 }
 
 /**
- * 隔离世界 DOM 补盲与隐私加固：
+ * 隔离世界 DOM 补盲与隐私加固（支持主会话 + 同源 contentDocument iframe + OOPIF 子会话）：
  * 1. 标记所有密码框（`type="password"` / `autocomplete*="password"`）做固定宽度 `"••••••••"` 脱敏；
  * 2. 识别 `opacity: 0` / `visibility: hidden` 幽灵元素（保留 `input[type=file]`）；
  * 3. 可选解析 `a[href]` 真实 URL（`-u`）；
  * 4. 可选扫描 `cursor: pointer`（父已 pointer 时去重）、`onclick`、`tabindex>=0`、`[contenteditable]`
  *    与隐藏 `<input type="file">`，把 AX 树漏掉的可交互元素救回快照。
  */
-async function augmentMainFrameWithDom(
+async function augmentFrameWithDom(
   ctx: PageContext,
   nodes: AxNode[],
-  options: { urls?: boolean; includeCursor?: boolean; boxes?: boolean; mainFrameId?: string; mainLoaderId?: string },
+  options: {
+    urls?: boolean;
+    includeCursor?: boolean;
+    boxes?: boolean;
+    frameId?: string;
+    loaderId?: string;
+    sessionId?: string;
+  },
 ): Promise<AxNode[]> {
   if (ctx.wc.isDestroyed()) return nodes;
+  const sessionId = options.sessionId;
   // 在隔离世界扫描页面，绝不污染主世界 window
-  const mainFrameId = options.mainFrameId;
   let contextId: number | undefined;
   try {
-    const tree = await ctx.send<{ frameTree?: { frame?: { id?: string } } }>('Page.getFrameTree');
-    const fid = mainFrameId ?? tree?.frameTree?.frame?.id;
+    const tree = await ctx.sendOn<{ frameTree?: { frame?: { id?: string } } }>(sessionId, 'Page.getFrameTree');
+    const fid = options.frameId ?? tree?.frameTree?.frame?.id;
     if (!fid) return nodes;
-    const world = await ctx.send<{ executionContextId?: number }>('Page.createIsolatedWorld', {
+    const world = await ctx.sendOn<{ executionContextId?: number }>(sessionId, 'Page.createIsolatedWorld', {
       frameId: fid,
       worldName: 'warren-augment',
     });
@@ -414,7 +89,7 @@ async function augmentMainFrameWithDom(
   if (!contextId) return nodes;
 
   try {
-    const raw = await ctx.send<{ result?: { value?: DomAugmentResult } }>('Runtime.evaluate', {
+    const raw = await ctx.sendOn<{ result?: { value?: DomAugmentResult } }>(sessionId, 'Runtime.evaluate', {
       contextId,
       returnByValue: true,
       expression: `(() => {
@@ -482,6 +157,9 @@ async function augmentMainFrameWithDom(
                 }
               }
               if (el.shadowRoot) walk(el.shadowRoot, false);
+              if (tag === 'iframe') {
+                try { if (el.contentDocument) walk(el.contentDocument, false); } catch {}
+              }
               continue;
             }
 
@@ -518,6 +196,9 @@ async function augmentMainFrameWithDom(
             }
 
             if (el.shadowRoot) walk(el.shadowRoot, hasPointer);
+            if (tag === 'iframe') {
+              try { if (el.contentDocument) walk(el.contentDocument, false); } catch {}
+            }
           }
         };
 
@@ -539,7 +220,7 @@ async function augmentMainFrameWithDom(
     ]);
     for (const idx of neededIndices) {
       const obj = await ctx
-        .send<{ result?: { objectId?: string } }>('Runtime.evaluate', {
+        .sendOn<{ result?: { objectId?: string } }>(sessionId, 'Runtime.evaluate', {
           contextId,
           expression: `window.__warrenAugment[${idx}]`,
           returnByValue: false,
@@ -549,17 +230,21 @@ async function augmentMainFrameWithDom(
       if (!objectId) continue;
       try {
         const desc = await ctx
-          .send<{ node?: { backendNodeId?: number } }>('DOM.describeNode', { objectId })
+          .sendOn<{ node?: { backendNodeId?: number } }>(sessionId, 'DOM.describeNode', { objectId })
           .catch(() => null);
         if (typeof desc?.node?.backendNodeId === 'number') {
           indexToBackend.set(idx, desc.node.backendNodeId);
         }
       } finally {
-        await ctx.send('Runtime.releaseObject', { objectId }).catch(() => {});
+        await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId }).catch(() => {});
       }
     }
     await ctx
-      .send('Runtime.evaluate', { contextId, expression: 'delete window.__warrenAugment', returnByValue: true })
+      .sendOn(sessionId, 'Runtime.evaluate', {
+        contextId,
+        expression: 'delete window.__warrenAugment',
+        returnByValue: true,
+      })
       .catch(() => {});
 
     const passwordIds = new Set<number>();
@@ -582,7 +267,8 @@ async function augmentMainFrameWithDom(
     const filtered: AxNode[] = [];
     for (const node of nodes) {
       const bid = node.backendNodeId;
-      if (typeof bid === 'number') {
+      const sameSession = (sessionOfAxNode(node) ?? undefined) === sessionId;
+      if (sameSession && typeof bid === 'number') {
         if (ghostIds.has(bid) && !node.hiddenInput) continue;
         existingBackendIds.add(bid);
         if (passwordIds.has(bid)) {
@@ -601,16 +287,19 @@ async function augmentMainFrameWithDom(
       const bid = indexToBackend.get(extra.idx);
       if (bid === undefined || existingBackendIds.has(bid)) continue;
       existingBackendIds.add(bid);
-      filtered.push({
+      const extraNode: AxNode = {
         role: extra.role,
         name: extra.name,
         backendNodeId: bid,
         depth: 0,
-        loaderId: options.mainLoaderId,
+        loaderId: options.loaderId,
+        ...(options.frameId ? { frameId: options.frameId } : {}),
         ...(extra.cursorInteractive ? { cursorInteractive: true } : {}),
         ...(extra.hiddenInput ? { hiddenInput: true } : {}),
         ...(data.boxes?.[extra.idx] ? { box: data.boxes[extra.idx] } : {}),
-      });
+      };
+      tagAxNodeSession(extraNode, sessionId);
+      filtered.push(extraNode);
     }
 
     return filtered;
@@ -630,7 +319,7 @@ export async function snapshot(
   let allowed: Set<number> | null = null;
 
   if (scope === 'subtree') {
-    if (!options.root) throw err('BAD_REQUEST', 'subtree 需要 root（snapshot ref）');
+    if (!options.root) throw richErr('BAD_REQUEST', 'subtree 需要 root（snapshot ref）');
     const { backendId } = ctx.refs.resolve(options.root);
     let ownerFrame: string | undefined;
     let rootNode: Record<string, unknown> | undefined;
@@ -641,7 +330,7 @@ export async function snapshot(
         break;
       }
     }
-    if (!ownerFrame) throw err('TARGET_NOT_FOUND', `subtree root 不在当前 AX 树里: ${options.root}`);
+    if (!ownerFrame) throw richErr('TARGET_NOT_FOUND', `subtree root 不在当前 AX 树里: ${options.root}`);
     onlyFrame = ownerFrame;
     const role = String((rootNode?.role as { value?: string } | undefined)?.value ?? '');
     if (/^iframe$/i.test(role)) {
@@ -700,30 +389,44 @@ export async function snapshot(
     if (out.length >= limit) break;
   }
 
-  // 主 frame DOM 补盲：密码定宽脱敏 + 幽灵节点剔除 + 按需 cursor/file-input 救回与 -u URL 解析
+  // DOM 补盲（密码定宽脱敏 + 幽灵节点剔除 + 按需 cursor/file-input 救回与 -u URL 解析）
+  // 主 frame 遍历主文档及同源 contentDocument，OOPIF 子会话逐个在各自 sessionId 下执行
+  const augmentOpts = {
+    urls: options.urls,
+    includeCursor: options.includeCursor ?? Boolean(options.interactiveOnly),
+    boxes: options.boxes,
+  };
   const mainFrame = frames.find((f) => !f.sessionId);
   if (!onlyFrame || (mainFrame && onlyFrame === mainFrame.frameId)) {
-    out = await augmentMainFrameWithDom(ctx, out, {
-      urls: options.urls,
-      includeCursor: options.includeCursor ?? Boolean(options.interactiveOnly),
-      boxes: options.boxes,
-      mainFrameId: mainFrame?.frameId,
-      mainLoaderId: mainFrame?.loaderId,
+    out = await augmentFrameWithDom(ctx, out, {
+      ...augmentOpts,
+      frameId: mainFrame?.frameId,
+      loaderId: mainFrame?.loaderId,
     });
-    if (options.interactiveOnly) {
-      out = out.filter((n) => INTERACTIVE_ROLE_RE.test(n.role) || n.cursorInteractive || n.hiddenInput);
-    }
-    if (roles) {
-      out = out.filter((n) => roles.has(n.role.toLowerCase()));
-    }
+  }
+  for (const childFrame of frames) {
+    if (!childFrame.sessionId) continue;
+    if (onlyFrame && onlyFrame !== childFrame.frameId) continue;
+    out = await augmentFrameWithDom(ctx, out, {
+      ...augmentOpts,
+      frameId: childFrame.frameId,
+      loaderId: childFrame.loaderId,
+      sessionId: childFrame.sessionId,
+    });
+  }
+  if (options.interactiveOnly) {
+    out = out.filter((n) => INTERACTIVE_ROLE_RE.test(n.role) || n.cursorInteractive || n.hiddenInput);
+  }
+  if (roles) {
+    out = out.filter((n) => roles.has(n.role.toLowerCase()));
   }
 
   // 若显式要求 boxes，补齐尚未带 box 的可交互节点坐标
   if (options.boxes) {
     for (const n of out) {
       if (n.box || !n.backendNodeId || !isActionableRole(n.role)) continue;
-      const frame = frames.find((f) => f.frameId === n.frameId);
-      const rect = await boxRect(ctx, n.backendNodeId, frame?.sessionId).catch(() => null);
+      const sessionId = sessionOfAxNode(n) ?? frames.find((f) => f.frameId === n.frameId)?.sessionId;
+      const rect = await boxRect(ctx, n.backendNodeId, sessionId).catch(() => null);
       if (rect) {
         n.box = {
           x: Math.round(rect.x),
@@ -758,6 +461,7 @@ export function assignRefs(ctx: PageContext, nodes: AxNode[], options: { include
             backendId: node.backendNodeId,
             frameId: node.frameId,
             loaderId: node.loaderId,
+            sessionId: sessionOfAxNode(node),
             role: node.role,
             name: node.name,
           }
@@ -773,161 +477,6 @@ export function assignRefs(ctx: PageContext, nodes: AxNode[], options: { include
       if (hit.isNew) node.isNew = true;
     }
     if (options.includeStableLocator) node.locator = stableLocator(node);
-  }
-}
-
-export function isActionableRole(role: string): boolean {
-  return INTERACTIVE_ROLE_RE.test(String(role || ''));
-}
-
-/**
- * 截屏，支持 `--annotate` 在隔离世界叠加临时 `@N` 编号标签框（截图完毕立刻移除）。
- */
-export async function screenshot(
-  ctx: PageContext,
-  opts: ScreenshotOptions = {},
-  environmentId?: string,
-): Promise<ScreenshotResult> {
-  let annotations: ScreenshotAnnotation[] | undefined;
-  let annotateContextId: number | undefined;
-
-  if (opts.annotate) {
-    const nodes = await snapshot(ctx, { interactiveOnly: true, boxes: true, includeCursor: true });
-    assignRefs(ctx, nodes);
-    annotations = nodes
-      .filter((n) => n.ref && n.box && n.box.width > 0 && n.box.height > 0)
-      .slice(0, 80)
-      .map((n) => ({
-        ref: n.ref!,
-        role: n.role,
-        name: n.name.slice(0, 60),
-        box: n.box!,
-      }));
-    if (annotations.length > 0) {
-      try {
-        const tree = await ctx.send<{ frameTree?: { frame?: { id?: string } } }>('Page.getFrameTree');
-        const fid = tree?.frameTree?.frame?.id;
-        if (fid) {
-          const world = await ctx.send<{ executionContextId?: number }>('Page.createIsolatedWorld', {
-            frameId: fid,
-            worldName: 'warren-annotate',
-          });
-          annotateContextId = world?.executionContextId;
-          if (annotateContextId) {
-            await ctx.send('Runtime.evaluate', {
-              contextId: annotateContextId,
-              returnByValue: true,
-              expression: `(() => {
-                const items = ${JSON.stringify(annotations)};
-                const old = document.getElementById('__warren_annotate_layer');
-                if (old) old.remove();
-                const layer = document.createElement('div');
-                layer.id = '__warren_annotate_layer';
-                layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
-                for (const item of items) {
-                  const box = document.createElement('div');
-                  box.style.cssText =
-                    'position:fixed;box-sizing:border-box;border:2px solid #ef4444;background:rgba(239,68,68,0.08);pointer-events:none;' +
-                    'left:' + item.box.x + 'px;top:' + item.box.y + 'px;width:' + item.box.width + 'px;height:' + item.box.height + 'px;';
-                  const tag = document.createElement('span');
-                  tag.textContent = item.ref;
-                  tag.style.cssText =
-                    'position:absolute;top:-16px;left:0;background:#ef4444;color:#fff;font:600 11px/14px monospace;padding:1px 4px;border-radius:3px;white-space:nowrap;';
-                  box.appendChild(tag);
-                  layer.appendChild(box);
-                }
-                (document.body || document.documentElement).appendChild(layer);
-                return items.length;
-              })()`,
-            });
-          }
-        }
-      } catch {
-        // 标注覆盖失败不影响主截图
-      }
-    }
-  }
-
-  try {
-    const format = opts.format ?? 'png';
-    const params: Record<string, unknown> = { format };
-    if (opts.fullPage) params.captureBeyondViewport = true;
-    if (opts.clip) {
-      params.clip = {
-        x: opts.clip.x,
-        y: opts.clip.y,
-        width: opts.clip.width,
-        height: opts.clip.height,
-        scale: 1,
-      };
-    }
-    let buffer: Buffer;
-    let source: 'cdp' | 'electron' = 'cdp';
-    try {
-      const { data } = await withTimeout(
-        ctx.send<{ data: string }>('Page.captureScreenshot', params),
-        SCREENSHOT_CDP_TIMEOUT_MS,
-        `CDP screenshot timed out after ${SCREENSHOT_CDP_TIMEOUT_MS}ms`,
-      );
-      buffer = Buffer.from(data, 'base64');
-    } catch (error) {
-      const fallback = await captureVisiblePage(ctx, format, opts);
-      if (!fallback.buffer) throw screenshotFallbackError(fallback.error ?? error);
-      buffer = fallback.buffer;
-      source = 'electron';
-    }
-    const wantsBase64 = opts.encoding === 'base64';
-    const target =
-      opts.path ?? (wantsBase64 ? undefined : defaultScreenshotPath(environmentId ?? String(ctx.tabIndex()), format));
-    const extra = annotations ? { annotations } : {};
-    if (target) {
-      const meta = await writeArtifact(guardScreenshotPath(target), buffer);
-      const size = imageSize(buffer, format);
-      return {
-        ...meta,
-        format,
-        ...size,
-        source,
-        ...extra,
-        ...(wantsBase64 ? { base64: buffer.toString('base64') } : {}),
-      };
-    }
-    const size = imageSize(buffer, format);
-    return {
-      bytes: buffer.length,
-      sha256: sha256Buffer(buffer),
-      format,
-      ...size,
-      source,
-      ...extra,
-      base64: buffer.toString('base64'),
-    };
-  } finally {
-    if (annotateContextId) {
-      await ctx
-        .send('Runtime.evaluate', {
-          contextId: annotateContextId,
-          returnByValue: true,
-          expression: `document.getElementById('__warren_annotate_layer')?.remove()`,
-        })
-        .catch(() => {});
-    }
-  }
-}
-
-async function captureVisiblePage(
-  ctx: PageContext,
-  format: 'png' | 'jpeg',
-  opts: ScreenshotOptions,
-): Promise<{ buffer?: Buffer; error?: unknown }> {
-  if (!canFallbackToElectronScreenshot(opts)) return { error: 'fullPage/clip 不能走 Electron 兜底' };
-  if (ctx.wc.isDestroyed()) return { error: 'webContents 已销毁' };
-  try {
-    const image = await ctx.wc.capturePage(undefined, { stayHidden: true });
-    if (image.isEmpty()) return { error: 'NativeImage 为空' };
-    return { buffer: format === 'jpeg' ? image.toJPEG(92) : image.toPNG() };
-  } catch (error) {
-    return { error };
   }
 }
 

@@ -36,9 +36,9 @@ test('写路径护栏跟着根走，不是硬编码 ~/.warren', () => {
   const previous = process.env.WARREN_HOME;
   try {
     process.env.WARREN_HOME = '/tmp/wh-guard';
-    assert.throws(() => guardSavePath('/tmp/wh-guard/core/x.har', 'saveAs'), /PATH_DENIED/);
+    assert.throws(() => guardSavePath('/tmp/wh-guard/core/x.har'), /PATH_DENIED/);
     // 旧位置现在不再是数据根，就不该拦
-    assert.equal(guardSavePath('/tmp/other/x.har', 'saveAs'), '/tmp/other/x.har');
+    assert.equal(guardSavePath('/tmp/other/x.har'), '/tmp/other/x.har');
   } finally {
     if (previous === undefined) delete process.env.WARREN_HOME;
     else process.env.WARREN_HOME = previous;

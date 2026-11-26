@@ -1,6 +1,6 @@
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
-import type { EnvApi } from '@shared/types';
+import type { EnvApi, PopoverActionEvent } from '@shared/types';
 
 export interface MockEnvApiControls {
   api: EnvApi;
@@ -11,11 +11,11 @@ export interface MockEnvApiControls {
   historySuggest: ReturnType<typeof vi.fn>;
   popupMenu: ReturnType<typeof vi.fn>;
   openOverlay: ReturnType<typeof vi.fn>;
-  emitPopoverAction: (event: { id: string; action: string; payload?: unknown }) => void;
+  emitPopoverAction: (event: PopoverActionEvent) => void;
 }
 
 export function installMockEnvApi(overrides: Record<string, unknown> = {}): MockEnvApiControls {
-  const popoverActionListeners = new Set<(event: { id: string; action: string; payload?: unknown }) => void>();
+  const popoverActionListeners = new Set<(event: PopoverActionEvent) => void>();
 
   const openPopover = vi.fn(async () => {});
   const updatePopover = vi.fn(async () => {});
@@ -34,7 +34,7 @@ export function installMockEnvApi(overrides: Record<string, unknown> = {}): Mock
     historySuggest,
     popupMenu,
     openOverlay,
-    onPopoverAction: vi.fn((cb: (event: { id: string; action: string; payload?: unknown }) => void) => {
+    onPopoverAction: vi.fn((cb: (event: PopoverActionEvent) => void) => {
       popoverActionListeners.add(cb);
       return () => popoverActionListeners.delete(cb);
     }),

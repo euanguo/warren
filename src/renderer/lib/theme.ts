@@ -51,10 +51,11 @@ export function applyTheme(preference: ThemePreference = 'dark'): () => void {
 
 /**
  * 在独立渲染表面（Overlay / Popover）中监听设置变更并自动同步主题类。
- * 不在 effect 中同步 setState，严格符合 oxlint `react/set-state-in-effect`。
+ * 仅响应显式 settings 变更广播，不绑定全局 `state:changed` 或重复挂载完整 plugin-store。
  */
-export function useStandaloneThemeSync(): void {
+export function useStandaloneThemeSync(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return;
     let cleanup = () => {};
     let disposed = false;
 
@@ -70,13 +71,15 @@ export function useStandaloneThemeSync(): void {
     const unsubDelta = window.envApi.onEnvDelta((payload) => {
       if (payload?.reason === 'settings') pull();
     });
-    const unsubState = window.envApi.onStateChanged(pull);
+    const unsubPlugin = window.envApi.onPluginChanged((payload) => {
+      if (payload?.reason === 'settings') pull();
+    });
 
     return () => {
       disposed = true;
       cleanup();
       unsubDelta();
-      unsubState();
+      unsubPlugin();
     };
-  }, []);
+  }, [enabled]);
 }

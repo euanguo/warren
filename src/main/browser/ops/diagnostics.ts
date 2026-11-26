@@ -9,7 +9,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { PageContext } from '../ctx.ts';
 import { sha256Buffer } from '../../artifacts.ts';
-import { err } from '../page-helpers.ts';
+import { richErr } from '../errors.ts';
 import { guardSavePath } from '../policy.ts';
 
 export interface PdfOptions {
@@ -23,7 +23,7 @@ export async function printPdf(
   ctx: PageContext,
   opts: PdfOptions,
 ): Promise<{ ok: true; path: string; bytes: number; sha256: string }> {
-  const dest = guardSavePath(opts.path, 'saveAs');
+  const dest = guardSavePath(opts.path);
   let buf: Buffer;
   // Electron 的 headed WebContents 不暴露 CDP `Page.printToPDF`（headless 专用），优先走原生 `wc.printToPDF`
   if (typeof ctx.wc?.printToPDF === 'function') {
@@ -38,7 +38,7 @@ export async function printPdf(
       printBackground: opts.printBackground !== false,
       ...(opts.scale && opts.scale >= 0.1 && opts.scale <= 2 ? { scale: opts.scale } : {}),
     });
-    if (!res?.data) throw err('INTERNAL', 'Page.printToPDF 未返回 PDF 数据');
+    if (!res?.data) throw richErr('INTERNAL', 'Page.printToPDF 未返回 PDF 数据');
     buf = Buffer.from(res.data, 'base64');
   }
   await mkdir(path.dirname(dest), { recursive: true });

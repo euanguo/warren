@@ -59,7 +59,9 @@ test('xpath / css= / 裸 CSS / nth / 文本过滤', () => {
     textIs: undefined,
     nth: undefined,
   });
-  assert.deepEqual(parseSelector('.a:text-is("x")').textIs, 'x');
+  const exactText = parseSelector('.a:text-is("x")');
+  assert.equal(exactText.kind, 'selector');
+  if (exactText.kind === 'selector') assert.equal(exactText.textIs, 'x');
 });
 
 test('非法选择器报 BAD_SELECTOR 不猜', () => {

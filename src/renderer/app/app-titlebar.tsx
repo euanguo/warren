@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, type CSSProperties, type MouseEvent } from 'react';
+import { useLayoutEffect, useRef, type MouseEvent } from 'react';
 import { ActionTooltip } from '@/components/action-tooltip';
-import { Icon, isIconName } from '@/components/icons';
+import { Icon } from '@/components/icons';
+import { EnvIdentityAvatar, PluginBrandGlyph } from '@/components/identity-glyphs';
 import { Button, IconButton } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { StatusDot } from '@/components/ui/status-dot';
@@ -8,10 +9,7 @@ import { EnvironmentSpaceSwitcher } from '@/features/environments/environment-sp
 import { EnvironmentTabstrip } from '@/features/environments/environment-tabstrip';
 import { egressLabel } from '@/features/environments/sidebar-env-row';
 import { openEnvironmentContextMenu } from '@/features/environments/sidebar-menus';
-import { getEnvIdentity } from '@/lib/env-identity';
-import { statusTone } from '@/lib/labels';
-import { getPluginBrand } from '@/lib/plugin-brand';
-import type { PluginEnvAction, PluginRailPage } from '@/lib/plugin-runtime';
+import type { PluginEnvAction, PluginRailPage } from '@/lib/plugin-sdk-types';
 import { cn } from '@/lib/utils';
 import type { SettingsSection, StageRoute } from '@/state/navigation-store';
 import type { Environment, Group, NativeMenuItem, SpaceId, TabRef, TabState } from '@shared/types';
@@ -238,8 +236,6 @@ export function AppTitlebar({
               route === 'pluginPage' &&
               activePluginPage?.pluginId === page.pluginId &&
               activePluginPage?.id === page.id;
-            const brand = getPluginBrand(page.pluginId, page.icon);
-            const iconName = isIconName(brand.icon) ? brand.icon : 'Plug';
             return (
               <Button
                 key={`${page.pluginId}:${page.id}`}
@@ -253,11 +249,7 @@ export function AppTitlebar({
                   active ? 'font-medium text-foreground' : 'text-subtle-foreground hover:text-foreground',
                 )}
               >
-                <Icon
-                  name={iconName}
-                  style={{ '--brand-hue': brand.hue } as CSSProperties}
-                  className={cn('plugin-brand-icon', !active && 'opacity-80')}
-                />
+                <PluginBrandGlyph pluginId={page.pluginId} icon={page.icon} className={cn(!active && 'opacity-80')} />
                 <span>{page.title}</span>
               </Button>
             );
@@ -305,36 +297,28 @@ export function AppTitlebar({
         </ActionTooltip>
 
         {environment ? (
-          (() => {
-            const identity = getEnvIdentity(environment.id, environment.name);
-            return (
-              <button
-                type="button"
-                data-slot="env-capsule"
-                onClick={openCurrentEnvMenu}
-                onContextMenu={openCurrentEnvMenu}
-                title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击管理环境`}
-                className="flex h-[var(--control-height-icon)] max-w-[232px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/65 bg-surface-elevated px-2 text-xs [box-shadow:var(--shadow-chip)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
-              >
-                <span
-                  aria-hidden
-                  style={{ '--env-hue': identity.hue } as CSSProperties}
-                  className="env-identity-chip relative mr-1 flex size-[18px] shrink-0 items-center justify-center rounded-[5px] text-[length:var(--font-size-micro)] font-semibold"
-                >
-                  {identity.initial}
-                  <StatusDot
-                    tone={environment.error ? 'error' : statusTone(environment.status)}
-                    className="absolute -right-0.5 -bottom-0.5 size-1.5 ring-1 ring-surface-elevated"
-                  />
-                </span>
-                <span className="truncate font-medium text-foreground">{environment.name}</span>
-                <span className="truncate font-mono text-[length:var(--font-size-micro)] text-muted-foreground">
-                  {environment.error ? '加载失败' : egressLabel(environment.proxy)}
-                </span>
-                <Icon name="ChevronDown" className="size-3 shrink-0 text-subtle-foreground" />
-              </button>
-            );
-          })()
+          <button
+            type="button"
+            data-slot="env-capsule"
+            onClick={openCurrentEnvMenu}
+            onContextMenu={openCurrentEnvMenu}
+            title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击管理环境`}
+            className="flex h-[var(--control-height-icon)] max-w-[232px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/65 bg-surface-elevated px-2 text-xs [box-shadow:var(--shadow-chip)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
+          >
+            <EnvIdentityAvatar
+              envId={environment.id}
+              name={environment.name}
+              status={environment.status}
+              hasError={Boolean(environment.error)}
+              size="xs"
+              className="mr-1"
+            />
+            <span className="truncate font-medium text-foreground">{environment.name}</span>
+            <span className="truncate font-mono text-[length:var(--font-size-micro)] text-muted-foreground">
+              {environment.error ? '加载失败' : egressLabel(environment.proxy)}
+            </span>
+            <Icon name="ChevronDown" className="size-3 shrink-0 text-subtle-foreground" />
+          </button>
         ) : (
           <span data-slot="env-capsule" className="px-1.5 text-xs text-muted-foreground">
             未选择环境

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Session } from 'electron';
+import { redactUrl } from '../src/main/browser/redact.ts';
 import { createEnvironmentConfig, toEnvironment } from '../src/main/domain/environment.ts';
 import { LeaseCoordinator, type ShieldLike, type TabManagerLike } from '../src/main/env/lease-coordinator.ts';
-import { EnvLifecycle, redactBusUrl, type EnvironmentSpaces } from '../src/main/env/lifecycle.ts';
+import { EnvLifecycle, type EnvironmentSpaces } from '../src/main/env/lifecycle.ts';
 import type { RunningSnapshot, RememberedTab } from '../src/main/store.ts';
 import type { Tab, TabManager } from '../src/main/tabs.ts';
 import type {
@@ -356,7 +357,7 @@ function makeFakeStore(configs: EnvironmentConfig[], snapshot: RunningSnapshot =
     get runningState() {
       return runningSnapshot;
     },
-    async create(input: {
+    create(input: {
       id: string;
       name?: string;
       proxy?: string;
@@ -368,11 +369,11 @@ function makeFakeStore(configs: EnvironmentConfig[], snapshot: RunningSnapshot =
       byId.set(cfg.id, cfg);
       return toEnvironment(cfg);
     },
-    async remove(id: string) {
+    remove(id: string) {
       byId.delete(id);
       tabs.delete(id);
     },
-    async update(id: string, patch: { name?: string }) {
+    update(id: string, patch: { name?: string }) {
       const prev = byId.get(id)!;
       const next = { ...prev, ...(patch.name ? { name: patch.name } : {}) };
       byId.set(id, next);
@@ -395,6 +396,7 @@ function makeFakeStore(configs: EnvironmentConfig[], snapshot: RunningSnapshot =
     },
     record(event: EventRecord) {
       events.push(event);
+      return event;
     },
   };
 }
@@ -474,6 +476,7 @@ test('EnvLifecycle：start / LRU 回收 / hibernate / wake / sweepIdle / stop', 
   const clearedLeases: string[] = [];
   const detachedNet: string[] = [];
   const detachedTelemetry: string[] = [];
+  const clearedTelemetry: string[] = [];
   const createdTabs = new Map<string, ReturnType<typeof makeLifecycleTabManager>>();
   let netBusyId: string | undefined;
 
@@ -503,6 +506,9 @@ test('EnvLifecycle：start / LRU 回收 / hibernate / wake / sweepIdle / stop', 
     },
     detachTelemetry: (id) => {
       detachedTelemetry.push(id);
+    },
+    clearTelemetry: (id) => {
+      clearedTelemetry.push(id);
     },
     isNetBusy: (id) => netBusyId === id,
     createSpaceManager: (id, space) => {
@@ -595,14 +601,16 @@ test('EnvLifecycle：start / LRU 回收 / hibernate / wake / sweepIdle / stop', 
   assert.ok(clearedLeases.includes('c'));
   assert.ok(detachedNet.includes('c'));
   assert.ok(detachedTelemetry.includes('c'));
+  assert.deepEqual(clearedTelemetry, [] as string[], 'stop 与 hibernate 必须保留遥测历史');
 
   // create / update / remove 也由 EnvLifecycle 协调
-  const createdD = await lifecycle.create({ id: 'd', name: 'Delta', createdBy: 'agent' });
+  const createdD = lifecycle.create({ id: 'd', name: 'Delta', createdBy: 'agent' });
   assert.equal(createdD.id, 'd');
   const updatedD = await lifecycle.update('d', { name: 'Delta-2' });
   assert.equal(updatedD.name, 'Delta-2');
   await lifecycle.remove('d');
   assert.ok(droppedNet.includes('d'));
+  assert.ok(clearedTelemetry.includes('d'), '仅 remove(id) 清理遥测历史');
   assert.ok(clearedStorage.includes('d'));
   assert.ok(clearedSelected.includes('d'));
   assert.ok(removedDirs.includes('/tmp/warren-test-d'));
@@ -612,16 +620,16 @@ test('EnvLifecycle：start / LRU 回收 / hibernate / wake / sweepIdle / stop', 
 });
 
 test('redactBusUrl：脱敏 URL 密码与敏感 query 参数且保留普通参数', () => {
-  assert.equal(redactBusUrl('warren://newtab/?env=alpha'), 'warren://newtab/?env=alpha');
+  assert.equal(redactUrl('warren://newtab/?env=alpha'), 'warren://newtab/?env=alpha');
   assert.equal(
-    redactBusUrl('https://example.test/callback?token=sec-123&tab=1'),
+    redactUrl('https://example.test/callback?token=sec-123&tab=1'),
     'https://example.test/callback?token=%5BREDACTED%5D&tab=1',
   );
   assert.equal(
-    redactBusUrl('https://alice:topsecret@example.test/path'),
+    redactUrl('https://alice:topsecret@example.test/path'),
     'https://alice:%5BREDACTED%5D@example.test/path',
   );
-  assert.equal(redactBusUrl('not a url'), 'not a url');
+  assert.equal(redactUrl('not a url'), 'not a url');
 });
 
 test('EnvLifecycle：EnvironmentSpaces 与 shared/types 扩充导出正确', () => {

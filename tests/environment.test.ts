@@ -99,7 +99,13 @@ test('renewLease 拒绝别人的 leaseId 与已过期的 lease', () => {
 const now = 10_000;
 
 test('diagnoseLease：没 lease → never_leased', () => {
-  const denial = diagnoseLease({ environmentId: 'alpha', lease: undefined, providedLeaseId: undefined, now });
+  const denial = diagnoseLease({
+    environmentId: 'alpha',
+    lease: undefined,
+    providedLeaseId: undefined,
+    space: 'agent',
+    now,
+  });
   assert.equal(denial?.reason, 'never_leased');
   assert.equal(denial?.code, 'ENV_NOT_LEASED', '错误码保持不变');
   assert.match(denial!.message, /warren env acquire alpha/, '消息里要带下一步命令');
@@ -110,6 +116,7 @@ test('diagnoseLease：到期 → expired，带 expiredAt', () => {
     environmentId: 'alpha',
     lease: { leaseId: 'lease-1', owner: 'agent', space: 'agent', expiresAt: 9_000 },
     providedLeaseId: 'lease-1',
+    space: 'agent',
     now,
   });
   assert.equal(denial?.reason, 'expired');
@@ -123,6 +130,7 @@ test('diagnoseLease：leaseId 对不上且 owner 还是 agent → superseded', (
     environmentId: 'alpha',
     lease: { leaseId: 'lease-2', owner: 'agent', space: 'agent', expiresAt: 99_000 },
     providedLeaseId: 'lease-1',
+    space: 'agent',
     now,
   });
   assert.equal(denial?.reason, 'superseded');
@@ -134,6 +142,7 @@ test('diagnoseLease：leaseId 对不上且 owner 是人 → user_takeover', () =
     environmentId: 'alpha',
     lease: { leaseId: 'lease-2', owner: 'human', space: 'agent', expiresAt: 99_000 },
     providedLeaseId: 'lease-1',
+    space: 'agent',
     now,
   });
   assert.equal(denial?.reason, 'user_takeover');

@@ -4,13 +4,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {
-  computeUnifiedLineDiff,
-  decodePngRgba,
-  diffScreenshots,
-  diffSnapshots,
-  encodePngRgba,
-} from '../src/main/browser/ops/diff.ts';
+import { computeUnifiedLineDiff, diffScreenshots, diffSnapshots } from '../src/main/browser/ops/diff.ts';
+import { decodePngRgba, encodePngRgba } from '../src/main/browser/png-codec.ts';
 import { hasWriteSteps, parseBatchLines, summarizeNetworkDelta } from '../src/main/browser/ops/batch.ts';
 import {
   executeSavedFlow,

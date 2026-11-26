@@ -55,7 +55,7 @@ jobs:
         run: |
           nohup npm start < /dev/null > /tmp/warren.log 2>&1 &
           for i in $(seq 60); do
-            [ -S "$HOME/.warren/envd.sock" ] && exit 0
+            [ -S "$HOME/.warren/runtime/envd.sock" ] && exit 0
             sleep 2
           done
           echo "应用没起来"; tail -40 /tmp/warren.log; exit 1

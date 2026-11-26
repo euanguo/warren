@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 import { toast } from 'sonner';
 import { statusLabel } from '@/lib/labels';
-import type { PluginEnvAction } from '@/lib/plugin-runtime';
+import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
 import type { Environment, Group, NativeMenuItem } from '@shared/types';
 
 export interface EnvMenuActions {

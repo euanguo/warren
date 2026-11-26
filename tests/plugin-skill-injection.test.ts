@@ -4,9 +4,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { closeDatabases, openDatabase } from '../src/main/db.ts';
 import { validatePluginPackage } from '../src/main/plugins/package.ts';
-import { PluginHost } from '../src/main/plugins/host.ts';
+import { createTestPluginHost } from './helpers/plugin-host.ts';
 import {
   MAX_PLUGIN_SKILL_BYTES,
   SKILL_INJECT_BEGIN,
@@ -140,24 +139,7 @@ test('composeWarrenSkill + installSkill + refreshSkills 自动注入启用插件
   const home = path.join(root, 'home');
   const source = path.join(root, 'skills');
   const pluginSrc = path.join(root, 'plugin-src');
-  const db = openDatabase(path.join(root, 'warren.db'));
-
-  const host = new PluginHost({
-    root: path.join(root, 'plugins'),
-    manager: {} as never,
-    vault: {
-      available: false,
-      list: () => [],
-      add: () => ({ ref: '' }),
-      remove: () => true,
-      reveal: () => ({}),
-    } as never,
-    store: { record: () => undefined, appSettings: () => ({ controlPolicy: 'ask', pluginPolicy: 'ask' }) } as never,
-    db,
-    saveVault: async () => undefined,
-    appVersion: '0.1.0',
-    reconnectBaseMs: 0,
-  });
+  const { host, cleanup } = createTestPluginHost(root);
 
   try {
     await mkdir(home, { recursive: true });
@@ -250,8 +232,7 @@ test('composeWarrenSkill + installSkill + refreshSkills 自动注入启用插件
     assert.equal(preview.exposed, false);
     assert.match(preview.markdown, /测试技能插件手册/);
   } finally {
-    await host.dispose();
-    closeDatabases();
+    await cleanup();
     await rm(root, { recursive: true, force: true });
   }
 });

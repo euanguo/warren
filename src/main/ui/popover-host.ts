@@ -1,14 +1,20 @@
 import { BrowserWindow, screen, type WebContents } from 'electron';
 import path from 'node:path';
 import { computePopoverBounds, shouldFocusPopover, toLocalPopoverPoint } from './popover-layout.ts';
-import type { PopoverActionEvent, PopoverOpenOptions } from '../../shared/types.ts';
+import type {
+  PopoverActionEvent,
+  PopoverId,
+  PopoverOpenOptions,
+  PopoverState,
+  PopoverUpdateOptions,
+} from '../../shared/types.ts';
 
 export interface PopoverHostOptions {
   mainWindow: BrowserWindow;
   preloadPath: string;
   loadUrl: (surface: 'popover') => { devUrl?: string; filePath?: string };
   onAction: (event: PopoverActionEvent) => void;
-  onDismissed: (payload: { id: string; reason: string }) => void;
+  onDismissed: (payload: { id: PopoverId; reason: string }) => void;
 }
 
 interface Slot {
@@ -32,12 +38,15 @@ export class PopoverHost {
   #onDismissed: PopoverHostOptions['onDismissed'];
   #nonFocusable?: Slot;
   #focusable?: Slot;
-  #activeId: string | null = null;
+  #activeId: PopoverId | null = null;
   #activeSlot?: Slot;
   #currentOptions?: PopoverOpenOptions;
   #lastBounds?: { x: number; y: number; width: number; height: number };
   #hoverTimer?: ReturnType<typeof setInterval>;
   #suppressBlur = false;
+  #onMove = () => this.#repositionOrDismiss('move');
+  #onResize = () => this.close(undefined, 'resize');
+  #onHide = () => this.close(undefined, 'host');
 
   constructor(options: PopoverHostOptions) {
     this.#mainWindow = options.mainWindow;
@@ -46,9 +55,9 @@ export class PopoverHost {
     this.#onAction = options.onAction;
     this.#onDismissed = options.onDismissed;
 
-    this.#mainWindow.on('move', () => this.#repositionOrDismiss('move'));
-    this.#mainWindow.on('resize', () => this.close(undefined, 'resize'));
-    this.#mainWindow.on('hide', () => this.close(undefined, 'host'));
+    this.#mainWindow.on('move', this.#onMove);
+    this.#mainWindow.on('resize', this.#onResize);
+    this.#mainWindow.on('hide', this.#onHide);
   }
 
   /** 预热两个子窗，确保首次触发 0ms 弹出。 */
@@ -61,9 +70,9 @@ export class PopoverHost {
     return wc === this.#nonFocusable?.win.webContents || wc === this.#focusable?.win.webContents;
   }
 
-  currentState(): { id: string; props: Record<string, unknown> } | null {
+  currentState(): PopoverState | null {
     if (!this.#activeId || !this.#currentOptions) return null;
-    return { id: this.#activeId, props: this.#currentOptions.props ?? {} };
+    return { id: this.#currentOptions.id, props: this.#currentOptions.props } as PopoverState;
   }
 
   async open(options: PopoverOpenOptions): Promise<void> {
@@ -85,7 +94,7 @@ export class PopoverHost {
     const bounds = this.#calcBounds(options);
     this.#lastBounds = bounds;
     slot.win.setBounds(bounds);
-    slot.win.webContents.send('popover:state', { id: options.id, props: options.props ?? {} });
+    slot.win.webContents.send('popover:state', { id: options.id, props: options.props } as PopoverState);
     const shouldFocus = shouldFocusPopover(focusable, !this.#mainWindow.isDestroyed() && this.#mainWindow.isFocused());
     if (shouldFocus) {
       slot.win.show();
@@ -102,15 +111,16 @@ export class PopoverHost {
     }, 80);
   }
 
-  async update(id: string, patch: Partial<PopoverOpenOptions>): Promise<void> {
+  async update<K extends PopoverId>(id: K, patch: PopoverUpdateOptions<K>): Promise<void> {
     if (this.#activeId !== id || !this.#currentOptions || !this.#activeSlot) return;
     if (this.#activeSlot.win.isDestroyed()) return;
-    const next: PopoverOpenOptions = {
-      ...this.#currentOptions,
+    const current = this.#currentOptions as Extract<PopoverOpenOptions, { id: K }>;
+    const next = {
+      ...current,
       ...patch,
-      size: patch.size ? { ...this.#currentOptions.size, ...patch.size } : this.#currentOptions.size,
-      props: patch.props ? { ...this.#currentOptions.props, ...patch.props } : this.#currentOptions.props,
-    };
+      size: patch.size ? { ...current.size, ...patch.size } : current.size,
+      props: patch.props ? { ...current.props, ...patch.props } : current.props,
+    } as Extract<PopoverOpenOptions, { id: K }>;
     this.#currentOptions = next;
     if (patch.anchorRect || patch.size || patch.placement || patch.beyondWindow !== undefined) {
       const nextBounds = this.#calcBounds(next);
@@ -127,11 +137,11 @@ export class PopoverHost {
       }
     }
     if (patch.props) {
-      this.#activeSlot.win.webContents.send('popover:state', { id, props: next.props ?? {} });
+      this.#activeSlot.win.webContents.send('popover:state', { id: next.id, props: next.props } as PopoverState);
     }
   }
 
-  close(id?: string, reason = 'programmatic'): void {
+  close(id?: PopoverId, reason = 'programmatic'): void {
     if (!this.#activeId) return;
     if (id && id !== this.#activeId) return;
     this.#stopHoverBridge();
@@ -162,6 +172,14 @@ export class PopoverHost {
 
   destroy(): void {
     this.#stopHoverBridge();
+    if (!this.#mainWindow.isDestroyed()) {
+      this.#mainWindow.off('move', this.#onMove);
+      this.#mainWindow.off('resize', this.#onResize);
+      this.#mainWindow.off('hide', this.#onHide);
+    }
+    this.#activeId = null;
+    this.#activeSlot = undefined;
+    this.#currentOptions = undefined;
     for (const slot of [this.#nonFocusable, this.#focusable]) {
       if (slot && !slot.win.isDestroyed()) slot.win.destroy();
     }

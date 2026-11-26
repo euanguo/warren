@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Session } from 'electron';
 import type { X509Certificate } from 'node:crypto';
+import { clearDownloads } from '../browser/downloads.ts';
+import { clearCachedSnapshots } from '../browser/ops/diff.ts';
 import { EnvPending } from '../browser/pending.ts';
-import { isSensitiveKey } from '../browser/redact.ts';
 import {
   makeEvent,
   pickDormant,
@@ -37,27 +38,6 @@ function maxRunningFromEnv(): number {
   const raw = Number(process.env.WARREN_MAX_RUNNING);
   if (!Number.isFinite(raw) || raw < 0) return DEFAULT_MAX_RUNNING;
   return Math.floor(raw);
-}
-
-/** 清理事件总线 URL 中的明文密码与敏感 query 参数，严禁泄露凭据或会话令牌。 */
-export function redactBusUrl(raw: string): string {
-  try {
-    const parsed = new URL(raw);
-    let mutated = false;
-    if (parsed.password) {
-      parsed.password = '[REDACTED]';
-      mutated = true;
-    }
-    for (const [key] of [...parsed.searchParams]) {
-      if (isSensitiveKey(key)) {
-        parsed.searchParams.set(key, '[REDACTED]');
-        mutated = true;
-      }
-    }
-    return mutated ? parsed.toString() : raw;
-  } catch {
-    return raw;
-  }
 }
 
 /**
@@ -110,6 +90,7 @@ export interface LifecycleDeps {
     id: string,
     config: EnvironmentConfig,
   ) => { session: Session; trustedCa: X509Certificate | undefined };
+  syncSessionNetwork?: (id: string, config: EnvironmentConfig) => Promise<void>;
   clearStorageData: (id: string) => Promise<void>;
   dropNet: (id: string) => void;
   ensureDirectory?: (dir: string) => Promise<void>;
@@ -118,6 +99,7 @@ export interface LifecycleDeps {
   attachSessionTelemetry: (ses: Session) => void;
   detachNet: (id: string) => void;
   detachTelemetry: (id: string) => void;
+  clearTelemetry?: (id: string) => void;
   isNetBusy: (id: string) => boolean;
   createSpaceManager: (
     id: string,
@@ -171,6 +153,8 @@ export class EnvLifecycle {
   #waking = new Set<string>();
   /** hibernate 销毁标签时 onSpaceEmpty 不该把「休眠」改写成「主动停止」。 */
   #hibernating = new Set<string>();
+  #starting = new Map<string, Promise<Environment>>();
+  #epoch = new Map<string, number>();
   #maxRunning: number;
   #idleMs: number;
   #sweepTimer?: ReturnType<typeof setInterval>;
@@ -251,16 +235,16 @@ export class EnvLifecycle {
     this.#lastActive.set(id, this.#now());
   }
 
-  async create(input: {
+  create(input: {
     id: string;
     name?: string;
     proxy?: string;
     startUrl?: string;
     headed?: boolean;
     createdBy?: Creator;
-  }): Promise<Environment> {
+  }): Environment {
     const createdBy: Creator = input.createdBy ?? 'human';
-    const created = await this.#deps.store.create({ ...input, createdBy });
+    const created = this.#deps.store.create({ ...input, createdBy });
     this.#deps.store.record(
       makeEvent('environment.created', `environment ${created.id} created`, createdBy, created.id),
     );
@@ -268,15 +252,25 @@ export class EnvLifecycle {
     return this.#deps.decorate(created);
   }
 
+  #bumpEpoch(id: string): number {
+    const next = (this.#epoch.get(id) ?? 0) + 1;
+    this.#epoch.set(id, next);
+    return next;
+  }
+
   async remove(id: string): Promise<void> {
+    this.#bumpEpoch(id);
     const config = this.#deps.store.configFor(id);
     this.stop(id);
     this.#dormant.delete(id);
     this.#deps.clearSelectedIf(id);
     this.#deps.dropNet(id);
+    this.#deps.clearTelemetry?.(id);
+    clearDownloads(id);
+    clearCachedSnapshots(id);
     this.#tabSnapshot.delete(id);
     await this.#deps.clearStorageData(id);
-    await this.#deps.store.remove(id);
+    this.#deps.store.remove(id);
     if (config) {
       try {
         if (this.#deps.removeDirectory) await this.#deps.removeDirectory(config.storagePath);
@@ -297,7 +291,8 @@ export class EnvLifecycle {
   }
 
   async update(id: string, patch: EnvironmentPatch): Promise<Environment> {
-    const updated = await this.#deps.store.update(id, patch);
+    const updated = this.#deps.store.update(id, patch);
+    await this.#deps.syncSessionNetwork?.(id, updated);
     this.#deps.store.record(makeEvent('environment.updated', `environment ${id} updated`, 'human', id));
     this.#deps.onChange();
     return this.#deps.decorate(updated);
@@ -315,30 +310,59 @@ export class EnvLifecycle {
   }
 
   async start(id: string): Promise<Environment> {
+    const inflight = this.#starting.get(id);
+    if (inflight) return inflight;
+    const task = this.#startImpl(id).finally(() => {
+      if (this.#starting.get(id) === task) this.#starting.delete(id);
+    });
+    this.#starting.set(id, task);
+    return task;
+  }
+
+  async #startImpl(id: string): Promise<Environment> {
     const config = this.#deps.store.configFor(id);
     if (!config) throw Object.assign(new Error(`unknown environment ${id}`), { code: 'ENV_NOT_FOUND' });
     if (this.#spaces.has(id)) return this.#deps.decorate(toEnvironment(config));
+    const epoch = this.#epoch.get(id) ?? 0;
+    const aborted = (): boolean => (this.#epoch.get(id) ?? 0) !== epoch || !this.#deps.store.configFor(id);
     this.#dormant.delete(id);
 
     this.evictFor(id);
     if (this.#deps.ensureDirectory) await this.#deps.ensureDirectory(config.storagePath);
     else await mkdir(config.storagePath, { recursive: true });
+    if (aborted()) return this.#handleAbortedStart(id, config);
+
     const { session, trustedCa } = await this.#deps.prepareSession(id, config);
+    if (aborted()) return this.#handleAbortedStart(id, config);
     if (this.#spaces.has(id)) return this.#deps.decorate(toEnvironment(config));
 
     const first = this.#materialize(id, config, session, trustedCa);
     if (first) await (this.#deps.waitForInitialLoad ?? waitForLoad)(first, 30_000);
+    if (aborted()) {
+      const partial = this.#spaces.get(id);
+      if (partial) this.#teardownSpaces(id, partial, { hibernating: false });
+      return this.#handleAbortedStart(id, config);
+    }
 
+    const latestConfig = this.#deps.store.configFor(id);
+    if (!latestConfig) throw Object.assign(new Error(`unknown environment ${id}`), { code: 'ENV_NOT_FOUND' });
     this.#deps.store.record(makeEvent('environment.started', `environment ${id} started`, 'human', id));
     this.#deps.emitBusEvent('env.status', id, { status: 'running', reason: 'start' });
     // headed=false：起了但不把人正在看的页面切走（批量拉起环境时界面不该被刷来刷去）
-    if (config.headed) this.#deps.selectEnv(id);
+    if (latestConfig.headed) this.#deps.selectEnv(id);
     this.rememberRunning();
     this.#deps.onChange();
-    return this.#deps.decorate(toEnvironment(config));
+    return this.#deps.decorate(toEnvironment(latestConfig));
+  }
+
+  #handleAbortedStart(id: string, fallbackConfig: EnvironmentConfig): Environment {
+    const latest = this.#deps.store.configFor(id);
+    if (!latest) throw Object.assign(new Error(`unknown environment ${id}`), { code: 'ENV_NOT_FOUND' });
+    return this.#deps.decorate(toEnvironment(latest ?? fallbackConfig));
   }
 
   stop(id: string, reason = 'stop'): void {
+    this.#bumpEpoch(id);
     const wasDormant = this.#dormant.delete(id);
     const spaces = this.#spaces.get(id);
     if (!spaces) {
@@ -371,6 +395,7 @@ export class EnvLifecycle {
     if (!spaces || this.#dormant.has(id)) return false;
     if (this.#deps.getSelectedId() === id) return false;
     if (this.#deps.hasLiveLease(id)) return false;
+    this.#bumpEpoch(id);
 
     this.#teardownSpaces(id, spaces, { hibernating: true });
 

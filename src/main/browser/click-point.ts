@@ -10,7 +10,9 @@
  * 几何算法为纯函数，可零依赖单测。
  */
 import type { PageContext } from './ctx.ts';
-import { err, evalOnNode, nodeIdFor } from './page-helpers.ts';
+import { RELATION_CHECK_JS } from './dom-scripts.ts';
+import { richErr } from './errors.ts';
+import { evalOnNode, nodeIdFor } from './page-helpers.ts';
 
 export interface Point2D {
   x: number;
@@ -127,7 +129,7 @@ export async function localQuadClickPoint(
     }
   }
   if (!best) {
-    throw err('NOT_ACTIONABLE', '元素没有布局盒（display:none 或零尺寸）');
+    throw richErr('NOT_ACTIONABLE', '元素没有布局盒（display:none 或零尺寸）');
   }
   const xs = [best[0]!, best[2]!, best[4]!, best[6]!];
   const ys = [best[1]!, best[3]!, best[5]!, best[7]!];
@@ -184,46 +186,6 @@ export async function hitTestLocation(
     .catch(() => null);
   return res;
 }
-
-/**
- * 校验命中节点是否等价于目标、位于目标内部，或是能激活目标的关联 `<label>`
- * （同时拒绝被路径上内嵌 `<a>` / `<button>` 截胡的假 `<label>` 点击）。
- */
-export const RELATION_CHECK_JS = `(target, hit) => {
-  if (!target || !hit) return false;
-  if (target === hit) return true;
-  const safeTag = (el) => {
-    try { return Object.getOwnPropertyDescriptor(Element.prototype, 'tagName').get.call(el).toLowerCase(); }
-    catch { return ''; }
-  };
-  const parentOf = (n) => n.assignedSlot || n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
-
-  // 1) hit 是否为 target 的后代（穿透 Shadow DOM / Slot）
-  let cur = hit;
-  while (cur) {
-    if (cur === target) return true;
-    cur = parentOf(cur);
-  }
-  // 2) target 是否为 hit 的后代（例如点到了包裹 target 的透明触发层）——仅在 hit 是 <label> 时放行
-  cur = hit;
-  let hitLabel = null;
-  const interactiveBetween = new Set(['a', 'button', 'input', 'select', 'textarea', 'summary']);
-  while (cur && cur.nodeType === 1) {
-    const tag = safeTag(cur);
-    if (tag === 'label') {
-      hitLabel = cur;
-      break;
-    }
-    if (cur !== target && interactiveBetween.has(tag)) {
-      return false;
-    }
-    cur = parentOf(cur);
-  }
-  if (hitLabel && hitLabel.control === target) return true;
-  // 反向：target 本身就是 <label>，hit 是它关联的控件
-  if (safeTag(target) === 'label' && target.control === hit) return true;
-  return false;
-}`;
 
 /** 用 CDP `Runtime.callFunctionOn` 比较两个 `backendNodeId` 是否构成合法点击归属关系。 */
 export async function isHitAcceptable(

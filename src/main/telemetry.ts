@@ -161,7 +161,8 @@ export class Telemetry {
     return this.#lastNavError.get(tabId) ?? null;
   }
 
-  clear(envId: string): void {
+  /** 仅清理内存中的在途/tab 临时映射，保留数据库里的遥测历史供停机/休眠后排查。 */
+  forgetEnv(envId: string): void {
     for (const tabId of this.#envTabs.get(envId) ?? []) {
       this.#lastActivity.delete(tabId);
       this.#inFlight.delete(tabId);
@@ -169,13 +170,18 @@ export class Telemetry {
       this.#counts.delete(tabId);
       this.#tabToEnv.delete(tabId);
     }
+    this.#envTabs.delete(envId);
+  }
+
+  /** 删除环境时彻底清空内存与 SQLite 遥测历史。 */
+  clear(envId: string): void {
+    this.forgetEnv(envId);
     try {
       this.#db.prepare('DELETE FROM console_entries WHERE env_id = ?').run(envId);
       this.#db.prepare('DELETE FROM network_entries WHERE env_id = ?').run(envId);
     } catch {
       // 遥测永远不能影响页面本身
     }
-    this.#envTabs.delete(envId);
   }
 
   attachSession(session: Session): void {

@@ -7,7 +7,7 @@ import type { PluginHost } from './plugins/host';
 import type { Store } from './store';
 import type { VaultStore } from './vault/store';
 import type { LeaseDenialReason, RpcErrorDetails, RpcRequest, RpcResponse } from '../shared/types';
-import { dispatchRpc, RpcError, type DispatchDeps } from './rpc-dispatch.ts';
+import { dispatchRpc, RpcError, type DispatchDeps } from './rpc/registry.ts';
 import { resolveErrorDetails } from './browser/ops/remedy.ts';
 import { warrenPaths } from './paths.ts';
 
@@ -51,16 +51,26 @@ export class RpcServer {
 
     this.#server = createServer((socket) => {
       let buffer = '';
-      socket.on('data', async (chunk) => {
-        buffer += chunk.toString('utf8');
+      let chain = Promise.resolve();
+      const drain = () => {
+        const lines: string[] = [];
         let index: number;
         while ((index = buffer.indexOf('\n')) >= 0) {
           const line = buffer.slice(0, index);
           buffer = buffer.slice(index + 1);
-          if (!line.trim()) continue;
-          const response = await this.#handle(line);
-          socket.write(JSON.stringify(response) + '\n');
+          if (line.trim()) lines.push(line);
         }
+        if (lines.length === 0) return;
+        chain = chain.then(async () => {
+          for (const line of lines) {
+            const response = await this.#handle(line);
+            if (!socket.destroyed) socket.write(JSON.stringify(response) + '\n');
+          }
+        });
+      };
+      socket.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        drain();
       });
       socket.on('error', () => socket.destroy());
     });

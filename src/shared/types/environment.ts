@@ -1,9 +1,4 @@
-import type { ViewportPresetId } from './browser.ts';
-import type { ApprovalMode, Creator } from './settings.ts';
-
-export type EnvironmentStatus = 'stopped' | 'starting' | 'running' | 'dormant' | 'error';
-export type ControlOwner = 'none' | 'agent' | 'human';
-export type SpaceId = 'person' | 'agent';
+import type { ApprovalMode, ControlOwner, Creator, EnvironmentStatus, SpaceId, ViewportPresetId } from './common.ts';
 
 /**
  * 一个标签的运行态。

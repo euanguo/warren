@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
-import { Icon, isIconName, type IconName } from '@/components/icons';
-import { Button } from '@/components/ui/button';
+import { PluginBrandGlyph } from '@/components/identity-glyphs';
+import { Icon, type IconName } from '@/components/icons';
+import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PluginsPanel } from '@/features/plugins/plugins-panel';
@@ -11,8 +12,7 @@ import { ApprovalPanel } from '@/features/settings/approval-panel';
 import { BrowserPanel } from '@/features/settings/browser-panel';
 import { DiagnosticsPanel } from '@/features/settings/diagnostics-panel';
 import { GeneralPanel } from '@/features/settings/general-panel';
-import { getPluginBrand } from '@/lib/plugin-brand';
-import type { PluginSettingsSection } from '@/lib/plugin-runtime';
+import type { PluginSettingsSection } from '@/lib/plugin-sdk-types';
 import { setSettingsQuery, useNavigationState, type SettingsSection } from '@/state/navigation-store';
 import type { Environment, InstalledPlugin } from '@shared/types';
 
@@ -20,15 +20,22 @@ export type { SettingsSection };
 
 const SECTION_TRIGGER_CLASS = 'h-auto! flex-none justify-start gap-2 px-2.5 py-1.5 text-left';
 
+interface SectionRenderContext {
+  onChanged: () => void;
+  plugins: InstalledPlugin[];
+  pluginErrors: Array<{ pluginId: string; message: string }>;
+  environments: Environment[];
+}
+
 interface SectionDescriptor {
   id: SettingsSection;
   group: '界面与浏览' | '自动化与安全' | '扩展与维护';
   title: string;
   subtitle: string;
   icon: IconName;
-  brandHue?: number;
   keywords: string;
   pluginSection?: PluginSettingsSection;
+  render: (ctx: SectionRenderContext) => ReactNode;
 }
 
 const BUILTIN_SECTIONS: SectionDescriptor[] = [
@@ -39,6 +46,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     subtitle: '切换深浅主题、调整顶栏密度与页面圆角、管理数据根目录。',
     icon: 'Sliders',
     keywords: '通用 外观 主题 深色 浅色 跟随系统 紧凑 顶栏 圆角 数据目录 theme dark light system compact warren_home',
+    render: () => <GeneralPanel />,
   },
   {
     id: 'browser',
@@ -47,6 +55,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     subtitle: '设置开发者工具默认停靠方式、默认视口、并发与休眠阈值以及按域偏好。',
     icon: 'Code',
     keywords: '浏览器 devtools 开发者工具 停靠 右侧 底部 独立 视口 缩放 并发 休眠 按域 历史 dock viewport maxrunning',
+    render: () => <BrowserPanel />,
   },
   {
     id: 'agent',
@@ -55,6 +64,12 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     subtitle: '配置控制权审批门控、Lease 租约时长、页面防误触提示与内置 Skill 安装。',
     icon: 'Robot',
     keywords: 'agent 审批 控制权 租约 lease ttl 胶囊 skill claude codex opencode cli',
+    render: ({ environments }) => (
+      <div className="flex flex-col gap-5">
+        <ApprovalPanel environments={environments} />
+        <AgentPanel />
+      </div>
+    ),
   },
   {
     id: 'vault',
@@ -63,6 +78,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     subtitle: '使用系统 Keychain 安全录入或移除凭据，审视无明文回流机制。',
     icon: 'Key',
     keywords: '凭据 vault key keychain 代理 密码 token 安全 边界',
+    render: () => <VaultPanel />,
   },
   {
     id: 'plugins',
@@ -71,6 +87,9 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     subtitle: '安装、启停、重载插件，批准 confirm 权限矩阵，检索插件子进程日志。',
     icon: 'Plug',
     keywords: '插件 管理 权限 日志 安装 vm host sandbox plugin',
+    render: ({ onChanged, plugins, pluginErrors }) => (
+      <PluginsPanel onChanged={onChanged} plugins={plugins} pluginErrors={pluginErrors} />
+    ),
   },
   {
     id: 'diagnostics',
@@ -79,6 +98,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     subtitle: '执行全局健康自检（Doctor）、导出脱敏报告、查看运行时与数据目录。',
     icon: 'Activity',
     keywords: '诊断 自检 doctor 关于 版本 sqlite wal rpc socket 清理 报告',
+    render: () => <DiagnosticsPanel />,
   },
 ];
 
@@ -122,21 +142,24 @@ export function SettingsPage({
   }, [settingsQuery, onClose]);
 
   const allSections = useMemo<SectionDescriptor[]>(() => {
-    const dynamic: SectionDescriptor[] = pluginSections.map((pluginSection) => {
-      const brand = getPluginBrand(pluginSection.pluginId, pluginSection.icon);
-      return {
-        id: `plugin:${pluginSection.pluginId}:${pluginSection.id}`,
-        group: '扩展与维护',
-        title: pluginSection.title,
-        subtitle: pluginSection.description || `扩展「${pluginSection.pluginId}」专属配置`,
-        icon: isIconName(brand.icon) ? brand.icon : 'Plug',
-        brandHue: brand.hue,
-        keywords: `${pluginSection.pluginId} ${pluginSection.title} ${pluginSection.description ?? ''} 插件 扩展`,
-        pluginSection,
-      };
-    });
+    const dynamic: SectionDescriptor[] = pluginSections.map((pluginSection) => ({
+      id: `plugin:${pluginSection.pluginId}:${pluginSection.id}`,
+      group: '扩展与维护',
+      title: pluginSection.title,
+      subtitle: pluginSection.description || `扩展「${pluginSection.pluginId}」专属配置`,
+      icon: 'Plug',
+      keywords: `${pluginSection.pluginId} ${pluginSection.title} ${pluginSection.description ?? ''} 插件 扩展`,
+      pluginSection,
+      render: () => (
+        <PluginSurfaceHost
+          pluginId={pluginSection.pluginId}
+          title={pluginSection.title}
+          Component={pluginSection.component}
+          props={{ pluginId: pluginSection.pluginId }}
+        />
+      ),
+    }));
     const list = [...BUILTIN_SECTIONS];
-    // 把动态插件分节紧挨着「插件管理」插进「扩展」组
     const idx = list.findIndex((item) => item.id === 'plugins');
     list.splice(idx + 1, 0, ...dynamic);
     return list;
@@ -159,6 +182,7 @@ export function SettingsPage({
     : (filteredSections[0]?.id ?? section);
 
   const activeDescriptor = allSections.find((item) => item.id === effectiveSection);
+  const renderCtx: SectionRenderContext = { onChanged, plugins, pluginErrors, environments };
 
   return (
     <div data-slot="settings-page" className="flex h-full min-h-0 flex-col bg-background">
@@ -181,20 +205,20 @@ export function SettingsPage({
                 onChange={(event) => setSettingsQuery(event.target.value)}
                 placeholder="搜索设置…"
                 aria-label="搜索设置"
-                className="h-7 pr-7 pl-8 text-xs"
+                className="pr-7 pl-8 text-xs"
               />
               {settingsQuery && (
-                <button
-                  type="button"
+                <IconButton
+                  variant="ghost"
                   aria-label="清空搜索"
                   onClick={() => {
                     setSettingsQuery('');
                     searchRef.current?.focus();
                   }}
-                  className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute top-1/2 right-1 -translate-y-1/2"
                 >
                   <Icon name="X" className="size-3.5" />
-                </button>
+                </IconButton>
               )}
             </div>
             {settingsQuery.trim() && (
@@ -217,17 +241,11 @@ export function SettingsPage({
                       data-settings-section={item.id}
                       className={SECTION_TRIGGER_CLASS}
                     >
-                      <Icon
-                        name={item.icon}
-                        style={
-                          item.brandHue !== undefined ? ({ '--brand-hue': item.brandHue } as CSSProperties) : undefined
-                        }
-                        className={
-                          item.brandHue !== undefined
-                            ? 'plugin-brand-icon size-3.5 shrink-0'
-                            : 'size-3.5 shrink-0 opacity-80'
-                        }
-                      />
+                      {item.pluginSection ? (
+                        <PluginBrandGlyph pluginId={item.pluginSection.pluginId} icon={item.pluginSection.icon} />
+                      ) : (
+                        <Icon name={item.icon} className="size-3.5 shrink-0 opacity-80" />
+                      )}
                       <span className="truncate">{item.title}</span>
                     </TabsTrigger>
                   ))}
@@ -262,38 +280,9 @@ export function SettingsPage({
                 </div>
               )}
 
-              <TabsContent value="general">
-                <GeneralPanel />
-              </TabsContent>
-              <TabsContent value="browser">
-                <BrowserPanel />
-              </TabsContent>
-              <TabsContent value="agent">
-                <div className="flex flex-col gap-5">
-                  <ApprovalPanel environments={environments} />
-                  <AgentPanel />
-                </div>
-              </TabsContent>
-              <TabsContent value="vault">
-                <VaultPanel />
-              </TabsContent>
-              <TabsContent value="plugins">
-                <PluginsPanel onChanged={onChanged} plugins={plugins} pluginErrors={pluginErrors} />
-              </TabsContent>
-              <TabsContent value="diagnostics">
-                <DiagnosticsPanel />
-              </TabsContent>
-              {pluginSections.map((pluginSection) => (
-                <TabsContent
-                  key={`${pluginSection.pluginId}:${pluginSection.id}`}
-                  value={`plugin:${pluginSection.pluginId}:${pluginSection.id}`}
-                >
-                  <PluginSurfaceHost
-                    pluginId={pluginSection.pluginId}
-                    title={pluginSection.title}
-                    Component={pluginSection.component}
-                    props={{ pluginId: pluginSection.pluginId }}
-                  />
+              {allSections.map((item) => (
+                <TabsContent key={item.id} value={item.id}>
+                  {item.render(renderCtx)}
                 </TabsContent>
               ))}
             </div>

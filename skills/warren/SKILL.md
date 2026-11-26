@@ -1,123 +1,43 @@
 ---
 name: warren
-description: Operate a browser through Warren's isolated Person and Agent spaces — navigate, inspect accessibility snapshots, click, fill, and debug sites with independent profiles and proxies. Use when a task needs a real browser session, a local site exercised end to end, or background browser automation that must not steal focus.
+description: Operate Warren's isolated Person and Agent browser spaces to inspect accessibility snapshots, interact with SPAs, capture telemetry, or debug sites with per-environment proxies and credentials. Use when a task needs a persistent browser session, logged-in state, real rendering, or background UI automation; skip for stateless HTTP requests better served by curl or API unit tests.
 ---
 
 # Warren
 
-Warren 是本地隔离浏览器工作台。一个 **Environment** 是一套独立浏览器存储
-（Cookie / localStorage / 登录态）+ 独立代理出口。Environment 内部有两个 **Space**：
+Warren 是本地隔离浏览器工作台。每个 **Environment** 拥有独立存储（Cookie、localStorage、登录态）、代理出口与两个共享身份但独立 Tab 集合的 **Space**：
 
-- **Person Space**：人的工作区，永远由人控制，不需要 lease。
-- **Agent Space**：Agent 的工作区，写操作使用独立 lease。
+- **Person Space**：人的工作区，永久由人控制，无需 lease。
+- **Agent Space**：Agent 的工作区，写操作使用独立 lease。两者共用浏览会话且互不阻塞。
 
-两个 Space 共用同一个 Environment 的登录态、Cookie 和代理，但各自有独立的 Tab 集合和控制权。
-Agent 默认只操作 **Agent Space**。
+## 核心规则与边界
 
-人可以在 Agent 操作 Agent Space 的同时继续使用 Person Space，不会互斥。
-人要查看或接管 Agent 的 Tab 时，会切到 Agent Space 并取得 `owner=human` 的控制权；
-这时 Agent 的写操作会被拒绝。
+1. **显式寻址**：始终传 `<env>`。界面选中环境不等于拥有写权限（部分 `browser`/`notes` 命令可用 `WARREN_ENV` 缺省指定，多环境并发时仍显式传参）。
+2. **仅操作 Agent Space**：只在 Agent Space 建 Tab 与读写页面。`--space=person` 与 `env takeover` 属于人工诊断入口，非用户明确要求不得调用。
+3. **写操作持锁与冲突退让**：所有页面改动要求 Agent Space 有效 lease（`warren exec` 省略 `--lease` 时会自动获取并在结束后释放，长任务用 `warren env renew` 续期）。当人从界面接管并触发 `CONTROL_REVOKED` 或 `ENV_BUSY` 时，停止写入，向用户确认或使用 `--wait=5000` 等待交还，禁止强抢。
+4. **后台静默运行**：Warren 可关闭到托盘并在后台执行点击、键入与可见视口截图（CDP 拿不到 surface 时自动回退 `capturePage()`）。禁止调用 `open -a Warren`、`debug.focusWindow`、`app.focus` 或要求人切前台；仅 `fullPage`/`clip` 截图受后台 surface 可用性限制，失败时如实上报。
+5. **CLI 环境即权威字典**：用 `warren help` 查全部命令与参数，用 `warren exec --capabilities` 查脚本 API，用 `warren methods` 查全部 RPC。不要凭记忆臆测未记录子命令或方法名。
 
-## 开场
+## 起步与高效观察
 
 ```bash
 warren env list
+warren env create dev --start-url=http://localhost:3000
 warren env start <env>
-warren env acquire <env>       # 取 Agent Space 写权限；返回 leaseId
-warren tab list <env>          # 默认列 Agent Space；--space=person 才列人的空间
-warren browser snapshot <env> -i   # 极简交互元素树（大幅降低 Token 并注入 # site-notes）
+warren env acquire <env>
+warren tab list <env>
+warren browser open <env> https://example.com --read
+warren browser snapshot <env> -i -u
+warren browser read <env> --outline --links --data --content-boundaries
 ```
 
-Agent 第一次操作某个环境时，如果 Agent Space 还没有 Tab，Warren 会懒建一个，
-优先从 Person Space 当前 URL 复制入口。不要先切到 Person Space 再操作。
+- **结构优先**：`browser snapshot <env> -i -u` 返回极简缩进交互树、链接 URL，并在命中域名时自动注入 `# site-notes`；`page.snapshot()` 返回结构对象 `{ url, title, nodes }`（截断须先 `JSON.stringify()`）。
+- **不可信输出安全**：`snapshot` 与 `read` 默认做终端转义净化并按 `--max-output=12000` 裁剪溢出至 `~/.warren/tmp/`；读取第三方网页正文时保留 `--content-boundaries` 随机 nonce 边界。`@N` ref 仅对当前快照有效。
+- **短横线值传递**：值以 `-` 开头时用 POSIX `--` 隔开（如 `warren browser fill <env> @2 -- "--dashed-value"`）。仅在确实需要排版或视觉验证时调用 `warren browser screenshot <env> --annotate`。
 
-## 必须遵守
+## 多步批处理与复用流
 
-1. **每次调用都带 env**。没有隐藏的“当前环境”；列表选中不等于有写权限。
-2. **不要操作 Person Space**。除非用户明确要求人工工作区的诊断操作，否则不要使用
-   `--space=person` 新建、切换或关闭 Tab。
-3. **写操作要 Agent Space lease**。人接管 Agent Space 后，你的下一次写会得到
-   `CONTROL_REVOKED` 或新的 acquire 得到 `ENV_BUSY`。这时停下来问人，或
-   `warren env acquire <env> --wait=5000` 等人交还。
-4. **不要抢前台**。Warren 可以关闭到托盘、离屏运行；后台点击、键盘和表单输入已经被支持。
-   不要调用 `debug.focusWindow`、`app.focus`，也不要要求用户先把窗口切到前台。
-5. **一次调用跑一整段脚本**。`warren exec` 是主要入口：
-
-```bash
-warren exec <env> --lease=<id> <<'JS'
-await page.goto('http://localhost:3000');
-console.log(await page.title());
-await page.click('button:has-text("登录")');
-console.log(await page.snapshot());
-JS
-```
-
-`--lease` 可以省略：省略时 CLI 会为 Agent Space 自动 acquire 并在脚本结束后释放。
-
-## exec 里有什么
-
-VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`、`emitResult`。
-**没有 fs、`require`、`process` 或任何模块加载器**——落盘、算哈希、拼文件一律由调用方在宿主侧做；
-脚本只用 `emitResult(payload)` 把结构化结果交回去（宿主按 `__CONSOLE_E2E_RESULT__` 前缀取）。
-
-`page` 是 Playwright 形状的子集，不是完整 Playwright：
-
-- 导航与等待：`goto` `reload` `goBack` `goForward` `waitFor` `waitForURL` `waitForSelector` `waitForFunction`
-  `waitForLoadState` `waitForTimeout` `waitForEvent`
-- 动作：`click` `dblclick` `hover` `dragAndDrop` `dropFiles` `fill` `selectOption` `check` `uncheck`
-  `scrollIntoView` `scroll` `focus` `press` `setInputFiles` `waitForFileChooser`
-- 观察与诊断：`snapshot` `read` `get` `is` `diff` `screenshot` `info` `url` `title` `console` `network`
-  `events` `highlight` `vitals` `a11y` `react` `webmcpList` `webmcpCall` `pdf`
-- 仿真与 Frame：`set` `frames` `selectFrame`
-- 弹框与下载：`acceptDialog` `dismissDialog` `setDialogPolicy` `downloadSaveAs` `downloadCancel` `downloadStatus`
-- 定位器：`locator` `getByRole` `getByText` `getByLabel`
-- 逃生舱：`evaluate` `fetch` `cdp` `clearDataForOrigin`
-- 坐标与键盘：`mouse` `keyboard`
-- 标签、笔记与只读 Flow：`tabs` `newTab` `selectTab` `closeTab` `reopenTab` `notesGet` `notesAppend` `runFlow`
-
-没有 `context()` / `expect()` / `route()` / `setViewportSize()`。
-
-不要去猜还有没有别的方法：跑 `warren exec --capabilities`，它打印 `globals` / `page` / `locator` /
-`mouse` / `keyboard` 的方法名，由代码反射生成，不会和实现漂移。
-
-`snapshot` 返回的是**结构对象**（`url` + `title` + `nodes` 数组），不是字符串。
-`console.log(await page.snapshot())` 打印的是 JSON；要截断先 `JSON.stringify(...)`，不要直接 `.slice()`。
-
-## 看页面与读取：先 snapshot -i / read，高频联调走 batch
-
-`warren browser snapshot <env> -i` 输出极简可交互元素树（并在命中域名时注入 `# site-notes`），比默认 JSON 节省大量上下文；`page.snapshot()` 仍返回结构化 `{ url, title, nodes }`。
-
-常用高效命令：
-
-```bash
-warren browser snapshot <env> -i -u --filter="登录"   # 缩进交互树 + 链接 URL + 祖先保留过滤
-warren browser click <env> @1                         # 直接原子点击（支持 --new-tab / --humanize / --auto-dialog=accept）
-warren browser fill <env> @2 "alice" --submit         # 现代 SPA 智能填表并提交
-warren browser check <env> @3                         # 幂等勾选（不误反选；radio 拒绝 uncheck）
-warren browser select <env> @4 "Pro" --by=label       # 原生 <select> + ARIA combobox/listbox
-warren browser read <env> --outline --links --data    # 实时 Shadow DOM 正文、大纲、内嵌 JSON 与链接
-warren browser find <env> role button click --name=登录
-warren browser get <env> title
-warren browser is <env> visible @1
-warren browser diff <env> snapshot                    # 去 ref 行级统一 Diff
-warren browser screenshot <env> --annotate            # 带临时 @N 标注框的截图
-warren browser set <env> viewport 1280 800            # 设备/视口/暗色/地理/离线/时区仿真（reset 复位）
-warren browser vitals <env>                           # Core Web Vitals 性能指标
-warren browser a11y <env>                             # 结构化无障碍审计
-warren browser frame <env> list                       # 列出主文档与 OOPIF iframe
-warren browser webmcp <env> list                      # 探测页面 WebMCP 工具（untrusted）
-warren flow steps <env>                               # 从遥测抽取只读 GET API 候选
-warren flow list                                      # 列出已保存的只读参数化 Flow
-warren notes set example.com "后台菜单需要 hover 展开"
-warren notes get example.com
-warren methods                                        # 实时反射全部 RPC 方法目录
-warren --skill                                        # 打印内置最新 SKILL.md
-warren skills status                                  # 检查并校验本地 Skill SHA-256
-```
-
-安全输出控制：`snapshot` / `read` 默认启用终端转义净化与 `--max-output=12000` 裁剪（超限自动落盘到 `~/.warren/tmp/`，加 `--full` 输出全文）；处理不可信网页内容时可加 `--content-boundaries` 开启随机 nonce IDPI 边界隔离。
-
-多步常规探索可用 `warren batch <env> --bail` 一次下发并在事件驱动稳定后拿到自带 `@N` 的 Delta Receipt（URL/标题变化、按游标统计的新增网络请求摘要与增量交互节点）：
+- **常规多步连招**用 `warren batch <env> --bail` 一次下发并在稳定后直接返回附带新 `@N` 的 Delta Receipt；**复杂条件逻辑或循环探索**用 `warren exec <env>`：
 
 ```bash
 warren batch <env> --bail <<'EOF'
@@ -126,125 +46,67 @@ fill "#user" "alice"
 click "button:has-text(\"登录\")"
 snapshot -i
 EOF
+
+warren exec <env> --lease=<id> <<'JS'
+await page.goto('http://localhost:3000');
+const snap = await page.snapshot();
+emitResult({ url: snap.url, count: snap.nodes.length });
+JS
+warren exec --capabilities
 ```
 
-`screenshot()` 只在确实需要视觉判断时使用。
+- **高频排查与复用**：环境异常跑 `warren env doctor <env>`；页面报错看 `warren browser console <env>` 与 `warren browser network <env>`（扩展只支持解包目录，React Hook 可用 `evaluate` 读取）；高频 GET 接口可经 `flow` 固化复跑，跨回合站点坑用 `notes` 沉淀。
 
-`@N` ref 只属于当前那份快照；导航、重拍或页面重渲染后，旧 ref 会失效。
+## exec 里有什么
 
-## 截图边界
+VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`、`emitResult`。**没有 `fs`、`require`、`process` 或网络模块**。
 
-`browser.screenshot` / `page.screenshot()` 在 Warren 后台运行时直接可用，不会激活窗口。
-它先用 CDP 取可见视口；CDP 拿不到 surface 时，可见视口默认回退到 Electron `capturePage()`。
+- `page` 与 `locator`、`mouse`、`keyboard` 提供 Playwright 子集操控，实时能力清单以 `warren exec --capabilities` 为准。
+- `snapshot` 返回 `{ url, title, nodes }` 结构对象而非字符串（截断须先 `JSON.stringify`）；结构化输出用 `emitResult` 传回宿主。
 
-- 优先改用 `snapshot()`。
-- 不要执行 `open -a Warren`、`osascript ... activate`、`debug.focusWindow`、`app.focus` 或 `wc.focus()`。
-- `fullPage` / `clip` 依赖 CDP；后台 surface 不可用时这两类请求仍可能失败，错误要如实上报。
+没有 `context()`、`expect()`、`route()` 或 `setViewportSize()`。
 
-## 地址栏历史
-
-桌面端地址栏有一份**跨 Environment 共用**的 URL 历史，存在同一个 SQLite 数据库里。
-聚焦地址栏会显示最近访问，输入后按 URL 子串联想，支持方向键、Enter、Esc 和鼠标选择。
-它是 UI 辅助，不是 Agent API；自动化仍用 `page.goto()`。
-
-## 填密码
+## 凭据与隐私红线
 
 ```bash
 warren vault fill <ref> --env=<env> --field=password --target='{"kind":"label","text":"密码"}'
 warren browser detect-login <env>
 ```
 
-值从 Vault 直接进入页面字段，不返回明文。
-`storage.cookie.read` / `storage.cookie.write` 永久不可用。
+- Vault 密文直入表单字段，不返回明文；`storage.cookie.read` / `write` 永久禁用（仅受控 `storage.cookie.port` 允许元数据搬运）。
+- 若启用账号管理类插件（见下方已启用插件索引），按需读取对应插件 Skill 后使用受控填充；**Agent 通道绝不读取或导出密码/TOTP 明文，未绑定域名的空域名账号也会被白名单拦截（`PATH_DENIED`）**。
 
-若当前环境启用了账号管理类插件（如 `com.warren.accounts`），请查看下方「已启用插件 Skill」索引按需读取其完整手册；**agent 通道永远不得获取或导出密码/TOTP 明文**。
+## 会改变行为分支的错误码
 
-## 错误码
+仅列非自明或改变决策路径的错误；其余目标/超时错误见命令自带 `提示/建议` 与 `warren help`：
 
-| 错误码 | 意思 | 下一步 |
+| 错误码 | 原因 | 正确处理 |
 |---|---|---|
-| `TARGET_AMBIGUOUS` | 匹配到多个 | 换更具体的选择器，或使用刚拍出的 `@N` |
-| `TARGET_NOT_FOUND` | 没有出现 | 先 `snapshot()`；动作默认会等 5 秒 |
-| `NOT_ACTIONABLE` | 不可见 / 在动 / disabled | 等页面稳定，或修正页面状态 |
-| `TARGET_OCCLUDED` | 被页面元素挡住 | 错误消息里带挡路元素 |
-| `NODE_DETACHED` | 节点被替换 | 重新 snapshot |
-| `TIMEOUT` | 重试超时 | 错误里带每次尝试的原因 |
-| `ENV_NOT_VISIBLE` | 当前页面视图被界面浮层或插件页让开 | 关掉浮层或切回环境页面；单纯“Agent 在后台”不应该再报这个错 |
-| `TAB_NOT_VISIBLE` | 输入目标不是当前激活 Tab | 先用 `tab select <env> <序号|tabId>` |
-| `CONTROL_REVOKED` | lease 失效或人接管了 | 停下问人，或重新 acquire |
-| `ENV_BUSY` | 另一个主体持有 Agent Space | 用 `--wait` 等人交还，不要强抢 |
-| `DIALOG_OPEN` | 有弹框没处理 | 用 `acceptDialog` / `dismissDialog` |
-| `CDP_BLOCKED` | 用了白名单外的 CDP 域 | 换 `page.evaluate` |
-| `SCREENSHOT_REQUIRES_FOCUS` | 旧版后台截图门禁；当前版本不应再出现 | 升级 Warren；不要切前台绕过 |
+| `TARGET_STALE` | 导航或重绘导致 `@N` 失效 | 重新 `browser snapshot <env> -i` 取新 `@N` |
+| `TARGET_AMBIGUOUS` / `TARGET_OCCLUDED` | 命中多元素，或被页面遮罩挡住 | 加 `>> nth=N` / 换具体 `@N`，或先关闭遮挡浮层 |
+| `TARGET_NOT_FILLABLE` | 目标不是可输入或可选控件 | 用 `detect-login` 或 `snapshot -i` 重新定位真实控件 |
+| `CONTROL_REVOKED` / `ENV_BUSY` | 人接管了环境或他人持锁 | 停止写入询问人，或 `acquire --wait` |
+| `SPACE_FORBIDDEN` | Agent 请求或越权操作 `Person Space` | 去掉 `space: "person"`，仅操作 Agent Space |
+| `PATH_DENIED` | 路径越界（系统/数据目录），或凭据域名不在白名单 | 传安全绝对路径；核对站点域与账号允许域名 |
+| `ENV_NOT_VISIBLE` | 主窗切到设置/插件全屏页或开着浮层让出了视图 | 关闭浮层或切回环境页（非后台运行问题） |
+| `DIALOG_OPEN` | 页面存在未处理的原生弹窗 | 先 `browser dialog <env> accept` 或 `dismiss` |
+| `CDP_BLOCKED` / `UNSUPPORTED_PAGE_API` | 超出干净 CDP 白名单或调用了不支持的 `page` 方法 | 改用 `page.evaluate` 或检查 `warren exec --capabilities` |
 
-`WINDOW_NOT_FOCUSED` 已删除。后台输入通过 CDP 焦点仿真完成，不要按旧行为加前台守卫。
-
-## Person / Agent 的 CLI 边界
-
-Agent 的 `exec`、`browser.*`、`net.*` 和默认 `tab.*` 都作用于 Agent Space。
-
-以下命令是人工诊断能力，不要主动使用：
-
-```bash
-warren tab list <env> --space=person
-warren tab new <env> --space=person <url>
-warren tab close <env> --space=person <序号|tabId>
-warren env takeover <env>      # 模拟人接管 Agent Space
-```
-
-Person Space 的 Tab 操作不需要 lease，但“技术上能调用”不等于 Agent 应该去动它。
-
-## 联调本地站点
-
-```bash
-warren env create dev --start-url=http://localhost:3000
-warren env start dev
-warren env acquire dev
-warren exec dev --lease=<id> <<'JS'
-await page.goto('http://localhost:3000');
-console.log(await page.console());
-console.log(await page.network());
-console.log(await page.snapshot());
-JS
-```
-
-页面报错先看 `warren browser console <env>`；接口问题先看
-`warren browser network <env>`。
-
-## Chrome 扩展
-
-```bash
-warren extension add <env> <解包目录> [--name=<目录名>]
-warren extension list <env>
-```
-
-只接受解包目录；Electron 不支持 `.crx`。内容脚本能运行，DevTools 面板装不上，
-但 React DevTools 的 hook 仍可通过 `page.evaluate` 读取。
-
-## 插件与插件 Skill 自动注入
-
-插件是独立 npm 包，使用 `package.json#warren`，`apiVersion` 只接受 `"4"`。启用的插件如果声明了 `warren.skill`（或贡献了命令），Warren 会在插件启停、更新时**自动把它们的 Skill 索引注入到下方区块**，并把完整手册落盘到同目录 `plugins/<pluginId>/SKILL.md`：
+## 插件与自动注入索引
 
 ```bash
 warren plugin list
-warren plugin commands
-warren plugin install path:<目录>
-warren plugin install npm:<包名>[@版本]
-warren plugin install git:<仓库>#<ref>
-warren plugin update <id>
-warren plugin status <id>
-warren skills plugin <id>          # 实时读取指定插件的完整 Skill 手册
-warren --skill --full              # 一次性输出含全部已启用插件 Skill 的完整版
+warren plugin run <id> <command> --env=<env> --input='{"k":1}'
+warren plugin rpc <id> <method> --input='{"k":1}'
+warren skills plugin <id>
+warren skills refresh
+warren help
+warren methods
+warren --skill --full
 ```
 
-插件的安装、启停和权限变更会影响界面与运行时会话；只做用户要求的操作。
-
-### 已启用插件 Skill（自动同步）
+插件通过 `package.json#warren`（`apiVersion: "4"`）接入。仅在用户需要对应插件能力时安装或变更权限；启用插件的触发场景与手册路径会自动维护在下方围栏内：
 
 <!-- warren:enabled-plugins:begin -->
 当前为静态基线模板；运行 `warren --skill` 或同步本地 Skill（`warren skills refresh`）后，本区会自动列出全部已启用插件的触发场景与完整手册路径。
 <!-- warren:enabled-plugins:end -->
-
-## 命令清单
-
-`warren help` 是命令的权威来源。本文件只记录会影响决策的当前约定。
