@@ -46,7 +46,20 @@ import {
   validateRulesText,
 } from './presets.mjs';
 import { checkRootCa, checkW2, combine } from './preflight.mjs';
-import { agentApiFor, agentApiRequirements } from './agent-api.mjs';
+import { agentApiFor, agentApiRequirements, isAgentApiVersion, resolveAgentMethod } from './agent-api.mjs';
+import {
+  buildCurlCommand,
+  buildFaultRuleLine,
+  buildMapLocalRuleLine,
+  buildQuickMockPlan,
+  computeTimings,
+  CONTROLLED_GROUPS,
+  diffResponses,
+  extractMatchedRules,
+  matchRulesForUrl,
+  MOCK_VALUE_PREFIX,
+  upsertManagedRuleLine,
+} from './intents.mjs';
 
 const INSTANCES_KEY = 'instances';
 const DEFAULT_PORT_BASE = 8900;
@@ -62,6 +75,14 @@ function fail(code, message) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function notifyChanged(host, action, extra = {}) {
+  if (host?.signal && typeof host.signal.publish === 'function') {
+    try {
+      await host.signal.publish('changed', { action, ...extra });
+    } catch {}
+  }
+}
 
 // ── 实例表（插件的 kv） ───────────────────────────────────────────────
 
@@ -550,11 +571,11 @@ function normalizeTrafficEntry(id, item, input = {}) {
   return {
     source: 'whistle-live',
     entryId: String(id),
-    startTime: item && item.startTime,
-    endTime: item && item.endTime,
-    url: item && item.url,
+    startTime: item && item.startTime != null ? item.startTime : null,
+    endTime: item && item.endTime != null ? item.endTime : null,
+    url: item && item.url != null ? String(item.url) : '',
     method: req.method ?? null,
-    status: res.statusCode ?? null,
+    status: res.statusCode != null ? Number(res.statusCode) : null,
     requestHeaders,
     responseHeaders,
     requestBody: redact ? redactJson(reqDecoded.body) : reqDecoded.body,
@@ -568,20 +589,22 @@ function normalizeTrafficEntry(id, item, input = {}) {
     // A source item is either a raw Whistle record or an already-normalized
     // traffic entry. Keep both shapes usable so export can consume the same
     // data without re-fetching.
-    requestBodyEncoding: reqDecoded.encoding || item.requestBodyEncoding,
-    responseBodyEncoding: resDecoded.encoding || item.responseBodyEncoding,
-    requestBodyTruncated: reqDecoded.truncated || item.requestBodyTruncated,
-    responseBodyTruncated: resDecoded.truncated || item.responseBodyTruncated,
-    requestSize: req.size ?? item.requestSize,
-    responseSize: res.size ?? item.responseSize,
+    requestBodyEncoding: reqDecoded.encoding || item.requestBodyEncoding || null,
+    responseBodyEncoding: resDecoded.encoding || item.responseBodyEncoding || null,
+    requestBodyTruncated: Boolean(reqDecoded.truncated || item.requestBodyTruncated),
+    responseBodyTruncated: Boolean(resDecoded.truncated || item.responseBodyTruncated),
+    requestSize: req.size ?? item.requestSize ?? null,
+    responseSize: res.size ?? item.responseSize ?? null,
     requestId: requestIdOf(req, res, resDecoded.body),
     rules: item && item.rules ? item.rules : {},
     rulesHeaders: item && item.rulesHeaders ? item.rulesHeaders : {},
+    matchedRules: extractMatchedRules(item && item.rules),
+    timings: computeTimings(item),
     timing: {
-      dnsTime: item && item.dnsTime,
-      requestTime: item && item.requestTime,
-      responseTime: item && item.responseTime,
-      endTime: item && item.endTime,
+      dnsTime: item && item.dnsTime != null ? item.dnsTime : null,
+      requestTime: item && item.requestTime != null ? item.requestTime : null,
+      responseTime: item && item.responseTime != null ? item.responseTime : null,
+      endTime: item && item.endTime != null ? item.endTime : null,
     },
   };
 }
@@ -614,9 +637,108 @@ function selectTraffic(rows, input = {}) {
   return entries;
 }
 
+function hasServerSessionFilters(input) {
+  if (!input || typeof input !== 'object') return false;
+  return Boolean(
+    input.type ||
+    input.subUrl ||
+    input.statusCode !== undefined ||
+    input.reqHeader ||
+    input.resHeader ||
+    input.startId !== undefined ||
+    input.latest !== undefined,
+  );
+}
+
+function hasLegacyGetDataCursor(input) {
+  if (!input || typeof input !== 'object') return false;
+  return Boolean(input.ids || input.statusQuery || input.lastRowId != null || input.dumpCount != null);
+}
+
+function buildSessionApiOptions(input = {}) {
+  const opts = {};
+  if (input.type) opts.type = String(input.type);
+  if (input.subUrl) opts.subUrl = String(input.subUrl);
+  else if (typeof input.url === 'string' && input.url.trim()) opts.subUrl = input.url.trim();
+  else if (Array.isArray(input.urls) && input.urls.length === 1) opts.subUrl = String(input.urls[0]);
+  const method = input.method ?? input.methods;
+  if (method) opts.method = method;
+  const statusCode = input.statusCode ?? input.statuses ?? input.status;
+  if (statusCode !== undefined) opts.statusCode = statusCode;
+  if (input.reqHeader && typeof input.reqHeader === 'object') {
+    opts.reqHeader = {
+      ...input.reqHeader,
+      name: String(input.reqHeader.name || input.reqHeader.key || '').toLowerCase(),
+    };
+  }
+  if (input.resHeader && typeof input.resHeader === 'object') {
+    opts.resHeader = {
+      ...input.resHeader,
+      name: String(input.resHeader.name || input.resHeader.key || '').toLowerCase(),
+    };
+  }
+  if (input.startId !== undefined) opts.startId = input.startId;
+  if (input.startTime != null) opts.startTime = Number(input.startTime);
+  if (input.since != null && opts.startTime == null) opts.startTime = Number(input.since);
+  if (input.latest !== undefined) opts.latest = Boolean(input.latest);
+  else if (opts.startId === undefined && opts.startTime === undefined) opts.latest = true;
+  if (input.count != null) opts.count = Number(input.count);
+  return opts;
+}
+
+async function tryGetSessionsViaAgentApi(host, registered, status, input) {
+  if (!isAgentApiVersion(status?.version) || hasLegacyGetDataCursor(input)) return null;
+  try {
+    const settings = await host.settings.get();
+    const pid = await instancePid(registered, settings);
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    const live = requireLiveAgentInstance(registered, status, pid);
+    const w2 = await resolveW2(host);
+    const api = agentApiFor(live, w2);
+    const sessions = await api.network.getSessions(buildSessionApiOptions(input));
+    return Array.isArray(sessions) ? sessions : null;
+  } catch (error) {
+    if (hasServerSessionFilters(input) && error?.code === 'WHISTLE_API_LOAD_FAILED') {
+      return null;
+    }
+    return null;
+  }
+}
+
 async function traffic(host, input) {
   const instance = await requireInstance(host, input && input.storage);
-  if (!(await statusOf(instance.port))) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
+  const status = await statusOf(instance.port);
+  if (!status) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
+  const apiSessions = await tryGetSessionsViaAgentApi(host, instance, status, input);
+  if (apiSessions) {
+    const rows = Object.fromEntries(apiSessions.map((item, idx) => [String(item.id || idx), item]));
+    const entries = selectTraffic(rows, input);
+    const lastEntryId = entries.length ? entries[entries.length - 1].entryId : null;
+    const ids = entries.map((item) => item.entryId);
+    return {
+      source: 'whistle-live',
+      filterMode: 'server-sessions',
+      storage: instance.storage,
+      port: instance.port,
+      capturedAt: new Date().toISOString(),
+      cursor: {
+        newIds: ids.slice(0, 200),
+        newIdsTotal: ids.length,
+        lastId: lastEntryId,
+        endId: lastEntryId,
+      },
+      next: {
+        endId: lastEntryId,
+        lastId: lastEntryId,
+      },
+      summary: {
+        total: entries.length,
+        methods: [...new Set(entries.map((item) => item.method).filter(Boolean))],
+        statuses: [...new Set(entries.map((item) => item.status).filter((item) => item != null))],
+      },
+      entries,
+    };
+  }
   const params = new URLSearchParams();
   if (input && input.ids) params.set('ids', [].concat(input.ids).join(','));
   if (input && input.statusQuery) params.set('status', [].concat(input.statusQuery).join(','));
@@ -637,8 +759,8 @@ async function traffic(host, input) {
     cursor: {
       newIds: (data.data?.newIds || []).slice(0, 200),
       newIdsTotal: (data.data?.newIds || []).length,
-      lastId: data.data?.lastId,
-      endId: data.data?.endId,
+      lastId: data.data?.lastId ?? null,
+      endId: data.data?.endId ?? null,
     },
     next: {
       endId: data.data?.endId ?? null,
@@ -655,7 +777,16 @@ async function traffic(host, input) {
 
 async function trafficSessionObjects(host, input) {
   const instance = await requireInstance(host, input && input.storage);
-  if (!(await statusOf(instance.port))) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
+  const status = await statusOf(instance.port);
+  if (!status) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
+  const apiSessions = await tryGetSessionsViaAgentApi(host, instance, status, input);
+  if (apiSessions) {
+    return apiSessions.map((item, idx) => ({
+      ...item,
+      id: String(item.id || idx),
+      raw: { req: item.req || {}, res: item.res || {} },
+    }));
+  }
   const params = new URLSearchParams();
   if (input && input.ids) params.set('ids', [].concat(input.ids).join(','));
   if (input && input.startTime != null) params.set('startTime', String(input.startTime));
@@ -747,14 +878,17 @@ async function compose(host, input) {
   if (!(await statusOf(instance.port))) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
   const url = String((input && input.url) || '').trim();
   if (!/^https?:\/\//i.test(url)) fail('BAD_REQUEST', 'compose 需要 http(s) url');
+  const rawBody = input && input.data != null ? input.data : input && input.body != null ? input.body : '';
   const body = {
     url,
     method: String((input && input.method) || 'GET').toUpperCase(),
     headers: input && input.headers ? input.headers : {},
-    body: input && input.data != null ? String(input.data) : '',
+    body: typeof rawBody === 'object' && rawBody !== null ? JSON.stringify(rawBody) : String(rawBody),
     needResponse: true,
     useH2: Boolean(input && input.useH2),
     enableProxyRules: input?.enableProxyRules !== false,
+    ...(input && input.rules ? { rules: String(input.rules) } : {}),
+    ...(input && Number(input.times) > 1 ? { repeatCount: Math.round(Number(input.times)) } : {}),
   };
   if (input && input.base64) {
     body.body = input.base64;
@@ -897,19 +1031,22 @@ async function agent(host, input) {
       methods: agentApiRequirements().methods,
     };
   }
-  const [group, action] = method.split('.');
-  if (!api[group] || typeof api[group][action] !== 'function') {
+  const resolved = resolveAgentMethod(method);
+  if (!resolved || !api[resolved.group] || typeof api[resolved.group][resolved.action] !== 'function') {
     fail('WHISTLE_AGENT_METHOD_UNKNOWN', `未知官方 Agent API 方法 ${method}`);
   }
-  const result = await api[group][action](...args);
+  const result = await api[resolved.group][resolved.action](...args);
   const includeValues = input && input.includeValues === true;
   return {
     storage: instance.storage,
     port: instance.port,
-    method,
+    method: resolved.canonical,
+    requestedMethod: method,
     result:
       !includeValues && Array.isArray(result)
-        ? result.map((item) => (group === 'rules' && item && typeof item === 'object' ? { ...item, value: '' } : item))
+        ? result.map((item) =>
+            resolved.group === 'rules' && item && typeof item === 'object' ? { ...item, value: '' } : item,
+          )
         : result,
   };
 }
@@ -1259,6 +1396,7 @@ async function forkInstance(host, input) {
   };
   await writeInstances(host, [...instances, instance]);
   await host.log.info(`实例 ${storage} 起在 ${port}（HTTPS 解密、多选规则已打开）`);
+  await notifyChanged(host, 'fork', { storage, port });
   return {
     ...(await listInstances(host)),
     created: { storage, port, allowMultipleChoice: true },
@@ -1300,6 +1438,7 @@ async function startInstance(host, input) {
   await enableHttpsCapture(instance.port);
   await enableMultipleChoice(instance.port);
   await host.log.info(`实例 ${instance.storage} 已在原端口 ${instance.port} 重新拉起`);
+  await notifyChanged(host, 'start', { storage: instance.storage, port: instance.port });
   return {
     ...(await listInstances(host)),
     started: {
@@ -1328,6 +1467,7 @@ async function stopInstance(host, input) {
     );
   }
   await host.log.info(`实例 ${instance.storage} 已停`);
+  await notifyChanged(host, 'stop', { storage: instance.storage });
   return listInstances(host);
 }
 
@@ -1339,6 +1479,7 @@ async function removeInstance(host, input) {
     host,
     instances.filter((item) => item.storage !== instance.storage),
   );
+  await notifyChanged(host, 'remove', { storage: instance.storage });
   // 只从登记表里摘掉：whistle 的规则文件还在磁盘上（想真删就自己去 WHISTLE_PATH 里删）
   return listInstances(host);
 }
@@ -1381,6 +1522,7 @@ async function setRule(host, input) {
     if (previous) await upsertRule(instance.port, name, previous.data);
     fail('RULE_ENABLE_UNCONFIRMED', `规则 ${name} 启用后回读失败（selected=${Boolean(activated?.selected)}）`);
   }
+  await notifyChanged(host, 'ruleSet', { storage: instance.storage, name });
   // 规则的事实来源是 whistle 自己（`rules/list`），插件不另存一份
   return {
     ...(await readRulesView(instance.port)),
@@ -1422,6 +1564,7 @@ async function toggleRule(host, input) {
   if (Boolean(after.selected) !== enabled) {
     fail('RULE_TOGGLE_UNCONFIRMED', `切换 ${name} 后 selected=${after.selected}，期望 ${enabled}`);
   }
+  await notifyChanged(host, 'ruleToggle', { storage: instance.storage, name, enabled });
   return {
     ...(await readRulesView(instance.port)),
     verified: true,
@@ -1433,7 +1576,9 @@ async function toggleRule(host, input) {
 
 async function removeRule(host, input) {
   const instance = await requireInstance(host, input && input.storage);
-  await postForm(instance.port, '/cgi-bin/rules/remove', { name: String((input && input.name) || RULE_NAME) });
+  const name = String((input && input.name) || RULE_NAME);
+  await postForm(instance.port, '/cgi-bin/rules/remove', { name });
+  await notifyChanged(host, 'ruleRemove', { storage: instance.storage, name });
   return { ...(await readRulesView(instance.port)), storage: instance.storage, port: instance.port };
 }
 
@@ -1683,6 +1828,11 @@ async function applyPreset(host, input) {
       'INSERT INTO whistle_profile_history (instance_storage, event, preset_id, revision, hash, detail_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [instance.storage, 'apply.ok', preset.id, preset.revision, composed.hash, '{}', now],
     );
+    await notifyChanged(host, 'presetApply', {
+      storage: instance.storage,
+      presetId: preset.id,
+      revision: preset.revision,
+    });
     return {
       storage: instance.storage,
       presetId: preset.id,
@@ -1745,6 +1895,7 @@ async function getProfile(host, input) {
 async function clearProfile(host, input) {
   const instance = await requireInstance(host, input && input.storage);
   await host.storage.sql.run('DELETE FROM whistle_profiles WHERE instance_storage = ?', [instance.storage]);
+  await notifyChanged(host, 'profileClear', { storage: instance.storage });
   return { storage: instance.storage, cleared: true };
 }
 
@@ -1773,6 +1924,7 @@ async function savePreset(host, input) {
     'INSERT INTO whistle_preset_revisions (preset_id, revision, definition_json, definition_hash, created_at) VALUES (?, ?, ?, ?, ?)',
     [definition.id, revision, normalized, sha256(normalized), now],
   );
+  await notifyChanged(host, 'presetSave', { presetId: definition.id, revision });
   return { presetId: definition.id, revision, hash: sha256(normalized) };
 }
 
@@ -1783,25 +1935,28 @@ async function deletePreset(host, input) {
   if (!rows.length) fail('PRESET_NOT_FOUND', `没有预设 ${id}`);
   await host.storage.sql.run('DELETE FROM whistle_preset_revisions WHERE preset_id = ?', [id]);
   await host.storage.sql.run('DELETE FROM whistle_presets WHERE id = ?', [id]);
+  await notifyChanged(host, 'presetDelete', { presetId: id });
   return { presetId: id, deleted: true };
 }
 
-async function importPreset(_host, input) {
+async function importPreset(host, input) {
   const text = String((input && input.text) || '');
   if (!text.trim() && !(input && input.storage && input.name)) fail('BAD_REQUEST', 'presetImport 需要 text');
   let importedText = text;
   if (input && input.storage && input.name && !text.trim()) {
-    const instance = await requireInstance(_host, input.storage);
+    const instance = await requireInstance(host, input.storage);
     const current = await readRule(instance.port, String(input.name));
     if (!current) fail('RULE_NOT_FOUND', `没有规则组 ${input.name}`);
     importedText = current.data;
   }
-  return importRulesText(importedText, {
+  const imported = importRulesText(importedText, {
     id: input && input.id,
     name: (input && input.title) || (input && input.name),
     category: input && input.category,
     description: input && input.description,
   });
+  await notifyChanged(host, 'presetImport', { id: imported.draft?.id });
+  return imported;
 }
 
 async function exportPreset(host, input) {
@@ -1818,6 +1973,470 @@ async function ruleDiff(host, input) {
   const name = String((input && input.name) || RULE_NAME);
   const current = await readRule(instance.port, name);
   return diffRules(current?.data ?? '', String((input && input.rules) || ''));
+}
+
+// ── Values CRUD / 诊断 / 意图 / 重放 ───────────────────────────────────
+
+async function requireRunningInstance(host, input) {
+  const instance = await requireInstance(host, input && input.storage);
+  const status = await statusOf(instance.port);
+  if (!status) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
+  return { instance, status };
+}
+
+async function writeValueRaw(port, name, value) {
+  const result = await callJson(port, '/cgi-bin/values/add', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, value }),
+  });
+  if (result.ec !== 0) fail('WHISTLE_VALUE_WRITE_FAILED', `写 Value ${name} 失败：${JSON.stringify(result)}`);
+}
+
+async function valueList(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const res = await call(instance.port, '/cgi-bin/values/list');
+  if (!res.ok) fail('WHISTLE_HTTP_ERROR', `/cgi-bin/values/list HTTP ${res.status}`);
+  const data = await res.json();
+  const query = String((input && input.query) || '')
+    .trim()
+    .toLowerCase();
+  const includeValues = input?.includeValues === true;
+  const list = (Array.isArray(data.list) ? data.list : [])
+    .filter((item) => item && typeof item.name === 'string' && !isGroupRuleName(item.name))
+    .filter((item) => !query || item.name.toLowerCase().includes(query))
+    .map((item) => {
+      const text = String(item.data ?? '');
+      return {
+        name: item.name,
+        size: Buffer.byteLength(text, 'utf8'),
+        ...(includeValues ? { value: text } : { preview: text.slice(0, 120) }),
+      };
+    });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    total: list.length,
+    includeValues,
+    values: list,
+  };
+}
+
+async function valueGet(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const name = String((input && input.name) || '').trim();
+  if (!name) fail('BAD_REQUEST', 'valueGet 需要 name');
+  const res = await call(instance.port, `/cgi-bin/values/value?key=${encodeURIComponent(name)}`);
+  if (!res.ok) fail('WHISTLE_HTTP_ERROR', `/cgi-bin/values/value HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.value === undefined) fail('VALUE_NOT_FOUND', `没有 Value ${name}`);
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    name,
+    value: String(data.value),
+  };
+}
+
+async function valueSet(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const name = String((input && input.name) || '').trim();
+  if (!name) fail('BAD_REQUEST', 'valueSet 需要 name');
+  if (input?.value === undefined) fail('BAD_REQUEST', 'valueSet 需要 value');
+  const text =
+    typeof input.value === 'object' && input.value !== null
+      ? JSON.stringify(input.value, null, 2)
+      : String(input.value);
+  await writeValueRaw(instance.port, name, text);
+  const verifyRes = await call(instance.port, `/cgi-bin/values/value?key=${encodeURIComponent(name)}`);
+  const verified = verifyRes.ok ? await verifyRes.json() : {};
+  if (verified.value === undefined || sha256(normalizeText(verified.value)) !== sha256(normalizeText(text))) {
+    fail('WHISTLE_VALUE_WRITE_MISMATCH', `写入 Value ${name} 后回读不一致`);
+  }
+  await notifyChanged(host, 'valueSet', { storage: instance.storage, name });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    name,
+    size: Buffer.byteLength(text, 'utf8'),
+    verified: true,
+  };
+}
+
+async function valueRemove(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const names = Array.isArray(input?.names) ? input.names.map((item) => String(item || '').trim()).filter(Boolean) : [];
+  const name = String((input && input.name) || '').trim();
+  if (!name && !names.length) fail('BAD_REQUEST', 'valueRemove 需要 name 或 names');
+  const payload = names.length ? { list: names } : { name };
+  const result = await callJson(instance.port, '/cgi-bin/values/remove', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (result.ec !== 0) fail('WHISTLE_VALUE_REMOVE_FAILED', `删除 Value 失败：${JSON.stringify(result)}`);
+  await notifyChanged(host, 'valueRemove', { storage: instance.storage, name: name || names[0] });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    ...(names.length ? { names } : { name }),
+    removed: true,
+  };
+}
+
+async function valueRename(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const name = String((input && input.name) || '').trim();
+  const newName = String((input && input.newName) || '').trim();
+  if (!name || !newName) fail('BAD_REQUEST', 'valueRename 需要 name 与 newName');
+  const existing = await call(instance.port, `/cgi-bin/values/value?key=${encodeURIComponent(name)}`);
+  const existingData = existing.ok ? await existing.json() : {};
+  if (existingData.value === undefined) fail('VALUE_NOT_FOUND', `没有 Value ${name}`);
+  const result = await callJson(instance.port, '/cgi-bin/values/rename', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, newName }),
+  });
+  if (result.ec !== 0) fail('WHISTLE_VALUE_RENAME_FAILED', `重命名 Value 失败：${JSON.stringify(result)}`);
+  await notifyChanged(host, 'valueRename', { storage: instance.storage, name, newName });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    name,
+    newName,
+    renamed: true,
+  };
+}
+
+async function clearDnsCache(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  await callJson(instance.port, '/cgi-bin/rules/clear-dns-cache', { method: 'POST' });
+  const resetLocal = input?.resetLocalAddress !== false;
+  if (resetLocal) {
+    await callJson(instance.port, '/cgi-bin/reset-local-address', { method: 'POST' });
+  }
+  await notifyChanged(host, 'clearDnsCache', { storage: instance.storage });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    cleared: true,
+    dnsCacheCleared: true,
+    localAddressReset: resetLocal,
+  };
+}
+
+async function ruleTest(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const groups = await readRules(instance.port);
+  const analysis = matchRulesForUrl(groups, input || {});
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    ...analysis,
+  };
+}
+
+async function writeAndSelectControlledRule(port, groupName, nextRules) {
+  await enableMultipleChoice(port);
+  await upsertRule(port, groupName, nextRules);
+  const written = await readRule(port, groupName);
+  const expected = sha256(normalizeText(nextRules));
+  if (!written || sha256(normalizeText(written.data)) !== expected) {
+    fail('RULE_WRITE_MISMATCH', `写入受控规则组 ${groupName} 后回读不一致`);
+  }
+  if (!written.selected) {
+    const enabled = await postForm(port, '/cgi-bin/rules/project', { name: groupName, enable: '1' });
+    if (enabled.ec !== 0) fail('RULE_ENABLE_FAILED', `启用受控规则组 ${groupName} 失败`);
+  }
+  const verified = await readRule(port, groupName);
+  if (!verified || !verified.selected) fail('RULE_ENABLE_UNCONFIRMED', `受控规则组 ${groupName} 未保持选中态`);
+  return verified.data;
+}
+
+async function quickMock(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const plan = buildQuickMockPlan(input);
+  await writeValueRaw(instance.port, plan.valueName, plan.valueBody);
+  for (const extra of plan.extraValues) {
+    await writeValueRaw(instance.port, extra.name, extra.value);
+  }
+  const prev = await readRule(instance.port, plan.group);
+  const nextRules = upsertManagedRuleLine(prev?.data ?? '', plan.pattern, plan.ruleLine, {
+    append: input?.append !== false,
+  });
+  await writeAndSelectControlledRule(instance.port, plan.group, nextRules);
+  await notifyChanged(host, 'quickMock', {
+    storage: instance.storage,
+    group: plan.group,
+    valueName: plan.valueName,
+  });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    group: plan.group,
+    valueName: plan.valueName,
+    ruleLine: plan.ruleLine,
+    rules: nextRules,
+    selected: true,
+  };
+}
+
+async function injectFault(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const plan = buildFaultRuleLine(input);
+  const prev = await readRule(instance.port, plan.group);
+  const nextRules = upsertManagedRuleLine(prev?.data ?? '', plan.pattern, plan.ruleLine, {
+    append: input?.append !== false,
+  });
+  await writeAndSelectControlledRule(instance.port, plan.group, nextRules);
+  await notifyChanged(host, 'injectFault', { storage: instance.storage, group: plan.group });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    group: plan.group,
+    ruleLine: plan.ruleLine,
+    rules: nextRules,
+    selected: true,
+  };
+}
+
+async function mapLocal(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const plan = buildMapLocalRuleLine(input);
+  const prev = await readRule(instance.port, plan.group);
+  const nextRules = upsertManagedRuleLine(prev?.data ?? '', plan.pattern, plan.ruleLine, {
+    append: input?.append !== false,
+  });
+  await writeAndSelectControlledRule(instance.port, plan.group, nextRules);
+  await notifyChanged(host, 'mapLocal', { storage: instance.storage, group: plan.group });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    group: plan.group,
+    ruleLine: plan.ruleLine,
+    rules: nextRules,
+    selected: true,
+  };
+}
+
+async function clearIntents(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const requested = Array.isArray(input?.groups) && input.groups.length ? input.groups : ['mock', 'fault', 'local'];
+  const targetGroups = [];
+  for (const key of requested) {
+    const groupName = CONTROLLED_GROUPS[String(key)];
+    if (!groupName) fail('BAD_REQUEST', `clearIntents 只允许 mock / fault / local，收到 ${key}`);
+    if (!targetGroups.includes(groupName)) targetGroups.push(groupName);
+  }
+  const existing = await readRules(instance.port);
+  const clearedGroups = [];
+  for (const groupName of targetGroups) {
+    const found = existing.find((item) => item.name === groupName);
+    if (!found) continue;
+    if (found.selected) {
+      await postForm(instance.port, '/cgi-bin/rules/unselect', { name: groupName, value: '' });
+    }
+    await upsertRule(instance.port, groupName, '');
+    clearedGroups.push(groupName);
+  }
+  const removedValues = [];
+  if (input?.removeValues === true) {
+    const res = await call(instance.port, '/cgi-bin/values/list');
+    if (res.ok) {
+      const data = await res.json();
+      const names = (Array.isArray(data.list) ? data.list : [])
+        .map((item) => String(item?.name || ''))
+        .filter((name) => name.startsWith(MOCK_VALUE_PREFIX));
+      if (names.length) {
+        await callJson(instance.port, '/cgi-bin/values/remove', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ list: names }),
+        });
+        removedValues.push(...names);
+      }
+    }
+  }
+  await notifyChanged(host, 'clearIntents', { storage: instance.storage, groups: clearedGroups });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    clearedGroups,
+    removedValues,
+  };
+}
+
+async function findSessionByReqId(host, instance, reqId) {
+  const id = String(reqId || '').trim();
+  if (!id) fail('BAD_REQUEST', '需要 reqId');
+  const data = await callJson(instance.port, `/cgi-bin/get-data?ids=${encodeURIComponent(id)}`);
+  const direct = data?.data?.data?.[id];
+  if (direct && typeof direct === 'object') {
+    return { ...direct, id };
+  }
+  const status = await statusOf(instance.port);
+  const recent = await tryGetSessionsViaAgentApi(host, instance, status, { latest: true, count: 200 });
+  const matched = Array.isArray(recent) ? recent.find((item) => String(item.id || '') === id) : null;
+  if (matched) return matched;
+  fail('WHISTLE_SESSION_NOT_FOUND', `实例 ${instance.storage} 中找不到 reqId=${id} 的抓包记录`);
+}
+
+async function replay(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const reqId = String((input && input.reqId) || '').trim();
+  const session = await findSessionByReqId(host, instance, reqId);
+  const origReq = session.req || session.raw?.req || {};
+  const origRes = session.res || session.raw?.res || {};
+
+  const mergedHeaders = {};
+  for (const [key, val] of Object.entries(origReq.headers || {})) {
+    const lower = String(key).toLowerCase();
+    if (lower.startsWith(':') || lower === 'content-length') continue;
+    mergedHeaders[key] = Array.isArray(val) ? val.join('; ') : String(val ?? '');
+  }
+  if (input?.headers && typeof input.headers === 'object') {
+    for (const [key, val] of Object.entries(input.headers)) {
+      if (val === null || val === undefined) delete mergedHeaders[key];
+      else mergedHeaders[key] = String(val);
+    }
+  }
+
+  let dataPayload;
+  let base64Payload;
+  if (input && input.body !== undefined) {
+    dataPayload =
+      typeof input.body === 'object' && input.body !== null ? JSON.stringify(input.body) : String(input.body);
+  } else if (typeof origReq.base64 === 'string' && origReq.base64) {
+    base64Payload = origReq.base64;
+  } else if (typeof origReq.body === 'string') {
+    dataPayload = origReq.body;
+  }
+
+  const composed = await compose(host, {
+    storage: instance.storage,
+    url: input?.url || session.url,
+    method: input?.method || origReq.method || 'GET',
+    headers: mergedHeaders,
+    data: dataPayload,
+    base64: base64Payload,
+    rules: input?.rules,
+    times: input?.times,
+    useH2: input?.useH2,
+    enableProxyRules: input?.enableProxyRules,
+    includeSensitive: input?.includeSensitive,
+  });
+
+  const includeSensitive = input?.includeSensitive === true;
+  const origDecoded = decodeBody(origRes, 0);
+  let origJson = null;
+  try {
+    origJson = typeof origDecoded.body === 'string' ? JSON.parse(origDecoded.body) : origDecoded.body;
+  } catch {}
+  const origRawHeaders = origRes.headers || {};
+  const original = {
+    status: origRes.statusCode ?? null,
+    headers: includeSensitive
+      ? origRawHeaders
+      : Object.fromEntries(
+          Object.entries(origRawHeaders).map(([key, value]) => [key, sensitiveHeader(key) ? '[REDACTED]' : value]),
+        ),
+    body: includeSensitive ? origDecoded.body : redactJson(origDecoded.body),
+    json: includeSensitive ? origJson : redactJson(origJson),
+  };
+
+  const diff =
+    input?.diff === true
+      ? diffResponses(
+          { status: origRes.statusCode ?? null, headers: origRawHeaders, body: origDecoded.body, json: origJson },
+          composed.response,
+          { includeSensitive },
+        )
+      : null;
+
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    reqId,
+    request: composed.request,
+    original,
+    replayed: composed.response,
+    ok: composed.ok,
+    diff,
+  };
+}
+
+async function toCurl(host, input) {
+  const { instance } = await requireRunningInstance(host, input);
+  const reqId = String((input && input.reqId) || '').trim();
+  const session = await findSessionByReqId(host, instance, reqId);
+  const includeSensitive = input?.includeSensitive === true;
+  const curl = buildCurlCommand(session, { includeSensitive });
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    reqId,
+    method: String(session.req?.method || 'GET').toUpperCase(),
+    url: String(session.url || ''),
+    sensitiveIncluded: includeSensitive,
+    curl,
+  };
+}
+
+async function captureLink(host, input) {
+  const registered = await requireInstance(host, input && input.storage);
+  const instance = await liveAgentInstance(host, registered);
+  let sessions = await trafficSessionObjects(host, input);
+  const { urls, methods, statuses, since } = trafficFilters(input);
+  sessions = sessions.filter((session) => {
+    const url = String(session.url || '');
+    const method = String(session.req?.method || session.method || '').toUpperCase();
+    const status = Number(session.res?.statusCode ?? session.status);
+    if (urls.length && !urls.some((part) => url.includes(String(part)))) return false;
+    if (methods.length && !methods.includes(method)) return false;
+    if (statuses.length && !statuses.map(Number).includes(status)) return false;
+    if (since != null && !(Number(session.startTime) >= since)) return false;
+    return true;
+  });
+  if (!sessions.length) fail('WHISTLE_CAPTURE_EMPTY', '没有匹配过滤条件的抓包记录，无法生成排障链接');
+
+  const w2 = await resolveW2(host);
+  const api = agentApiFor(instance, w2);
+  const name = String((input && input.name) || `warren-${instance.storage}-${Date.now()}`).trim();
+  const savedRaw = await api.network.saveSessions(sessions, name);
+  const savedFilename =
+    typeof savedRaw === 'string'
+      ? savedRaw
+      : savedRaw && typeof savedRaw === 'object' && typeof savedRaw.filename === 'string'
+        ? savedRaw.filename
+        : null;
+  const url = await api.network.createUrl(sessions);
+
+  let opened = false;
+  let tabId = null;
+  let environmentId = String((input && input.environmentId) || '').trim() || null;
+  if (input?.open === true) {
+    if (!environmentId) {
+      const bound = envBoundTo(await host.environment.list(), instance.port);
+      environmentId = bound ? bound.id : null;
+    }
+    if (environmentId) {
+      const tab = await host.browser.openTab(url, { environmentId, activate: true });
+      opened = Boolean(tab);
+      tabId = tab?.id ? String(tab.id) : null;
+    }
+  }
+
+  return {
+    storage: instance.storage,
+    port: instance.port,
+    count: sessions.length,
+    name,
+    savedFilename: savedFilename || null,
+    url,
+    opened,
+    ...(environmentId ? { environmentId } : {}),
+    ...(tabId ? { tabId } : {}),
+  };
 }
 
 async function bindEnvironment(host, input) {
@@ -1851,6 +2470,7 @@ async function bindEnvironment(host, input) {
     await host.environment.start(environmentId);
   }
   await host.log.info(`${environmentId} 已绑定到实例 ${instance.storage}（${proxy}）${wasRunning ? '，已重启' : ''}`);
+  await notifyChanged(host, 'bind', { storage: instance.storage, environmentId });
   return {
     environmentId,
     proxy,
@@ -1878,6 +2498,7 @@ async function unbindEnvironment(host, input) {
     await host.environment.start(environmentId);
   }
   await host.log.info(`${environmentId} 已解绑代理`);
+  await notifyChanged(host, 'unbind', { environmentId });
   return { environmentId, restarted: wasRunning, ...(await listInstances(host)) };
 }
 
@@ -1998,11 +2619,56 @@ export default {
   async ruleDiff(ctx) {
     return ruleDiff(ctx.host, ctx.input);
   },
+  async ruleTest(ctx) {
+    return ruleTest(ctx.host, ctx.input);
+  },
+  async clearDnsCache(ctx) {
+    return clearDnsCache(ctx.host, ctx.input);
+  },
+  async valueList(ctx) {
+    return valueList(ctx.host, ctx.input);
+  },
+  async valueGet(ctx) {
+    return valueGet(ctx.host, ctx.input);
+  },
+  async valueSet(ctx) {
+    return valueSet(ctx.host, ctx.input);
+  },
+  async valueRemove(ctx) {
+    return valueRemove(ctx.host, ctx.input);
+  },
+  async valueRename(ctx) {
+    return valueRename(ctx.host, ctx.input);
+  },
+  async quickMock(ctx) {
+    return quickMock(ctx.host, ctx.input);
+  },
+  async injectFault(ctx) {
+    return injectFault(ctx.host, ctx.input);
+  },
+  async mapLocal(ctx) {
+    return mapLocal(ctx.host, ctx.input);
+  },
+  async clearIntents(ctx) {
+    return clearIntents(ctx.host, ctx.input);
+  },
   async traffic(ctx) {
     return traffic(ctx.host, ctx.input);
   },
   async compose(ctx) {
     return compose(ctx.host, ctx.input);
+  },
+  async replay(ctx) {
+    return replay(ctx.host, ctx.input);
+  },
+  async toCurl(ctx) {
+    return toCurl(ctx.host, ctx.input);
+  },
+  async captureLink(ctx) {
+    return captureLink(ctx.host, {
+      ...ctx.input,
+      environmentId: (ctx.input && ctx.input.environmentId) || ctx.environmentId,
+    });
   },
   async doctor(ctx) {
     return doctor(ctx.host, ctx.input);
@@ -2096,11 +2762,53 @@ export default {
     async ruleDiff(input, ctx) {
       return ruleDiff(ctx.host, input);
     },
+    async ruleTest(input, ctx) {
+      return ruleTest(ctx.host, input);
+    },
+    async clearDnsCache(input, ctx) {
+      return clearDnsCache(ctx.host, input);
+    },
+    async valueList(input, ctx) {
+      return valueList(ctx.host, input);
+    },
+    async valueGet(input, ctx) {
+      return valueGet(ctx.host, input);
+    },
+    async valueSet(input, ctx) {
+      return valueSet(ctx.host, input);
+    },
+    async valueRemove(input, ctx) {
+      return valueRemove(ctx.host, input);
+    },
+    async valueRename(input, ctx) {
+      return valueRename(ctx.host, input);
+    },
+    async quickMock(input, ctx) {
+      return quickMock(ctx.host, input);
+    },
+    async injectFault(input, ctx) {
+      return injectFault(ctx.host, input);
+    },
+    async mapLocal(input, ctx) {
+      return mapLocal(ctx.host, input);
+    },
+    async clearIntents(input, ctx) {
+      return clearIntents(ctx.host, input);
+    },
     async traffic(input, ctx) {
       return traffic(ctx.host, input);
     },
     async compose(input, ctx) {
       return compose(ctx.host, input);
+    },
+    async replay(input, ctx) {
+      return replay(ctx.host, input);
+    },
+    async toCurl(input, ctx) {
+      return toCurl(ctx.host, input);
+    },
+    async captureLink(input, ctx) {
+      return captureLink(ctx.host, input);
     },
     async doctor(input, ctx) {
       return doctor(ctx.host, input);

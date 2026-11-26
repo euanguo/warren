@@ -20,6 +20,7 @@ import { fillSecretInto } from './browser/fill-secret.ts';
 import { makeEvent, type EnvironmentPatch } from './domain/environment.ts';
 import { captureEvidence } from './evidence.ts';
 import { runDoctor } from './doctor.ts';
+import { composeSkill, installSkill, refreshSkills, skillStatus } from './agent-integration.ts';
 import { findRpcMethods } from './rpc-methods.ts';
 import type { EnvironmentManager } from './environments';
 import type { PluginHost } from './plugins/host';
@@ -57,6 +58,8 @@ export interface DispatchDeps {
   vault: VaultStore;
   saveVault: () => Promise<void>;
   plugins: PluginHost;
+  skillSourceDir?: string;
+  homeDir?: string;
   isPackaged: boolean;
   /** 允许 debug.* 里改窗口位置/可见性/前台的命令。默认 false：回归不碰用户的窗口。 */
   allowWindowCommands?: boolean;
@@ -695,6 +698,72 @@ export async function dispatchRpc(
     case 'plugin.config.set':
       return deps.plugins.setSetting(str('id'), str('key'), str('value'));
 
+    case 'plugin.setSkillExposed':
+      return deps.plugins.setSkillExposed(str('id'), Boolean(params.exposed));
+
+    case 'plugin.readSkill':
+      return deps.plugins.readSkill(str('id'));
+
+    // ── Skill 合成与自动同步 ──────────────────────────────────────
+    case 'skills.compose': {
+      const sourceDir = deps.skillSourceDir;
+      if (!sourceDir) throw new RpcError('SKILL_MISSING', '主进程未提供 skillSourceDir');
+      const entries = await deps.plugins.skillEntries();
+      const mode =
+        params.mode === 'full' || params.mode === 'base-only' ? (params.mode as 'full' | 'base-only') : 'index';
+      const bundle = await composeSkill(sourceDir, entries, { mode });
+      return {
+        markdown: bundle.markdown,
+        baseSha: bundle.baseSha,
+        composedSha: bundle.composedSha,
+        enabledPlugins: bundle.enabledPlugins.map((p) => ({
+          id: p.id,
+          name: p.name,
+          version: p.version,
+          skillSha: p.skillSha,
+          summary: p.summary,
+          triggers: p.triggers,
+          hasExplicitSkill: p.hasExplicitSkill,
+        })),
+      };
+    }
+
+    case 'skills.plugin':
+      return deps.plugins.readSkill(str('id'));
+
+    case 'skills.status': {
+      const sourceDir = deps.skillSourceDir;
+      if (!sourceDir) throw new RpcError('SKILL_MISSING', '主进程未提供 skillSourceDir');
+      const home = deps.homeDir ?? process.env.HOME ?? '';
+      return skillStatus(home, sourceDir, await deps.plugins.skillEntries());
+    }
+
+    case 'skills.install': {
+      const sourceDir = deps.skillSourceDir;
+      if (!sourceDir) throw new RpcError('SKILL_MISSING', '主进程未提供 skillSourceDir');
+      const home = deps.homeDir ?? process.env.HOME ?? '';
+      const target = typeof params.target === 'string' && params.target ? params.target : 'all';
+      const entries = await deps.plugins.skillEntries();
+      if (target === 'all') {
+        const ids = ['agents', 'claude', 'codex'];
+        const out = [];
+        for (const tid of ids) {
+          const res = await installSkill(home, sourceDir, tid, entries);
+          out.push({ id: tid, ...res });
+        }
+        return out;
+      }
+      const res = await installSkill(home, sourceDir, target, entries);
+      return [{ id: target, ...res }];
+    }
+
+    case 'skills.refresh': {
+      const sourceDir = deps.skillSourceDir;
+      if (!sourceDir) throw new RpcError('SKILL_MISSING', '主进程未提供 skillSourceDir');
+      const home = deps.homeDir ?? process.env.HOME ?? '';
+      return refreshSkills(home, sourceDir, await deps.plugins.skillEntries());
+    }
+
     case 'plugin.rpc':
       /*
        * 走 RPC 的插件调用一律是 agent：`ui` 只从 `main.ts` 的 `plugin:rpc` IPC 进来。
@@ -1185,6 +1254,9 @@ export async function dispatchRpc(
 
     case 'browser.info':
       return deps.manager.controllerFor(str('id'), optionalTab, space).info();
+
+    case 'browser.detectLoginFields':
+      return deps.manager.controllerFor(str('id'), optionalTab, space).detectLoginFields();
 
     case 'browser.events':
       return deps.manager.controllerFor(str('id'), optionalTab, space).events();

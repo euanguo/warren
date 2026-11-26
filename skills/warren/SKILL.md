@@ -151,24 +151,13 @@ EOF
 
 ```bash
 warren vault fill <ref> --env=<env> --field=password --target='{"kind":"label","text":"密码"}'
+warren browser detect-login <env>
 ```
 
 值从 Vault 直接进入页面字段，不返回明文。
 `storage.cookie.read` / `storage.cookie.write` 永久不可用。
 
-账号管理插件 `com.warren.accounts` 是另一个东西：按产品要求，它将账号、密码和备注
-**明文**保存在插件数据库中，不经过 Vault。不要把两者混用，也不要在未获用户要求时导出账号。
-
-它的 agent 通道**永远不返回明文**：`list` / `get` 只给 `hasPassword` 与打码用户名；
-登录时按 id 填：
-
-```bash
-warren plugin rpc com.warren.accounts fill \
-  --input='{"id":1,"environmentId":"<env>","fields":{"username":"#account","password":"input[type=password]"}}'
-```
-
-`fill` 的返回体只有 `{ filled: [...], id }`；`reveal` 只对插件界面开放（agent 调会报
-`ACCOUNT_REVEAL_UI_ONLY`）；`export` 必须显式 `--input='{"confirm":"plaintext"}'`。
+若当前环境启用了账号管理类插件（如 `com.warren.accounts`），请查看下方「已启用插件 Skill」索引按需读取其完整手册；**agent 通道永远不得获取或导出密码/TOTP 明文**。
 
 ## 错误码
 
@@ -232,22 +221,29 @@ warren extension list <env>
 只接受解包目录；Electron 不支持 `.crx`。内容脚本能运行，DevTools 面板装不上，
 但 React DevTools 的 hook 仍可通过 `page.evaluate` 读取。
 
-## 插件现状
+## 插件与插件 Skill 自动注入
 
-插件已经是独立 npm 包，使用 `package.json#warren`，`apiVersion` 只接受 `"4"`：
+插件是独立 npm 包，使用 `package.json#warren`，`apiVersion` 只接受 `"4"`。启用的插件如果声明了 `warren.skill`（或贡献了命令），Warren 会在插件启停、更新时**自动把它们的 Skill 索引注入到下方区块**，并把完整手册落盘到同目录 `plugins/<pluginId>/SKILL.md`：
 
 ```bash
+warren plugin list
+warren plugin commands
 warren plugin install path:<目录>
 warren plugin install npm:<包名>[@版本]
 warren plugin install git:<仓库>#<ref>
 warren plugin update <id>
 warren plugin status <id>
+warren skills plugin <id>          # 实时读取指定插件的完整 Skill 手册
+warren --skill --full              # 一次性输出含全部已启用插件 Skill 的完整版
 ```
 
-Whistle 不是 Core 内置能力，而是 `com.warren.whistle` 插件（`runtime: "host"`）。
-它负责按环境托管独立实例、规则、预设和代理绑定。
-
 插件的安装、启停和权限变更会影响界面与运行时会话；只做用户要求的操作。
+
+### 已启用插件 Skill（自动同步）
+
+<!-- warren:enabled-plugins:begin -->
+当前为静态基线模板；运行 `warren --skill` 或同步本地 Skill（`warren skills refresh`）后，本区会自动列出全部已启用插件的触发场景与完整手册路径。
+<!-- warren:enabled-plugins:end -->
 
 ## 命令清单
 

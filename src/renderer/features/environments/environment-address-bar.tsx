@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { toast } from 'sonner';
+import { PluginBoundary } from '@/app/plugin-surfaces';
 import { ActionTooltip } from '@/components/action-tooltip';
-import { Icon } from '@/components/icons';
+import { Icon, isIconName, type IconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { addressSecurity, resolveAddressInput } from '@/lib/address-input';
-import type { PluginInspectorTab, PluginPopoverSurface } from '@/lib/plugin-runtime';
+import { getPluginBrand } from '@/lib/plugin-brand';
+import type { PluginInspectorTab, PluginPopoverSurface, PluginRailPage, PluginStatusBadge } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
 import type {
   DevToolsDockMode,
@@ -14,6 +16,7 @@ import type {
   SpaceId,
   UrlHistoryEntry,
   ViewportPresetId,
+  ViewportRect,
 } from '@shared/types';
 
 function splitUrlDisplay(raw: string): { prefix: string; host: string; rest: string } | null {
@@ -66,7 +69,10 @@ interface Props {
   hasActiveDownload?: boolean;
   focusToken?: number;
   pluginPopovers?: PluginPopoverSurface[];
+  pluginStatusBadges?: PluginStatusBadge[];
   pluginInspectorTabs?: PluginInspectorTab[];
+  pluginRailPages?: PluginRailPage[];
+  activePluginPopoverKey?: string | null;
   onToggleInspector: () => void;
   onToggleDevTools: () => void;
   onChangeDevToolsDock: (dock: DevToolsDockMode) => void;
@@ -75,7 +81,15 @@ interface Props {
   onViewportPresetChanged?: (preset: ViewportPresetId) => void;
   onNavigate: (action: NavigationAction) => void;
   onStartAndNavigate?: (url: string) => void;
-  onOpenPluginSurface?: (kind: 'popover' | 'inspectorTab', pluginId: string, surfaceId: string) => void;
+  onOpenPluginPopover?: (pluginId: string, surfaceId: string, anchorRect: ViewportRect) => void;
+  onOpenPluginPage?: (pluginId: string, surfaceId: string) => void;
+  onOpenPluginSurface?: (
+    kind: 'popover' | 'inspectorTab',
+    pluginId: string,
+    surfaceId: string,
+    anchorRect?: ViewportRect,
+  ) => void;
+  registerPluginAnchor?: (key: string, el: HTMLElement | null) => void;
 }
 
 /**
@@ -99,7 +113,10 @@ export function EnvironmentAddressBar({
   hasActiveDownload = false,
   focusToken = 0,
   pluginPopovers = [],
+  pluginStatusBadges = [],
   pluginInspectorTabs = [],
+  pluginRailPages = [],
+  activePluginPopoverKey = null,
   onToggleInspector,
   onToggleDevTools,
   onChangeDevToolsDock,
@@ -108,7 +125,10 @@ export function EnvironmentAddressBar({
   onViewportPresetChanged,
   onNavigate,
   onStartAndNavigate,
+  onOpenPluginPopover,
+  onOpenPluginPage,
   onOpenPluginSurface,
+  registerPluginAnchor,
 }: Props) {
   const inputEditable = editable || canStartOnSubmit;
   const [draft, setDraft] = useState(url);
@@ -372,11 +392,47 @@ export function EnvironmentAddressBar({
       const rest = picked.slice(firstSep + 1);
       const secondSep = rest.indexOf(':');
       if (secondSep > 0) {
-        onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1));
+        onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1), {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        });
       }
     }
   };
 
+  const openQuickSlotContextMenu = async (event: MouseEvent<HTMLButtonElement>, pluginId: string) => {
+    event.preventDefault();
+    const tabsForPlugin = pluginInspectorTabs.filter((tab) => tab.pluginId === pluginId);
+    const pagesForPlugin = pluginRailPages.filter((page) => page.pluginId === pluginId);
+    const items: NativeMenuItem[] = [];
+    for (const tab of tabsForPlugin) {
+      items.push({ id: `inspector:${tab.id}`, label: `在右侧工作台打开「${tab.title}」` });
+    }
+    for (const page of pagesForPlugin) {
+      items.push({ id: `page:${page.id}`, label: `打开「${page.title}」全屏管理页` });
+    }
+    if (items.length === 0) return;
+    const picked = await window.envApi.popupMenu(items, {
+      x: Math.round(event.clientX),
+      y: Math.round(event.clientY),
+    });
+    if (!picked) return;
+    if (picked.startsWith('inspector:')) {
+      onOpenPluginSurface?.('inspectorTab', pluginId, picked.slice('inspector:'.length));
+    } else if (picked.startsWith('page:')) {
+      onOpenPluginPage?.(pluginId, picked.slice('page:'.length));
+    }
+  };
+
+  const statusBadgeByPlugin = new Map<string, PluginStatusBadge>();
+  for (const badge of pluginStatusBadges) {
+    if (!statusBadgeByPlugin.has(badge.pluginId)) statusBadgeByPlugin.set(badge.pluginId, badge);
+  }
+  const pinnedPopovers = pluginPopovers.slice(0, 3);
+  const popoverPlugins = new Set(pinnedPopovers.map((pop) => pop.pluginId));
+  const standaloneBadges = pluginStatusBadges.filter((badge) => !popoverPlugins.has(badge.pluginId)).slice(0, 2);
   const zoomPercent = Math.round(zoomFactor * 100);
   const presetLabel = PRESET_BADGE[viewportPreset];
   const urlParts = !editing ? splitUrlDisplay(url) : null;
@@ -594,6 +650,94 @@ export function EnvironmentAddressBar({
         </ActionTooltip>
       )}
 
+      {pinnedPopovers.map((pop) => {
+        const key = `${pop.pluginId}:${pop.id}`;
+        const badge = statusBadgeByPlugin.get(pop.pluginId);
+        const brand = getPluginBrand(pop.pluginId, pop.icon);
+        const iconName: IconName = isIconName(brand.icon) ? brand.icon : 'Plug';
+        const isActive = activePluginPopoverKey === key;
+        return (
+          <ActionTooltip key={key} label={pop.title} shortcut={pop.shortcut} side="top">
+            <button
+              ref={(el) => registerPluginAnchor?.(key, el)}
+              type="button"
+              data-slot="plugin-quick-button"
+              data-plugin-id={pop.pluginId}
+              data-surface-id={pop.id}
+              aria-expanded={isActive}
+              aria-label={pop.title}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                onOpenPluginPopover?.(pop.pluginId, pop.id, {
+                  x: Math.round(rect.left),
+                  y: Math.round(rect.top),
+                  width: Math.round(rect.width),
+                  height: Math.round(rect.height),
+                });
+              }}
+              onContextMenu={(event) => void openQuickSlotContextMenu(event, pop.pluginId)}
+              className={cn(
+                'inline-flex h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/70 bg-surface-elevated px-2 text-xs text-foreground [box-shadow:var(--shadow-raised)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus active:scale-[0.98]',
+                isActive && 'border-[var(--theme-accent)]/60 bg-surface-selected text-foreground',
+              )}
+            >
+              {badge?.component ? (
+                <PluginBoundary pluginId={badge.pluginId} title={badge.title}>
+                  <badge.component pluginId={badge.pluginId} environmentId={envId} space={spaceId} url={url} />
+                </PluginBoundary>
+              ) : (
+                <Icon
+                  name={iconName}
+                  style={{ '--brand-hue': brand.hue } as CSSProperties}
+                  className="plugin-brand-icon size-3.5"
+                />
+              )}
+            </button>
+          </ActionTooltip>
+        );
+      })}
+
+      {standaloneBadges.map((badge) => {
+        const key = `badge:${badge.pluginId}:${badge.id}`;
+        const brand = getPluginBrand(badge.pluginId, badge.icon);
+        const iconName: IconName = isIconName(brand.icon) ? brand.icon : 'Plug';
+        const firstTab = pluginInspectorTabs.find((tab) => tab.pluginId === badge.pluginId);
+        const firstPage = pluginRailPages.find((page) => page.pluginId === badge.pluginId);
+        return (
+          <ActionTooltip key={key} label={badge.title} side="top">
+            <button
+              type="button"
+              data-slot="plugin-status-badge"
+              data-plugin-id={badge.pluginId}
+              data-surface-id={badge.id}
+              aria-label={badge.title}
+              onClick={() => {
+                if (firstTab) onOpenPluginSurface?.('inspectorTab', badge.pluginId, firstTab.id);
+                else if (firstPage) onOpenPluginPage?.(badge.pluginId, firstPage.id);
+              }}
+              onContextMenu={(event) => void openQuickSlotContextMenu(event, badge.pluginId)}
+              className="inline-flex h-[var(--control-height-icon)] shrink-0 items-center gap-1 rounded-[var(--control-radius)] px-1.5 text-xs text-muted-foreground outline-none transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:border focus-visible:border-focus"
+            >
+              {badge.component ? (
+                <PluginBoundary pluginId={badge.pluginId} title={badge.title}>
+                  <badge.component pluginId={badge.pluginId} environmentId={envId} space={spaceId} url={url} />
+                </PluginBoundary>
+              ) : (
+                <Icon
+                  name={iconName}
+                  style={{ '--brand-hue': brand.hue } as CSSProperties}
+                  className="plugin-brand-icon size-3.5"
+                />
+              )}
+            </button>
+          </ActionTooltip>
+        );
+      })}
+
+      {(pinnedPopovers.length > 0 || standaloneBadges.length > 0) && (
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
+      )}
+
       <ActionTooltip label={running ? '页面工具（查找 / 视口 / 下载）' : '启动环境后可用页面工具'} side="top">
         <IconButton
           ref={pageToolsBtnRef}
@@ -607,8 +751,6 @@ export function EnvironmentAddressBar({
           <Icon name="More" />
         </IconButton>
       </ActionTooltip>
-
-      <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
 
       <ActionTooltip
         label={editable ? 'Chrome 开发者工具（右键切停靠）' : title('开发者工具')}

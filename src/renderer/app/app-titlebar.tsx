@@ -166,7 +166,7 @@ export function AppTitlebar({
       { id: 'settings:general', label: '设置中心…' },
     );
     const picked = await window.envApi.popupMenu(items, {
-      x: Math.round(rect.left),
+      x: Math.min(Math.round(rect.left), Math.max(8, Math.round(window.innerWidth - 236))),
       y: Math.round(rect.bottom + 4),
     });
     if (!picked) return;

@@ -151,8 +151,8 @@ test('permission diff reports what an upgrade would add', () => {
  */
 const INTERNAL_RPC: Record<string, string[]> = {
   // 账号插件：`get` 是 UI 详情视图，agent 侧走 list（WP1 会保留 rpc.get）。
-  // `reveal` 是插件自己 UI surface 专用的明文出口，agent 调用必须被拒。
-  'com.warren.accounts': ['get', 'reveal'],
+  // `reveal` 是插件自己 UI surface 专用的明文出口，`totpCode` 是 UI 专用的动态验证码倒计时出口，agent 调用必须被拒。
+  'com.warren.accounts': ['get', 'reveal', 'totpCode'],
   // 示例插件：统计只给面板用。
   'com.example.notes': ['stats'],
 };

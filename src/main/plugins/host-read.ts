@@ -59,11 +59,36 @@ const HOST_READ_CAPABILITIES: Record<PluginHostReadMethod, HostReadCapability> =
       return env ? toSummary(env) : null;
     },
   },
+  'environment.activeContext': {
+    permission: 'environment.read',
+    run: (deps) => {
+      const selectedId = deps.manager.selected ?? null;
+      if (!selectedId) return null;
+      const env = deps.manager.get(selectedId);
+      if (!env) return null;
+      const space = env.activeSpaceId ?? 'person';
+      const activeSpace = (env.spaces ?? []).find((item) => item.id === space);
+      const activeTab = (activeSpace?.tabs ?? env.tabs ?? []).find(
+        (tab) => tab.id === (activeSpace?.activeTabId ?? env.activeTabId),
+      );
+      return {
+        environmentId: env.id,
+        environmentName: env.name,
+        status: env.status,
+        space,
+        ...(activeTab ? { tabId: activeTab.id, url: activeTab.url, title: activeTab.title } : {}),
+        ...(!activeTab && env.currentUrl ? { url: env.currentUrl } : {}),
+        ...(!activeTab && env.title ? { title: env.title } : {}),
+      };
+    },
+  },
   'browser.info': {
     permission: 'browser.dom.read',
-    run: async (deps, environmentId) => {
+    run: async (deps, environmentId, args) => {
       if (!environmentId) hostReadError('PLUGIN_NO_ENVIRONMENT', 'browser.info 需要 environmentId');
-      const controller = deps.manager.controllerFor(environmentId);
+      const rawSpace = args[0] && typeof args[0] === 'object' ? (args[0] as { space?: unknown }).space : args[0];
+      const space = rawSpace === 'person' || rawSpace === 'agent' ? rawSpace : undefined;
+      const controller = deps.manager.controllerFor(environmentId, undefined, space);
       return { url: controller.currentUrl(), title: await controller.title() };
     },
   },

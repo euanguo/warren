@@ -7,8 +7,9 @@
 1. **`HANDOFF.md`** —— 会话交接：决策、当前状态、踩过的坑、接手起点。**先读这份。**
 2. **`WARREN-2.0-ARCHITECTURE-PLAN.md`** —— **Warren 2.0 全面重构架构总蓝图**（2026-11-26，已冻结待实施）：叠层根治、停靠式 DevTools、核心解耦与插件 2.0、UI/设置中心重构、Agent CLI v2 与 Wave 0–4 验收门禁。
 3. **`SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md`** —— **外壳布局、交互重整与 AI 操作蒙层改造计划**（2026-11-26，已落地验收）：三层变两层顶栏、双 Space 上下文控制、全局页状态保活、右侧 DevTools 与工作台互斥、以及 `'shield'` 透明 AI 动作轨迹蒙层动画（16 张实机验收截图留档见 `verification/shell-layout-interaction-2026-11-26/README.md`）。
-4. `REMAINING-PLAN-2026-10-16.md` —— 剩余工作施工计划 + 逐项实测记录（批次 A–G，都已落地）。
-5. `FULL-REGRESSION-2026-10-15.md` —— 全量回归跑什么、怎么复跑。
+4. **`PLUGIN-ECOSYSTEM-2.0-PLAN.md`** —— **插件生态 2.0：业务插件深度重构与插件 Skill 自动注入计划**（2026-11-26，与外壳计划协同拆分 A/B 阶段）：宿主双 Space 填充与表单探测底座、插件 Skill 契约与自动合成同步、`com.warren.accounts` 人机一键填充重构、`com.warren.whistle` 升级 `2.10.15` 与全量 AI/UI 能力扩展。
+5. `REMAINING-PLAN-2026-10-16.md` —— 剩余工作施工计划 + 逐项实测记录（批次 A–G，都已落地）。
+6. `FULL-REGRESSION-2026-10-15.md` —— 全量回归跑什么、怎么复跑。
    （当前数字：**152 PASS / 0 FAIL**，套件已自足，跑之前只要应用 + fixture 起着。）
 
 ## 要改东西

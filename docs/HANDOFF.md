@@ -181,7 +181,7 @@ src/main/
   rpc-methods.ts       RPC 方法元数据目录（供 `warren methods` 与 `rpc.methods` 自省）
   rpc-dispatch.ts      RPC 派发表（从 rpc.ts 拆出来）。**不 import electron**（isPackaged / quit 由调用方注入），
                        所以 tests/rpc-dispatch.test.ts 能喂假 manager 直接跑写门控
-  agent-integration.ts 自带 SKILL.md 安装与 `.warren-skill` SHA-256 指纹追踪/refreshSkills
+  agent-integration.ts 自带 SKILL.md 安装、动态组装已启用插件 Skill 区块（`<!-- warren:enabled-plugins:begin/end -->`）与 `.warren-skill` SHA-256 指纹追踪/refreshSkills
   db.ts                **唯一的 SQLite 连接**（warren.db）：全库 schema（含 domain_prefs / site_notes）+ openDatabase / closeDatabases / tx
   store.ts             环境 / 分组 / 事件 / 运行态 / 历史 / 域偏好 / site_notes（warren.db）
   paths.ts             数据根（WARREN_HOME，默认 ~/.warren）+ 各子目录。纯 Node，CLI 与路径护栏共用
@@ -191,35 +191,36 @@ src/main/
   vault/store.ts       safeStorage 凭据库（无 reveal）
   vault/electron-encryptor.ts
   vault/persistence.ts 凭据落库（warren.db 的 vault 表，只存密文；老 vault.json 一次性导入）
-  plugins/package.ts   package.json#warren 校验（runtime / contributes / engines）+ 三层权限
+  plugins/package.ts   package.json#warren 校验（runtime / contributes / skill / engines）+ 三层权限
   plugins/source.ts    path / npm / git 安装源解析、npm pack、依赖安装
-  plugins/host.ts      PluginHost（安装·启停·重载·状态·日志·RPC·信号·事件总线）
-  plugins/api.ts       host API（权限门控 + 写操作惰性取 lease + events 通道）
+  plugins/host.ts      PluginHost（安装·启停·重载·状态·日志·RPC·caller 透传·Skill 解析与同步·信号·事件总线）
+  plugins/api.ts       host API（权限门控 + 写操作按 `space`/`caller` 惰性取 lease + `detectLoginFields`/`highlightElement` + events 通道）
+  skills/composer.ts   插件 Skill 读取与安全拼接（显式 `SKILL.md` / 命令清单兜底、10KB/插件与 32KB 总预算截断、零敏感数据硬限制）
   plugins/event-bus.ts 只读脱敏事件总线 `PluginEventBus`（支持过滤订阅与脱敏字段）
   plugins/worker-process.ts 子进程适配层（Electron 下 utilityProcess.fork / node --test 下 child_process.fork）
   plugins/runtime.ts   两种均在可强杀子进程内的运行时：sandbox（受限 node:vm）/ host（完整 Node）
-  plugins/registry.ts  插件注册表 + 插件日志（warren.db 的 plugins / plugin_logs）
+  plugins/registry.ts  插件注册表（含 `skill_exposed` 持久化）+ 插件日志（warren.db 的 plugins / plugin_logs）
   plugins/storage.ts   每插件 kv（warren.db 的 plugin_values scope=kv）+ 自己的 data.db（node:sqlite）
   plugins/settings.ts  设置描述符（warren.db 的 plugin_values scope=setting）；secret 存 Vault，永不回前端
 
 src/renderer/
   state/               4 域轻量外置状态库（useSyncExternalStore：navigation / environment / plugin / telemetry）
   lib/theme.ts         主窗 / Overlay / Popover 三宿主浅暗主题同步与系统跟随
-  app/App.tsx                          顶层装配、4 域 Store 消费与桌面壳（卡片 + rail + 面板组）
+  app/App.tsx                          顶层装配、4 域 Store 消费与桌面壳（卡片 + 面板组 + bottom-right Toaster）
   app/app-rail.tsx                     左侧图标栏（⌘K / 导航 / 设置入口 / 品牌标记）
-  app/app-titlebar.tsx                 窗口标题行（macOS 拖拽区 + 环境身份 + 接管/交还 + 持权徽标）
-  app/overlay-root.tsx                 独立 OverlayHost 入口（⌘K 命令栏 / 创建 / 确认弹窗）
-  app/popover-root.tsx                 独立 PopoverHost 入口（地址联想 / 页内查找）
+  app/app-titlebar.tsx                 窗口标题行（macOS 拖拽区 + 环境身份 + Space 切换 + 接管/交还 + 插件扩展菜单）
+  app/overlay-root.tsx                 独立 OverlayHost 入口（⌘K 命令栏含插件 `commandBarAction`/浮窗/工作台/管理页直达）
+  app/popover-root.tsx                 独立 PopoverHost 入口（地址联想 / 页内查找 / 下载 / 视口 / 插件 `popover` 浮窗路由）
   features/environments/environment-sidebar.tsx   侧栏卡片（拆分 sidebar-menus / group-header / env-row）
-  features/environments/environment-stage.tsx     内容卡片（6px 凹槽框 + 标签行 + 地址行 + 页面占位 + 检查器）
+  features/environments/environment-stage.tsx     内容卡片（6px 凹槽框 + 标签行 + 地址行 + 页面占位 + 检查器 + 插件 Popover/快捷键联动）
   features/environments/environment-tabstrip.tsx  标签条（复用 SurfaceTab，不手写 chrome）
-  features/environments/environment-address-bar.tsx  地址行（导航 + omnibox 弹出 + 缩放/视口/下载/DevTools/检查器）
-  features/environments/environment-inspector.tsx   检查器面板（按需开启后才拉取遥测，不后台轮询）
-  features/settings/                   可检索 7 分区设置中心（general / browser / agent / approval / vault / plugins / diagnostics + 插件分节）
-  lib/plugin-runtime.ts                           插件前端加载器（warren-plugin:// + SurfaceRegistry）
+  features/environments/environment-address-bar.tsx  地址行（导航 + omnibox 弹出 + 插件快捷胶囊槽 `popover`/`statusBadge` + 缩放/视口/下载/DevTools/检查器）
+  features/environments/environment-inspector.tsx   检查器面板（按需开启后才拉取遥测 + 插件 `inspectorTab`）
+  features/settings/                   可检索 7 分区设置中心（general / browser / agent 含已注入插件 Skill 列表与重同步 / approval / vault / plugins 含 Skill 注入开关与预览弹窗 / diagnostics + 插件分节）
+  lib/plugin-runtime.ts                           插件前端加载器（warren-plugin:// + SurfaceRegistry + 扩展 `PLUGIN_UI`）
   app/plugin-surfaces.tsx                         插件面的错误边界（一个坏插件不白屏）
   features/plugins/vault-panel.tsx                设置里的「凭据」页
-  features/plugins/plugins-panel.tsx              设置里的「插件」页（统一 <Select>、状态/权限/配置/日志）
+  features/plugins/plugins-panel.tsx              设置里的「插件」页（状态/权限/配置/日志 + Agent Skill 注入开关与加宽预览弹窗）
   components/icons.tsx                 图标单源（Hugeicons；语义名注册表 + <Icon name>）
   components/ui/status-dot.tsx         状态点（实心圆，走 bg-current）
   lib/address-input.ts                 地址栏输入解析（纯函数，可单测）
@@ -229,12 +230,12 @@ src/renderer/
   theme/surface.ts                     表面 recipe
   lib/ipc.ts                           IPC 类型声明
 
-bin/warren.mjs / caller.mjs / commands.mjs / exec-runtime.mjs / page-contract.mjs  Agent CLI v2（含调用方溯源与标志归一校验）
+bin/warren.mjs / caller.mjs / commands.mjs / exec-runtime.mjs / page-contract.mjs  Agent CLI v3（`warren --skill` / `warren plugin skill` 动态注入已启用插件 Skill、`warren browser detect-login`）
 plugins/example-login/  示例登录插件（v4 包：设置描述符 + 环境菜单动作）
 plugins/example-notes/  示例笔记插件（rail 页 / 设置分节 / 检查器页 / kv + SQLite + rpc + 信号）
 plugins/example-host/   示例 host 运行时插件（独立进程，fs / child_process 可用）
-plugins/whistle/        Whistle 代理插件（runtime=host）：托管 whistle 实例 + 规则面板 + 环境绑定
-plugins/account-manager/ 账号管理插件（sandbox）：明文账号 / 密码 / 备注 / 标签
+plugins/whistle/        Whistle 代理插件（runtime=host，`whistle@2.10.15`）：5 Tab 全屏工作台 + 快捷浮窗 + 随行抓包重放 + Values/受控意图/ruleTest/replay Diff/captureLink + `SKILL.md`
+plugins/account-manager/ 账号管理插件（sandbox）：4 面协同（地址栏微标 + `⇧⌘L` 快捷填充浮窗 + 随行表单探测 + 3 区主从管理台）+ RFC 6238 TOTP + 强密码生成 + 跨站防钓鱼 + `SKILL.md`
 fixtures/plugins/broken/ 故意抛异常的插件（验证崩溃隔离）
 fixtures/login/         本地测试站点
 fixtures/capability/    能力验收页（dialog/download/upload/form/drag/shadow/iframe）
@@ -253,9 +254,9 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 施工图见 `docs/SHELL-VISUAL-INTERACTION-REFINEMENT-PLAN-2026-11-26.md`（同步最新 `main` 后分 5 个阶段完整落地并经 3 轮 16 态真机盲评自循环清零）：
 
 - **Phase 1 — 交互减负与死胡同修复（Module A）**：
-  - `src/renderer/lib/plugin-runtime.ts` 新增受控 `app.navigation.openPage(surfaceId)` / `openSettings(section)` 路由 API；Whistle 与账号管理伴随工作台空态均配直达 CTA 按钮，账号页与工作台同步补齐「前往加密 Vault」入口；
-  - 移除遮挡右上按钮的 DevTools 互斥 Toast，改用舞台上方 32px 内联 `<output data-slot="panel-exclusivity-bar">`（内置一键「改用底部停靠并行查看」与频次衰减逻辑）；全局 `<Toaster>` 移至 `top-center` 顶栏安全区并随 `useResolvedTheme()` 动态同步深/浅主题；
-  - 瘦身地址栏：砍掉易与 AI 撞车的 `✨` 图标，URL 拆层高亮 + 静息可见内嵌 `copy-url-button`（1.5s 绿勾就地反馈），低频项折叠进 `⋯` 菜单，右侧常驻精简为 `⋯` / `</>` / `◫` 三枚核心工具；顶栏命令栏触发器升级为 `[🔍 ⌘K]`，环境胶囊补齐 `ChevronDown` 与焦点环，全量图标按钮补齐 `aria-label` 与 `ActionTooltip`；
+  - `src/renderer/lib/plugin-runtime.ts` 与插件生态 2.0 `app.shell` 合流，统一提供受控 `openPage` / `openSettings(section)` / `openInspectorTab` / `openPopover` / `openTab` / `highlight` / `notify`（兼容主窗与独立 `PopoverHost` 子窗，`app.navigation` 保持向后兼容别名）；
+  - 移除遮挡右上按钮的 DevTools 互斥 Toast，改用舞台上方 32px 内联 `<output data-slot="panel-exclusivity-bar">`（内置一键「改用底部停靠并行查看」与频次衰减逻辑）；全局 `<Toaster>` 保持在 `top-center` 顶栏安全区（避免被原生 `WebContentsView` 遮挡）并随 `useResolvedTheme()` 动态同步深/浅主题；
+  - 瘦身地址栏：砍掉易与 AI 撞车的 `✨` 图标，URL 拆层高亮 + 静息可见内嵌 `copy-url-button`（1.5s 绿勾就地反馈），低频项折叠进 `⋯` 菜单，右侧保留精简的插件快捷微标槽 + `⋯` / `</>` / `◫`；顶栏命令栏触发器升级为 `[🔍 ⌘K]`，环境胶囊补齐 `ChevronDown` 与焦点环，全量图标按钮补齐 `aria-label` 与 `ActionTooltip`；
   - 工作台抽屉标签栏新增悬浮渐隐溢出步进器 + 内置/插件竖向分隔线 + 分组「全部工作台面板」下拉菜单；事件流新增角色/关键词筛选条、点击展开原文与全中文化人类可读摘要；侧栏环境行统一 2 行高信噪比布局、常驻实心圆角方块 `Stop` 图标与运行状态对齐。
 - **Phase 2 — 精密微立体纵深与深/浅 AA 对比度重校准（Module B）**：
   - 重建 `theme-tokens.css` 4 层微冷深炭阶梯（`#111317` under → `#15181e` drawer → `#181b21` surface → `#20242d` elevated，`#0e1015` recessed）与 3 层冷银白浅色阶梯（`#e9edf3` / `#f4f6fa` / `#ffffff`），拆分 `hover` 与 `selected`（另设不透明 `--surface-selected-solid` 消除状态点镂空环二次透明叠加），统一品牌靛蓝主色（`#5b8cff` / `#3b5bdb`），补齐真实多层阴影与顶沿高光；18/18 组深浅 WCAG 2.1 对比度校验全通过；
@@ -266,8 +267,24 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
   - 取消按钮 `active:translate-y-0`、补全列表行 140ms 过渡与 `prefers-reduced-motion`；为 `SpaceSwitcher` 与 `global-nav` 实现基于 `useLayoutEffect` + `ResizeObserver` 的 200ms GPU 滑动指示器；
   - 升级 `src/main/input-shield.ts` 至 `8px` 圆角、深/浅双色高对比靛蓝/青蓝光学环与顶部扫光、去重后的纯实时遥测右上角磨砂芯片（仅活跃态展示，自动左避让）、外扩防撞色目标锚框及避字右下角 AI 光标，并同步全原生 `WebContentsView` `8px` 圆角。
 - **Phase 5 — 栅栏背面清理与诚实真机闭环（Module E）**：
-  - 清除 Cookie 面板内部文档 `§9` 泄露，升级 `NetRulesPanel` 可复制 CLI 空态；统一账号/代理/记忆三个全局插件页为居中 `1040px` 版心与平衡空态卡；设置页正文居中 `max-w-3xl`、升级全宽 `ThemePreviewThumb` 迷你窗预览并修正 `WARREN_HOME` 信息层级；命令面板 `⌘K` 重构为带分组头、环境色标芯片、唯一行高亮、`<Kbd>` 快捷键与底部图例栏；
-  - **实测门禁与 3 轮 16 态真机闭环**：`npm run check` 全绿（`oxlint` 0 警告 / `prettier` 0 差异 / `tsc --noEmit` 0 错误 / **395/395 单测 PASS** / Vite 渲染层构建通过）；`node scripts/regress/ui.cjs` **21 PASS / 0 FAIL**；16 态窗口级真机截图经自动化像素 ROI 脚本 **16/16 PASS**，3 轮独立视觉盲评从基线 `~5.8/10` 提升至 **`9.3–9.7 / 10`（0 P0 / 0 P1）**，留档于 `docs/verification/shell-layout-interaction-2026-11-26/`。
+  - 清除 Cookie 面板内部文档 `§9` 泄露，升级 `NetRulesPanel` 可复制 CLI 空态；设置页正文居中 `max-w-3xl`、升级全宽 `ThemePreviewThumb` 迷你窗预览并修正 `WARREN_HOME` 信息层级；命令面板 `⌘K` 重构为带分组头、环境色标芯片、唯一行高亮、`<Kbd>` 快捷键与底部图例栏；
+  - 3 轮 16 态窗口级真机像素 ROI 校验 **16/16 PASS**，盲评 `9.3–9.7 / 10`（0 P0 / 0 P1），留档于 `docs/verification/shell-layout-interaction-2026-11-26/`。
+
+### 插件生态 2.0：双业务插件全栈重构 + 人类一键填充 + 自动插件 Skill 注入（2026-11-27，合入自 `feat/plugin-ecosystem-2`）
+
+完整方案与分期架构见 `docs/PLUGIN-ECOSYSTEM-2.0-PLAN.md`：
+
+- **Phase 1A & 1B — 宿主底座、自动插件 Skill 注入与多面前端扩展**：
+  - **双空间与 `caller` 透传**：`PluginHost` / `api.ts` / `rpc-dispatch.ts` 完整贯通 `caller: 'ui' | 'agent'` 与 `space: 'person' | 'agent'`；Person Space 下人类点击一键填充直达页面无需抢占 Agent 租约，Agent 通道仍走租约与审批护栏；
+  - **隔离世界表单探测**：`src/main/browser/page-helpers.ts` & `controller.ts` 新增隔离世界 `detectLoginFields`（零页面污染，识别账号/密码/TOTP/提交按钮与多步登录/验证码状态，支持 `warren browser detect-login` 与宿主插件 API）；同步改用品牌蓝框高亮 `HIGHLIGHT` 避开表单报错红框误判；
+  - **插件 Skill 自动感知与注入**：`package.json#warren.skill` 契约 + `src/main/skills/composer.ts` + `agent-integration.ts` 实现启停/授权/安装/卸载插件时自动拼接 `<!-- warren:enabled-plugins:begin/end -->` 区块并刷新外部 Agent Skill 文件（单插件 10KB / 总量 32KB 预算截断，零明文凭据边界）；新增 `warren --skill` 动态合入、`warren plugin skill [id]`、`plugins.skill` / `plugins.setSkillExposed` RPC 与设置页开关/预览弹窗；
+  - **多面协同宿主与 Tailwind 扫描**：`popover-root.tsx` 新增 `plugin-popover` 独立 OS 浮窗路由（零双边框、安全焦点管理），地址栏 Row 2 挂载与微立体顶栏一致的插件快捷微标槽（`popover` + `statusBadge`，超过 3 项自动折叠入 `⋯`），`⌘K` 命令栏自动聚合插件 `commandBarAction` / 浮窗 / 工作台 / 全屏页，`globals.css` 新增 `@source '../../plugins/**/*.js'` 编译插件内全部 Tailwind v4 工具类（全局 `<Toaster>` 维持在 `top-center` 顶栏安全带防止被原生视图遮挡）。
+- **Phase 2A & 2B — `com.warren.accounts`（账号管理插件重构）**：
+  - **后端升级（`server.js` + `SKILL.md`）**：幂等 SQLite 迁移（激活 6 个已有扩展列并追加 10 个新列含 `totp_secret`/`urls`/`extra_fields`/`selectors`/`allowed_hosts`/`env_ids`/`pinned`/`use_count`/`last_used_at`/`deleted_at`）；纯 JS RFC 6238 TOTP 动态码计算；站点/域名/别名/环境绑定加权智能匹配 `match`；跨源防钓鱼校验；严格 `ctx.caller` 安全边界（`agent` 永不返回明文密码/TOTP/用户名，`reveal`/`totpCode` 仅限 `'ui'`）；新增 `autoFill`、`detectFields`、`generatePassword`、`togglePin`、`restore`/`purge`、v2 JSON/CSV 导入导出及 6.1KB 中文 `SKILL.md`；
+  - **4 面协同 UI（`app.js` + `package.json`）**：地址栏匹配数微标（`match-badge`）+ `⇧⌘L` 一键填充快捷浮窗（搜索/键盘导航/一键填充/填充并登录/跨站二次确认/TOTP 实时倒计时/内联快建）+ 右侧随行工作台（匹配填充 + 登录框探测 + 蓝色高亮定位 + 存为选择器模板）+ 全屏 3 区主从分栏管理台（视图与标签筛选、自适应多行账号卡片、完整详情与编辑器、内置强密码生成器，保留 `data-slot="account-manager-page"` 与带「前往加密 Vault」直达入口的 `data-slot="account-plaintext-warning"` 明文警示，统一琥珀 `User` 品牌图标与加密 Vault `Key` 解耦）。
+- **Phase 3A & 3B — `com.warren.whistle`（升级 `whistle@2.10.15` 全栈重构）**：
+  - **后端升级（`host.mjs` / `agent-api.mjs` / `intents.mjs` / `SKILL.md`）**：内置 Whistle 升级至 `2.10.15`；修复官方 Agent API 平铺无点方法路由（`isEnabledHTTPS`/`setEnableHTTPS`/`getRootCA`/`createFile`/`getFile`/`createUrl`）；新增 Values 完整 CRUD、受控意图原语（`quickMock`/`injectFault` 含 `disable://encoding`/`mapLocal`/`clearIntents`，写入隔离受控组 `warren-mock`/`warren-fault`/`warren-local`）、`ruleTest` 规则命中诊断、`traffic` 服务端过滤与 timings/matchedRules、`replay` 改参重放与结构化 `diffResponses`、`toCurl` 脱敏命令、`clearDnsCache`、`captureLink`（`#network?dataUrl=...`）及 6.8KB 中文 `SKILL.md`；
+  - **多面协同 UI（`app.js` + `package.json`）**：地址栏运行态微标（`proxy-badge`）+ 快捷代理控制浮窗（启停/绑定/HTTPS 与全局开关/一键清空临时调试/快捷 Mock 与故障注入）+ 右侧随行抓包与规则命中诊断工作台（支持实时抓包、重放 Diff、脱敏 cURL、规则命中测试）+ 全屏 5 Tab 专业工作台（规则组编辑与 Diff、Values 编辑器、抓包流与改参重放、预设模板、受控意图三卡与 Doctor 4 列健康体检）。
 
 ### 外壳布局、交互重整与 AI 操作蒙层（2026-11-26，分支 `feat/shell-layout-interaction`）
 

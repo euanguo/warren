@@ -14,6 +14,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const cache = new Map();
+const TEMP_FILE_RE = /^(?:\/?temp\/)?([\da-f]{64})(?:\.[\w.-]+)?$/;
 
 function fail(code, message) {
   throw Object.assign(new Error(message), { code });
@@ -147,7 +148,9 @@ async function requestPort(instance, pathname, data, type) {
             resolve(raw);
             return;
           }
-          const text = raw.toString('utf8');
+          const decoded =
+            String(res.headers['content-encoding'] || '').toLowerCase() === 'gzip' ? gunzipSync(raw) : raw;
+          const text = decoded.toString('utf8');
           try {
             resolve(JSON.parse(text));
           } catch {
@@ -185,6 +188,8 @@ export const AGENT_ENDPOINTS = {
   'values.getList': ['values/list'],
   'values.get': ['values/value'],
   'values.add': ['values/add'],
+  'values.remove': ['values/remove'],
+  'values.rename': ['values/rename'],
   'plugins.getStatus': ['plugins/status'],
   'plugins.getList': ['plugins/list'],
   'plugins.get': ['plugins/plugin'],
@@ -197,97 +202,203 @@ export const AGENT_ENDPOINTS = {
   getRootCA: ['rootca'],
   createFile: ['temp/create'],
   getFile: ['temp/get'],
+  createUrl: ['temp/create'],
 };
+
+const METHOD_ALIASES = {
+  isEnabledHttps: 'isEnabledHTTPS',
+  'https.isEnabled': 'isEnabledHTTPS',
+  setEnableHttps: 'setEnableHTTPS',
+  'https.setEnabled': 'setEnableHTTPS',
+  'https.getRootCA': 'getRootCA',
+  'files.create': 'createFile',
+  'files.get': 'getFile',
+  'network.createUrl': 'createUrl',
+};
+
+const CGI_ONLY_METHODS = new Set(['values.remove', 'values.rename']);
+
+/**
+ * 统一解析官方 Agent API 方法名：
+ * 支持无点平铺写法（isEnabledHTTPS / createUrl 等）及友好命名空间别名（https.* / files.* / network.createUrl / values.*）。
+ */
+export function resolveAgentMethod(method) {
+  const raw = String(method || '').trim();
+  if (!raw) return null;
+  const canonical = METHOD_ALIASES[raw] || raw;
+  const endpoint = AGENT_ENDPOINTS[canonical];
+  if (!endpoint) return null;
+  const parts = canonical.split('.');
+  const group =
+    parts.length === 2
+      ? parts[0]
+      : canonical === 'createFile' || canonical === 'getFile'
+        ? 'files'
+        : canonical === 'createUrl'
+          ? 'network'
+          : 'https';
+  const action =
+    parts.length === 2
+      ? parts[1]
+      : canonical === 'isEnabledHTTPS'
+        ? 'isEnabled'
+        : canonical === 'setEnableHTTPS'
+          ? 'setEnabled'
+          : canonical === 'getRootCA'
+            ? 'getRootCA'
+            : canonical === 'createFile'
+              ? 'create'
+              : canonical === 'getFile'
+                ? 'get'
+                : 'createUrl';
+  const apiParts = canonical.split('.');
+  return {
+    raw,
+    canonical,
+    group,
+    action,
+    apiPath: CGI_ONLY_METHODS.has(canonical) ? null : apiParts,
+    endpoint,
+    cgiOnly: CGI_ONLY_METHODS.has(canonical),
+  };
+}
 
 export async function callAgentApi(instance, w2, method, ...args) {
   // 官方 bin/api 的 client 发现只支持单 client；先校验官方模块和版本，
   // 再用同一官方 endpoint 契约显式访问 Warren 的多实例端口。
+  const resolved = resolveAgentMethod(method);
+  if (!resolved) {
+    fail('WHISTLE_API_METHOD_UNKNOWN', `官方 Agent API 没有方法 ${method}`);
+  }
+  const canonical = resolved.canonical;
   const modulePath = apiModulePath(instance, w2);
   const api = require(modulePath);
-  const [group, action] = String(method).split('.');
-  const fn = action ? api[group]?.[action] : api[group];
-  if (typeof fn !== 'function') {
-    fail('WHISTLE_API_METHOD_UNKNOWN', `官方 Agent API 没有方法 ${method}`);
+  if (resolved.apiPath) {
+    const [g, a] = resolved.apiPath;
+    const fn = a ? api[g]?.[a] : api[g];
+    if (typeof fn !== 'function') {
+      fail('WHISTLE_API_METHOD_UNKNOWN', `官方 Agent API 没有方法 ${canonical}`);
+    }
   }
   const status = await requestPort(instance, 'status');
   if (!isAgentApiVersion(status.version)) {
     fail('WHISTLE_API_VERSION', `Whistle ${status.version} < 2.10.7`);
   }
-  const endpoint = AGENT_ENDPOINTS[method];
-  if (!endpoint) fail('WHISTLE_API_METHOD_UNKNOWN', `未映射官方 endpoint: ${method}`);
+  const endpoint = resolved.endpoint;
+  if (!endpoint) fail('WHISTLE_API_METHOD_UNKNOWN', `未映射官方 endpoint: ${canonical}`);
+
+  if (canonical === 'createUrl') {
+    const port = Number(instance.port);
+    const baseUrl = `http://127.0.0.1:${port}/`;
+    const sessions = args[0];
+    if (!sessions || (Array.isArray(sessions) && sessions.length === 0)) {
+      return baseUrl;
+    }
+    let tempFile = '';
+    if (typeof sessions === 'string') {
+      const m = TEMP_FILE_RE.exec(sessions.trim());
+      if (m) tempFile = m[1];
+    }
+    if (!tempFile) {
+      const payload = typeof sessions === 'string' ? sessions : JSON.stringify(sessions);
+      const created = await requestPort(instance, 'temp/create', { value: payload });
+      if (created?.ec !== 0 || !created?.filepath) {
+        fail('WHISTLE_API_TEMP_CREATE_FAILED', `createUrl 生成临时文件失败: ${JSON.stringify(created)}`);
+      }
+      tempFile = String(created.filepath).replace(/^\/?temp\//, '');
+    }
+    return `${baseUrl}#network?dataUrl=${encodeURIComponent(tempFile)}`;
+  }
+
   const [pathname, prefix] = endpoint;
   let query = prefix || '';
   let data = args[0];
-  if (method === 'rules.get') query = `name=${encodeURIComponent(String(args[0] || ''))}`;
-  if (method === 'values.get') query = `key=${encodeURIComponent(String(args[0] || ''))}`;
-  if (method === 'plugins.get') query = `name=${encodeURIComponent(String(args[0] || ''))}`;
-  if (method === 'rules.select') data = { name: args[0] };
-  if (method === 'rules.unselect') data = { name: args[0] === undefined ? false : args[0] };
-  if (method === 'rules.moveToTop') data = { name: args[0] };
-  if (method === 'values.add') data = { name: args[0], value: args[1] };
-  if (method === 'plugins.select' || method === 'plugins.unselect') {
-    data = { name: args[0], disabled: method === 'plugins.unselect' ? 1 : 0 };
+  if (canonical === 'rules.get') query = `name=${encodeURIComponent(String(args[0] || ''))}`;
+  if (canonical === 'values.get') query = `key=${encodeURIComponent(String(args[0] || ''))}`;
+  if (canonical === 'plugins.get') query = `name=${encodeURIComponent(String(args[0] || ''))}`;
+  if (canonical === 'rules.select') data = { name: args[0] };
+  if (canonical === 'rules.unselect') data = { name: args[0] === undefined ? false : args[0] };
+  if (canonical === 'rules.moveToTop') data = { name: args[0] };
+  if (canonical === 'values.add') data = { name: args[0], value: args[1] };
+  if (canonical === 'values.remove') {
+    data = Array.isArray(args[0]) ? { list: args[0] } : { name: args[0] };
   }
-  if (method === 'rules.setMultiSelect') data = { allowMultipleChoice: args[0] ? 1 : 0 };
-  if (method === 'rules.setLaterFirst') data = { backRulesFirst: args[0] ? 1 : 0 };
-  if (method === 'rules.turnOn') data = { disabledAllRules: 0 };
-  if (method === 'rules.turnOff') data = { disabledAllRules: 1 };
-  if (method === 'plugins.turnOn') data = { disabledAllPlugins: 0 };
-  if (method === 'plugins.turnOff') data = { disabledAllPlugins: 1 };
-  if (method === 'setEnableHTTPS') data = { interceptHttpsConnects: args[0] ? 1 : 0 };
-  if (method === 'network.abort') data = { list: Array.isArray(args[0]) ? args[0].join() : args[0] };
-  if (method === 'network.request') data = args[0];
-  if (method === 'network.getSessions' || method === 'network.getFrames') data = args[0] || {};
-  if (method === 'network.saveSessions') data = { sessions: args[0] || [], filename: args[1] || '' };
-  if (method === 'network.getSavedSessions') {
+  if (canonical === 'values.rename') data = { name: args[0], newName: args[1] };
+  if (canonical === 'plugins.select' || canonical === 'plugins.unselect') {
+    data = { name: args[0], disabled: canonical === 'plugins.unselect' ? 1 : 0 };
+  }
+  if (canonical === 'rules.setMultiSelect') data = { allowMultipleChoice: args[0] ? 1 : 0 };
+  if (canonical === 'rules.setLaterFirst') data = { backRulesFirst: args[0] ? 1 : 0 };
+  if (canonical === 'rules.turnOn') data = { disabledAllRules: 0 };
+  if (canonical === 'rules.turnOff') data = { disabledAllRules: 1 };
+  if (canonical === 'plugins.turnOn') data = { disabledAllPlugins: 0 };
+  if (canonical === 'plugins.turnOff') data = { disabledAllPlugins: 1 };
+  if (canonical === 'setEnableHTTPS') data = { interceptHttpsConnects: args[0] ? 1 : 0 };
+  if (canonical === 'network.abort') data = { list: Array.isArray(args[0]) ? args[0].join() : args[0] };
+  if (canonical === 'network.request') data = args[0];
+  if (canonical === 'network.getSessions' || canonical === 'network.getFrames') data = args[0] || {};
+  if (canonical === 'network.saveSessions') data = { sessions: args[0] || [], filename: args[1] || '' };
+  if (canonical === 'network.getSavedSessions') {
     const saved = args[0] || {};
     const filename = typeof saved === 'string' ? saved : saved.filename || '';
     query = `filename=${encodeURIComponent(filename)}&count=${Number(saved.count || 0)}&time=${Number(saved.time || 0)}`;
   }
-  if (method === 'createFile') {
-    const value =
-      typeof args[0] === 'string' ? { value: args[0] } : { base64: Buffer.from(args[0] || '').toString('base64') };
+  if (canonical === 'createFile') {
+    const value = Buffer.isBuffer(args[0])
+      ? { base64: args[0].toString('base64') }
+      : typeof args[0] === 'string'
+        ? { value: args[0] }
+        : { value: JSON.stringify(args[0] ?? '') };
     data = value;
   }
-  if (method === 'getFile') query = `filename=${encodeURIComponent(String(args[0] || ''))}`;
+  if (canonical === 'getFile') query = `filename=${encodeURIComponent(String(args[0] || ''))}`;
   const result = await requestPort(
     instance,
     pathname + (query ? `?${query}` : ''),
     data,
-    method === 'getRootCA' || method === 'getSavedSessions' ? 'raw' : undefined,
+    canonical === 'getRootCA' || canonical === 'network.getSavedSessions' ? 'raw' : undefined,
   );
-  if (method === 'getFile') return result.value;
-  if (method === 'network.getSavedSessions') {
+  if (canonical === 'getRootCA') return Buffer.isBuffer(result) ? result.toString('utf8') : String(result);
+  if (canonical === 'createFile') return result.filepath;
+  if (canonical === 'getFile') return result.value;
+  if (canonical === 'network.getSavedSessions') {
     const text = Buffer.isBuffer(result) ? gunzipSync(result).toString('utf8') : String(result);
     return JSON.parse(text);
   }
-  if (method === 'rules.getList') {
+  if (canonical === 'rules.getList') {
     return (result.list || []).map((item) => ({
       name: item.name,
       value: item.data || '',
       selected: Boolean(item.selected),
     }));
   }
-  if (method === 'rules.get' || method === 'values.get') return result.value;
-  if (method === 'values.getList') {
+  if (canonical === 'rules.get' || canonical === 'values.get') return result.value;
+  if (canonical === 'values.getList') {
     return (result.list || []).map((item) => ({ name: item.name, value: item.data || '' }));
   }
-  if (method === 'plugins.get') return result.plugin;
-  if (method === 'rules.add' || method === 'values.add') return result.ec === 0;
-  if (method === 'rules.isMultiSelect') return Boolean(result.multiSelect);
-  if (method === 'isEnabledHTTPS') return Boolean(result.enabled);
-  if (method === 'rules.select' || method === 'rules.unselect' || method === 'rules.moveToTop') {
+  if (canonical === 'plugins.get') return result.plugin;
+  if (
+    canonical === 'rules.add' ||
+    canonical === 'values.add' ||
+    canonical === 'values.remove' ||
+    canonical === 'values.rename'
+  ) {
     return result.ec === 0;
   }
-  if (method === 'plugins.select' || method === 'plugins.unselect') return Boolean(result.exists);
+  if (canonical === 'rules.isMultiSelect') return Boolean(result.multiSelect);
+  if (canonical === 'isEnabledHTTPS') return Boolean(result.enabled);
+  if (canonical === 'rules.select' || canonical === 'rules.unselect' || canonical === 'rules.moveToTop') {
+    return result.ec === 0;
+  }
+  if (canonical === 'plugins.select' || canonical === 'plugins.unselect') return Boolean(result.exists);
   if (
-    method === 'rules.setMultiSelect' ||
-    method === 'rules.setLaterFirst' ||
-    method === 'rules.turnOn' ||
-    method === 'rules.turnOff' ||
-    method === 'plugins.turnOn' ||
-    method === 'plugins.turnOff' ||
-    method === 'setEnableHTTPS'
+    canonical === 'rules.setMultiSelect' ||
+    canonical === 'rules.setLaterFirst' ||
+    canonical === 'rules.turnOn' ||
+    canonical === 'rules.turnOff' ||
+    canonical === 'plugins.turnOn' ||
+    canonical === 'plugins.turnOff' ||
+    canonical === 'setEnableHTTPS'
   ) {
     return result.ec === 0;
   }
@@ -304,6 +415,7 @@ export function agentApiFor(instance, w2) {
       saveSessions: (sessions, name) => callAgentApi(instance, w2, 'network.saveSessions', sessions, name),
       getSavedSessions: (name) => callAgentApi(instance, w2, 'network.getSavedSessions', name),
       abort: (reqId) => callAgentApi(instance, w2, 'network.abort', reqId),
+      createUrl: (sessions) => callAgentApi(instance, w2, 'createUrl', sessions),
     },
     rules: {
       getStatus: () => callAgentApi(instance, w2, 'rules.getStatus'),
@@ -323,6 +435,8 @@ export function agentApiFor(instance, w2) {
       getList: () => callAgentApi(instance, w2, 'values.getList'),
       get: (name) => callAgentApi(instance, w2, 'values.get', name),
       add: (name, value) => callAgentApi(instance, w2, 'values.add', name, value),
+      remove: (name) => callAgentApi(instance, w2, 'values.remove', name),
+      rename: (name, newName) => callAgentApi(instance, w2, 'values.rename', name, newName),
     },
     plugins: {
       getStatus: () => callAgentApi(instance, w2, 'plugins.getStatus'),
@@ -355,6 +469,8 @@ export function agentApiRequirements() {
       'network.getFrames',
       'network.request',
       'network.saveSessions',
+      'network.getSavedSessions',
+      'network.abort',
       'rules.getStatus',
       'rules.getList',
       'rules.get',
@@ -370,6 +486,8 @@ export function agentApiRequirements() {
       'values.getList',
       'values.get',
       'values.add',
+      'values.remove',
+      'values.rename',
       'plugins.getStatus',
       'plugins.getList',
       'plugins.get',
@@ -382,6 +500,7 @@ export function agentApiRequirements() {
       'getRootCA',
       'createFile',
       'getFile',
+      'createUrl',
     ],
   };
 }

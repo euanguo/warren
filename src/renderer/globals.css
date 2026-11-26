@@ -4,6 +4,9 @@
 @import '@fontsource-variable/geist';
 @import './theme/theme-tokens.css';
 
+/* 扫描内置插件前端 bundle，确保插件使用的 Tailwind 工具类（如 size-3 / bg-[]/10 / 栅格等）进入样式表 */
+@source '../../plugins/**/*.js';
+
 @custom-variant dark (&:is(.dark *));
 
 @layer base {
@@ -188,7 +191,7 @@
 }
 
 .plugin-brand-icon {
-  color: hsl(var(--brand-hue, 215) 72% 40%);
+  color: hsl(var(--brand-hue, 215) 78% 34%);
 }
 
 :root.dark .plugin-brand-icon,

@@ -632,9 +632,9 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           list.push({
             id: `page:${plugin.id}:${surface.id}`,
             group: '全局页面与扩展',
-            icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+            icon: isIconName(brand.icon) ? brand.icon : 'ExternalLink',
             brandHue: brand.hue,
-            title: `打开「${surface.title}」`,
+            title: `打开「${surface.title}」管理页`,
             subtitle: plugin.name,
             keywords: `plugin page ${plugin.id} ${plugin.name} ${surface.title}`,
             run: async () => {
@@ -666,20 +666,60 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           });
           continue;
         }
+        if (surface.kind === 'popover') {
+          const brand = getPluginBrand(plugin.id, surface.icon);
+          list.push({
+            id: `popover:${plugin.id}:${surface.id}`,
+            group: '全局页面与扩展',
+            icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+            brandHue: brand.hue,
+            title: `打开「${surface.title}」浮窗`,
+            subtitle: `${plugin.name} · 快捷浮窗`,
+            shortcut: surface.shortcut,
+            keywords: `plugin popover quick ${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''}`,
+            run: async () => {
+              await window.envApi.resolveOverlay({
+                command: 'openPluginPopover',
+                pluginId: plugin.id,
+                surfaceId: surface.id,
+              });
+            },
+          });
+          continue;
+        }
+        if (surface.kind === 'inspectorTab') {
+          const brand = getPluginBrand(plugin.id, surface.icon);
+          list.push({
+            id: `inspector:${plugin.id}:${surface.id}`,
+            group: '全局页面与扩展',
+            icon: isIconName(brand.icon) ? brand.icon : 'PanelRight',
+            brandHue: brand.hue,
+            title: `展开「${surface.title}」随页侧栏`,
+            subtitle: `${plugin.name} · 工作台`,
+            keywords: `plugin inspector tab ${plugin.id} ${plugin.name} ${surface.title}`,
+            run: async () => {
+              await window.envApi.resolveOverlay({
+                command: 'openPluginInspectorTab',
+                pluginId: plugin.id,
+                surfaceId: surface.id,
+              });
+            },
+          });
+          continue;
+        }
         if (surface.kind !== 'commandBarAction' || !surface.command) continue;
         const brand = getPluginBrand(plugin.id, surface.icon);
         list.push({
           id: `plugin:${plugin.id}:${surface.id}`,
           group: '全局页面与扩展',
-          icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+          icon: isIconName(brand.icon) ? brand.icon : 'Zap',
           brandHue: brand.hue,
-          title: `${plugin.name} · ${surface.title}`,
-          subtitle: surface.description || plugin.id,
+          title: surface.title,
+          subtitle: `${plugin.name} · 执行动作`,
           shortcut: surface.shortcut,
-          keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin`,
+          keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin command`,
           run: async () => {
-            if (!current) return;
-            await window.envApi.pluginRun(plugin.id, surface.command!, current.id);
+            await window.envApi.pluginRun(plugin.id, surface.command!, current?.id);
             await window.envApi.resolveOverlay({ command: 'pluginRun', pluginId: plugin.id, action: surface.id });
           },
         });
@@ -829,8 +869,11 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
             <Kbd>↵</Kbd> 执行
           </span>
         </span>
-        <span className="inline-flex items-center gap-1">
-          <Kbd>Esc</Kbd> 关闭
+        <span className="flex items-center gap-2.5">
+          <span>{filtered.length} 项</span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>Esc</Kbd> 关闭
+          </span>
         </span>
       </div>
     </dialog>
@@ -864,7 +907,12 @@ export function OverlayRoot() {
   if (!request) return null;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-4">
+    <div
+      className={cn(
+        'fixed inset-0 flex justify-center p-4',
+        request.kind === 'command-bar' ? 'items-start pt-[15vh]' : 'items-center',
+      )}
+    >
       <button
         type="button"
         aria-label="关闭浮层"

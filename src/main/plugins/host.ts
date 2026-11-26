@@ -14,12 +14,14 @@ import { PluginInvoker, type RunResult } from './invoker.ts';
 import { PluginLifecycle } from './lifecycle.ts';
 import type { Permission } from './package.ts';
 import { loadPluginState, savePluginState, type PluginState } from './registry.ts';
+import type { PluginSkillEntry } from '../skills/composer.ts';
 import type {
   InstalledPlugin,
   PluginLogEntry,
   PluginRpcCaller,
   PluginRpcResponse,
   PluginSettingDescriptor,
+  PluginSkillDocument,
   PluginStatus,
 } from '../../shared/types.ts';
 
@@ -178,11 +180,23 @@ export class PluginHost {
     return this.#installer.settingDescriptors(id);
   }
 
+  async setSkillExposed(id: string, exposed: boolean): Promise<InstalledPlugin> {
+    return this.#installer.setSkillExposed(id, exposed);
+  }
+
+  async readSkill(id: string): Promise<PluginSkillDocument> {
+    return this.#installer.readSkill(id);
+  }
+
+  async skillEntries(): Promise<PluginSkillEntry[]> {
+    return this.#installer.listSkillEntries();
+  }
+
   /** 命令：一次性调用（v1 兼容）。 */
   async run(
     id: string,
     command: string,
-    options: { environmentId: string; input?: unknown; leaseId?: string },
+    options: { environmentId?: string; input?: unknown; leaseId?: string; caller?: PluginRpcCaller },
   ): Promise<RunResult> {
     return this.#invoker.run(id, command, options);
   }

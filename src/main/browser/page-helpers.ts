@@ -278,8 +278,8 @@ async function ownerIframeOf(ctx: PageContext, frameId: string): Promise<number 
   return undefined;
 }
 
-/** 高亮配色：比 DevTools 默认更显眼一点——它是画给人看的，不是给开发者看的。 */
-const HIGHLIGHT = { r: 255, g: 92, b: 92, a: 0.35 };
+/** 高亮配色：清爽品牌蓝描边+柔和填充，与表单校验红明确区分。 */
+const HIGHLIGHT = { r: 59, g: 130, b: 246, a: 0.24 };
 
 export async function highlightElement(
   ctx: PageContext,

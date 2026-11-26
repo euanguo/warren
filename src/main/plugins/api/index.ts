@@ -6,7 +6,7 @@
  * - 所有方法通过 `CapabilitySpec` 统一声明权限与 lease 规则，不散落手写守卫。
  */
 import type { Permission } from '../../../shared/permissions.ts';
-import type { PluginSettingDescriptor } from '../../../shared/types.ts';
+import type { PluginRpcCaller, PluginSettingDescriptor } from '../../../shared/types.ts';
 import type { EnvironmentManager } from '../../environments';
 import type { PluginSettings } from '../settings.ts';
 import type { PluginStorage } from '../storage.ts';
@@ -24,6 +24,8 @@ export interface HostApiDeps {
    * 不是插件级共享状态——否则同一插件的并发调用会互相覆盖环境。
    */
   currentEnvironmentId: () => string | undefined;
+  /** 本次调用的权威来源（ui / agent）。默认按 agent 兜底（更保守）。 */
+  currentCaller?: () => PluginRpcCaller;
   require: (permission: Permission) => void;
   manager: EnvironmentManager;
   vault: {
@@ -48,12 +50,13 @@ export type HostHandler = (...args: unknown[]) => Promise<unknown> | unknown;
 export interface CapabilityContext {
   deps: HostApiDeps;
   env: () => string;
+  caller: () => PluginRpcCaller;
   text: (value: unknown) => string;
 }
 
 export interface CapabilitySpec {
   permission?: Permission | readonly Permission[];
-  needsLease?: boolean | ((ctx: CapabilityContext, args: unknown[]) => string);
+  needsLease?: boolean | ((ctx: CapabilityContext, args: unknown[]) => string | false);
   validate?: (ctx: CapabilityContext, args: unknown[]) => void;
   handler: (ctx: CapabilityContext, ...args: unknown[]) => Promise<unknown> | unknown;
 }
@@ -84,7 +87,8 @@ export function createHandlers(deps: HostApiDeps): Record<string, HostHandler> {
     return id;
   };
 
-  const ctx: CapabilityContext = { deps, env, text };
+  const caller = (): PluginRpcCaller => (deps.currentCaller?.() === 'ui' ? 'ui' : 'agent');
+  const ctx: CapabilityContext = { deps, env, caller, text };
   const specs = createCapabilitySpecs();
   const handlers: Record<string, HostHandler> = {};
 
@@ -97,13 +101,15 @@ export function createHandlers(deps: HostApiDeps): Record<string, HostHandler> {
       spec.validate?.(ctx, args);
       if (spec.needsLease) {
         const targetEnv = typeof spec.needsLease === 'function' ? spec.needsLease(ctx, args) : env();
-        return deps.withLease(targetEnv, async (leaseId) => {
-          (deps.manager as { assertWritable?: (id: string, lease: string) => unknown }).assertWritable?.(
-            targetEnv,
-            leaseId,
-          );
-          return spec.handler(ctx, ...args);
-        });
+        if (targetEnv !== false) {
+          return deps.withLease(targetEnv, async (leaseId) => {
+            (deps.manager as { assertWritable?: (id: string, lease: string) => unknown }).assertWritable?.(
+              targetEnv,
+              leaseId,
+            );
+            return spec.handler(ctx, ...args);
+          });
+        }
       }
       return spec.handler(ctx, ...args);
     };

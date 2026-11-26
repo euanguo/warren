@@ -31,6 +31,7 @@ import type {
   NetRule,
   NetworkEntry,
   SnapshotResult,
+  SpaceId,
 } from '@shared/types';
 
 const actorClass: Record<string, string> = {
@@ -240,6 +241,9 @@ interface Props {
   /** 插件往检查器里加的页 */
   pluginTabs?: PluginInspectorTab[];
   environmentId?: string;
+  space?: SpaceId;
+  url?: string;
+  onOpenPluginPage?: (pluginId: string, surfaceId: string) => void;
 }
 
 /**
@@ -264,6 +268,9 @@ export function EnvironmentInspector({
   onRefreshSnapshot,
   pluginTabs = [],
   environmentId,
+  space = 'person',
+  url = '',
+  onOpenPluginPage,
 }: Props) {
   const running = current?.status === 'running';
   const errorCount = consoleEntries.filter((entry) => entry.level === 'error').length;
@@ -621,7 +628,15 @@ export function EnvironmentInspector({
                 pluginId={tab.pluginId}
                 title={tab.title}
                 Component={tab.component}
-                props={{ pluginId: tab.pluginId, environmentId }}
+                props={{
+                  pluginId: tab.pluginId,
+                  environmentId,
+                  space,
+                  url,
+                  openPluginPage: (surfaceId) => {
+                    if (surfaceId) onOpenPluginPage?.(tab.pluginId, surfaceId);
+                  },
+                }}
               />
             </div>
           </ScrollArea>

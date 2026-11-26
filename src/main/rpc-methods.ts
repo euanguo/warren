@@ -237,6 +237,12 @@ export const RPC_METHODS: readonly RpcMethodMeta[] = [
   { name: 'browser.console', kind: 'read', summary: '查看页面 Console 摘要', params: ['id'] },
   { name: 'browser.network', kind: 'read', summary: '查看页面网络请求摘要', params: ['id'] },
   { name: 'browser.info', kind: 'read', summary: '查看 URL/标题/加载态/弹窗', params: ['id'] },
+  {
+    name: 'browser.detectLoginFields',
+    kind: 'read',
+    summary: '隔离世界探测当前页登录输入框与提交按钮',
+    params: ['id', 'space?'],
+  },
   { name: 'browser.events', kind: 'read', summary: '读取并消费弹窗/弹出标签/下载队列', params: ['id'] },
   { name: 'browser.highlight', kind: 'read', summary: '在页面绘制高亮边框', params: ['id', 'target?'] },
   { name: 'notes.list', kind: 'read', summary: '列出所有站点记忆笔记', params: [] },
@@ -283,6 +289,23 @@ export const RPC_METHODS: readonly RpcMethodMeta[] = [
     params: ['id', 'command', 'env?', 'input?', 'leaseId?'],
   },
   { name: 'plugin.rpc', kind: 'change', summary: '调用插件 RPC', params: ['id', 'method', 'input?', 'leaseId?'] },
+  { name: 'plugin.readSkill', kind: 'read', summary: '读取指定插件的完整 Skill 文档', params: ['id'] },
+  {
+    name: 'plugin.setSkillExposed',
+    kind: 'change',
+    summary: '开关指定插件向 Agent 暴露 Skill',
+    params: ['id', 'exposed'],
+  },
+  { name: 'skills.compose', kind: 'read', summary: '实时合成含已启用插件索引的 Warren Skill', params: ['mode?'] },
+  { name: 'skills.plugin', kind: 'read', summary: '按需读取指定插件的完整 Skill 手册', params: ['id'] },
+  { name: 'skills.status', kind: 'read', summary: '查看各外部 Agent 目录的 Skill 安装与同步状态', params: [] },
+  {
+    name: 'skills.install',
+    kind: 'change',
+    summary: '安装合成版 Skill（含已启用插件）到目标 Agent 目录',
+    params: ['target?'],
+  },
+  { name: 'skills.refresh', kind: 'change', summary: '刷新所有已安装但过期的外部 Agent Skill 目录', params: [] },
 ];
 
 export function findRpcMethods(query?: string): RpcMethodMeta[] {

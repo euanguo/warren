@@ -55,6 +55,7 @@ export const BROWSER_MENU_SHORTCUTS = [
   { shortcut: 'zoomReset', accelerator: 'CmdOrCtrl+0', label: '实际大小' },
   { shortcut: 'print', accelerator: 'CmdOrCtrl+P', label: '打印或存为 PDF' },
   { shortcut: 'savePage', accelerator: 'CmdOrCtrl+S', label: '将页面另存为' },
+  { shortcut: 'quickAutofill', accelerator: 'CmdOrCtrl+Shift+L', label: '快捷填充账号' },
 ] as const satisfies ReadonlyArray<{
   shortcut: BrowserShortcut;
   accelerator: string;

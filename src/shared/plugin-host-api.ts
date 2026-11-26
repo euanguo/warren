@@ -5,7 +5,12 @@
  * 注意：插件前端和应用界面同 realm，绕过 `app.host` 直接调 IPC 在技术上做得到；
  * 这张表防的是合作型插件的误用，不是恶意代码。
  */
-export const PLUGIN_HOST_READ_METHODS = ['environment.list', 'environment.get', 'browser.info'] as const;
+export const PLUGIN_HOST_READ_METHODS = [
+  'environment.list',
+  'environment.get',
+  'environment.activeContext',
+  'browser.info',
+] as const;
 
 export type PluginHostReadMethod = (typeof PLUGIN_HOST_READ_METHODS)[number];
 

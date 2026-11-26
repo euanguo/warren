@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS plugins (
   package_name TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT '',
   resolved TEXT NOT NULL DEFAULT '',
+  skill_exposed INTEGER NOT NULL DEFAULT 1,
   installed_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -246,6 +247,7 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [table: string, column: string, type
   ['plugins', 'package_name', "TEXT NOT NULL DEFAULT ''"],
   ['plugins', 'source', "TEXT NOT NULL DEFAULT ''"],
   ['plugins', 'resolved', "TEXT NOT NULL DEFAULT ''"],
+  ['plugins', 'skill_exposed', 'INTEGER NOT NULL DEFAULT 1'],
   ['env_tabs', 'space', "TEXT NOT NULL DEFAULT 'person'"],
 ];
 

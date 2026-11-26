@@ -9,10 +9,12 @@
     "presets.mjs",
     "preflight.mjs",
     "agent-api.mjs",
+    "intents.mjs",
+    "SKILL.md",
     "README.md"
   ],
   "dependencies": {
-    "whistle": "2.10.12"
+    "whistle": "2.10.15"
   },
   "bundleDependencies": [
     "whistle"
@@ -25,6 +27,24 @@
     "host": "host.mjs",
     "app": "app.js",
     "icon": "Globe",
+    "skill": {
+      "entry": "SKILL.md",
+      "summary": "托管隔离的 Whistle 2.10.15 代理实例：抓包分析、规则/Values 管理、一键 Mock/故障注入/本地映射、请求重放对比、cURL 导出与排障链接。",
+      "triggers": [
+        "代理",
+        "抓包",
+        "whistle",
+        "mock",
+        "规则",
+        "网络",
+        "重放",
+        "replay",
+        "curl",
+        "proxy",
+        "https",
+        "har"
+      ]
+    },
     "engines": {
       "warren": ">=0.1.0"
     },
@@ -139,12 +159,68 @@
           "summary": "对比实例当前规则与目标文本"
         },
         {
+          "name": "ruleTest",
+          "summary": "诊断指定 URL 在当前实例会命中的规则与目标：--input='{\"storage\":\"a\",\"url\":\"https://...\"}'"
+        },
+        {
+          "name": "clearDnsCache",
+          "summary": "清理实例 DNS 缓存与本地地址缓存：--input='{\"storage\":\"a\"}'"
+        },
+        {
+          "name": "valueList",
+          "summary": "列出实例 Values（默认不含正文防撑爆上下文，传 includeValues:true 取正文）"
+        },
+        {
+          "name": "valueGet",
+          "summary": "读取单个 Value 正文：--input='{\"storage\":\"a\",\"name\":\"mock.json\"}'"
+        },
+        {
+          "name": "valueSet",
+          "summary": "新增或更新 Value 并回读校验：--input='{\"storage\":\"a\",\"name\":\"mock.json\",\"value\":{...}}'"
+        },
+        {
+          "name": "valueRemove",
+          "summary": "删除 Value：--input='{\"storage\":\"a\",\"name\":\"mock.json\"}'"
+        },
+        {
+          "name": "valueRename",
+          "summary": "重命名 Value：--input='{\"storage\":\"a\",\"name\":\"old.json\",\"newName\":\"new.json\"}'"
+        },
+        {
+          "name": "quickMock",
+          "summary": "一键静态 Mock（写 Value + 启用 warren-mock 组，同 pattern 幂等替换）"
+        },
+        {
+          "name": "injectFault",
+          "summary": "一键注入故障（延迟/限速/状态码/disable://cache|encoding，写入 warren-fault 组）"
+        },
+        {
+          "name": "mapLocal",
+          "summary": "一键本地映射（映射到本地端口/URL/目录，写入 warren-local 组）"
+        },
+        {
+          "name": "clearIntents",
+          "summary": "停用并清空受控调试组（warren-mock/warren-fault/warren-local），不伤主规则"
+        },
+        {
           "name": "traffic",
-          "summary": "读取实例实时请求/响应：--input='{\"storage\":\"a\",\"urls\":[\"/cgi/capi\"],\"methods\":[\"POST\"]}'"
+          "summary": "读取实例实时请求/响应（支持 Whistle 服务端 type/subUrl/statusCode 过滤与 timings）"
         },
         {
           "name": "compose",
           "summary": "经实例主动发请求并返回响应：--input='{\"storage\":\"a\",\"url\":\"https://...\",\"method\":\"POST\",\"data\":\"...\"}'"
+        },
+        {
+          "name": "replay",
+          "summary": "按 reqId 改参重放请求（支持覆写 url/method/headers/body/rules/times 与 diff:true 响应对比）"
+        },
+        {
+          "name": "toCurl",
+          "summary": "把指定 reqId 的抓包请求转为可执行的脱敏 cURL 命令"
+        },
+        {
+          "name": "captureLink",
+          "summary": "保存过滤后的抓包快照并生成直达链接（#network?dataUrl=...），可选 open:true 在环境标签打开"
         },
         {
           "name": "doctor",
@@ -152,7 +228,7 @@
         },
         {
           "name": "agent",
-          "summary": "调用 Whistle 2.10.7+ 官方 Local Agent API：--input='{\"storage\":\"a\",\"method\":\"rules.getList\",\"args\":[]}'"
+          "summary": "调用 Whistle 2.10.15 官方 Local Agent API（支持平铺名与命名空间别名）：--input='{\"storage\":\"a\",\"method\":\"rules.getList\",\"args\":[]}'"
         },
         {
           "name": "agentStatus",
@@ -199,7 +275,8 @@
         {
           "kind": "inspectorTab",
           "id": "env-proxy",
-          "title": "代理"
+          "title": "代理",
+          "icon": "Globe"
         },
         {
           "kind": "settingsSection",
@@ -210,6 +287,26 @@
           "kind": "envAction",
           "id": "open",
           "title": "打开代理实例",
+          "icon": "Globe",
+          "command": "open"
+        },
+        {
+          "kind": "popover",
+          "id": "quick-proxy",
+          "title": "Whistle 代理快捷控制",
+          "icon": "Globe"
+        },
+        {
+          "kind": "statusBadge",
+          "id": "proxy-badge",
+          "title": "代理运行状态",
+          "icon": "Globe"
+        },
+        {
+          "kind": "commandBarAction",
+          "id": "open-bound",
+          "title": "打开当前环境 Whistle Web UI",
+          "description": "在当前环境标签页中打开已绑定的 Whistle 控制台",
           "icon": "Globe",
           "command": "open"
         }
@@ -227,8 +324,22 @@
         "ruleRemove",
         "ruleValidate",
         "ruleDiff",
+        "ruleTest",
+        "clearDnsCache",
+        "valueList",
+        "valueGet",
+        "valueSet",
+        "valueRemove",
+        "valueRename",
+        "quickMock",
+        "injectFault",
+        "mapLocal",
+        "clearIntents",
         "traffic",
         "compose",
+        "replay",
+        "toCurl",
+        "captureLink",
         "doctor",
         "agent",
         "agentStatus",

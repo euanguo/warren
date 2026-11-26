@@ -44,7 +44,7 @@ import type {
 } from '../shared/types';
 import { BROWSER_MENU_SHORTCUTS, browserShortcut } from './browser-shortcuts';
 import { isOpenableExternalUrl } from './external-url';
-import { installSkill, skillStatus } from './agent-integration';
+import { installSkill, refreshSkills, skillStatus } from './agent-integration';
 import { WindowLayerManager } from './ui/layer-manager.ts';
 import { OverlayHost } from './ui/overlay-host.ts';
 import { PopoverHost } from './ui/popover-host.ts';
@@ -483,6 +483,9 @@ function registerIpc(): void {
   handleShell('browser:revealDownload', (downloadId: string) => manager.revealDownload(downloadId));
   handleShell('browser:printPage', (id: string, space: SpaceId) => manager.printPage(id, space));
   handleShell('browser:savePage', (id: string, space: SpaceId) => manager.savePageAs(id, space));
+  handleShell('browser:highlight', async (id: string, space: SpaceId, target?: string) => {
+    await manager.controllerFor(id, undefined, space).highlight(target as never);
+  });
 
   handle('ui:popupMenu', (items: NativeMenuItem[], position?: { x: number; y: number }) => {
     if (!window) return null;
@@ -556,9 +559,14 @@ function registerIpc(): void {
     }),
   );
 
-  // 自带 Skill 的安装（见 src/main/agent-integration.ts）
-  handle('agent:skills', () => skillStatus(os.homedir(), skillSourceDir()));
-  handle('agent:installSkill', (targetId: string) => installSkill(os.homedir(), skillSourceDir(), targetId));
+  // 自带 Skill 的安装与自动同步（见 src/main/agent-integration.ts）
+  handle('agent:skills', async () => skillStatus(os.homedir(), skillSourceDir(), await plugins.skillEntries()));
+  handle('agent:installSkill', async (targetId: string) =>
+    installSkill(os.homedir(), skillSourceDir(), targetId, await plugins.skillEntries()),
+  );
+  handle('agent:refreshSkills', async () =>
+    refreshSkills(os.homedir(), skillSourceDir(), await plugins.skillEntries()),
+  );
   handle('vault:remove', async (ref: string) => {
     const removed = vault.remove(ref);
     await saveVault();
@@ -583,15 +591,19 @@ function registerIpc(): void {
   handle('plugin:configSet', (id: string, key: string, value: string) =>
     pluginsChanged(() => plugins.setSetting(id, key, value)),
   );
-  // 这条 IPC 只有渲染层（插件自己的 UI）用：caller=ui 才允许走「只给人看」的通道（如账号 reveal）
-  handle('plugin:rpc', (id: string, method: string, input?: unknown) =>
+  handle('plugin:setSkillExposed', (id: string, exposed: boolean) =>
+    pluginsChanged(() => plugins.setSkillExposed(id, exposed)),
+  );
+  handle('plugin:readSkill', (id: string) => plugins.readSkill(id));
+  // 这条 IPC 只有渲染层（主窗与 PopoverHost 插件 UI）用：caller=ui 才允许走「只给人看」的通道（如账号 reveal / totpCode）
+  handleShell('plugin:rpc', (id: string, method: string, input?: unknown) =>
     plugins.rpc(id, method, input, { caller: 'ui' }),
   );
-  handle('plugin:hostRead', (id: string, method: string, environmentId?: string, args?: unknown[]) =>
+  handleShell('plugin:hostRead', (id: string, method: string, environmentId?: string, args?: unknown[]) =>
     plugins.hostRead(id, method, environmentId, args ?? []),
   );
-  handleShell('plugin:run', (id: string, command: string, environmentId: string) =>
-    pluginsChanged(() => plugins.run(id, command, { environmentId })),
+  handleShell('plugin:run', (id: string, command: string, environmentId?: string) =>
+    pluginsChanged(() => plugins.run(id, command, { environmentId: environmentId ?? '', caller: 'ui' })),
   );
   handle('plugin:installSource', async (source: string) => {
     const plugin = await pluginsChanged(() => plugins.install(source));
@@ -778,6 +790,19 @@ app.whenReady().then(async () => {
   );
   manager.applySettings(initialSettings, { respectEnvOverrides: true });
 
+  let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleSkillSync = (): void => {
+    if (skillSyncTimer) clearTimeout(skillSyncTimer);
+    skillSyncTimer = setTimeout(() => {
+      skillSyncTimer = undefined;
+      void plugins
+        .skillEntries()
+        .then((entries) => refreshSkills(os.homedir(), skillSourceDir(), entries))
+        .catch(() => undefined);
+    }, 300);
+    skillSyncTimer.unref();
+  };
+
   plugins = new PluginHost({
     root: path.join(coreDir, 'plugins'),
     manager,
@@ -788,16 +813,25 @@ app.whenReady().then(async () => {
     appVersion: app.getVersion(),
     onSignal: (pluginId, channel, payload) => {
       window?.webContents.send('plugin:signal', { pluginId, channel, payload });
+      popoverHost?.broadcast('plugin:signal', { pluginId, channel, payload });
     },
-    // CLI / agent 改的插件状态也要让界面知道，否则 rail 与设置分节会停在旧清单
+    // CLI / agent 改的插件状态也要让界面知道，否则 rail 与设置分节会停在旧清单；同时自动同步已安装 Skill
     onChange: () => {
       broadcastPluginChanged();
       broadcastStateChanged();
+      scheduleSkillSync();
     },
   });
   await plugins.load();
+  scheduleSkillSync();
 
-  rpc = new RpcServer(manager, store, { vault, saveVault, plugins });
+  rpc = new RpcServer(manager, store, {
+    vault,
+    saveVault,
+    plugins,
+    skillSourceDir: skillSourceDir(),
+    homeDir: os.homedir(),
+  });
   await rpc.listen();
   registerIpc();
   syncPowerSaveBlocker();

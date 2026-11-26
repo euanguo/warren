@@ -50,7 +50,7 @@ export class PluginInvoker {
   async run(
     id: string,
     command: string,
-    options: { environmentId: string; input?: unknown; leaseId?: string },
+    options: { environmentId?: string; input?: unknown; leaseId?: string; caller?: PluginRpcCaller },
   ): Promise<RunResult> {
     if (!this.#deps.getState().enabled.includes(id)) pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     await this.#deps.readPackage(id); // 顺带校验清单还在、没被改坏
@@ -59,16 +59,18 @@ export class PluginInvoker {
       pluginError('PLUGIN_NOT_ACTIVE', `插件 ${id} 没有激活（状态 ${this.#deps.statusOf(id).status}）`);
     }
 
+    const environmentId = options.environmentId || undefined;
+    const caller: PluginRpcCaller = options.caller ?? 'agent';
     const ctx = {
       pluginId: id,
-      environmentId: options.environmentId,
+      environmentId: options.environmentId ?? '',
       command,
       input: options.input,
       leaseId: options.leaseId,
+      caller,
     };
-    const environmentId = options.environmentId || undefined;
     try {
-      const result = await runWithPluginContext({ pluginId: id, environmentId, leaseId: options.leaseId }, () =>
+      const result = await runWithPluginContext({ pluginId: id, environmentId, leaseId: options.leaseId, caller }, () =>
         active.adapter.command(command, ctx),
       );
       this.#deps.store.record({

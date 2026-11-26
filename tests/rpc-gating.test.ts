@@ -31,6 +31,7 @@ const READ_ONLY = new Set([
   'browser.waitForTimeout',
   'browser.waitForEvent',
   'browser.info',
+  'browser.detectLoginFields',
   'browser.events',
   'browser.downloadStatus',
   'browser.console',

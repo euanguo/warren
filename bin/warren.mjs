@@ -597,8 +597,10 @@ const formatExtensionLine = (item) => `${item.id}  ${item.dir}`;
 const formatMethodLine = (item) => `${String(item.kind).padEnd(7)} ${String(item.name).padEnd(24)} ${item.summary}`;
 const formatNoteLine = (item) =>
   `[${item.site}] (${item.updatedBy}, ${String(item.updatedAt ?? '').slice(0, 19)})\n  ${item.content.replace(/\n/g, '\n  ')}`;
-const formatSkillLine = (item) =>
-  `${item.installed ? (item.upToDate ? '✓' : '!') : '○'} ${item.id.padEnd(8)} ${item.label.padEnd(24)} ${item.path}`;
+const formatSkillLine = (item) => {
+  const pluginsCount = Array.isArray(item.enabledPlugins) ? `  插件Skill:${item.enabledPlugins.length}` : '';
+  return `${item.installed ? (item.upToDate ? '✓' : '!') : '○'} ${item.id.padEnd(8)} ${item.label.padEnd(24)}${pluginsCount}  ${item.path}`;
+};
 const formatFlowLine = (item) =>
   `${String(item.name).padEnd(22)} ${String(item.site).padEnd(26)} ${item.spec?.urlTemplate ?? ''}`;
 const formatFlowStepLine = (item) => `GET ${String(item.status).padEnd(4)} ${item.suggestedTemplate}`;
@@ -639,23 +641,69 @@ const asJson = Boolean(flags.json);
 
 try {
   if (flags.skill) {
-    process.stdout.write(readFileSync(resolveBundledSkillPath(), 'utf8'));
+    const pluginId = typeof flags.plugin === 'string' ? flags.plugin : undefined;
+    if (pluginId) {
+      const doc = await call('skills.plugin', { id: pluginId });
+      process.stdout.write(asJson ? JSON.stringify(doc, null, 2) + '\n' : doc.markdown);
+    } else if (flags['base-only']) {
+      process.stdout.write(readFileSync(resolveBundledSkillPath(), 'utf8'));
+    } else {
+      const mode = flags.full ? 'full' : 'index';
+      try {
+        const composed = await call('skills.compose', { mode });
+        process.stdout.write(asJson ? JSON.stringify(composed, null, 2) + '\n' : composed.markdown);
+      } catch {
+        // Warren 未运行时回退读取静态基线 SKILL.md，保证离线自发现可用
+        process.stdout.write(readFileSync(resolveBundledSkillPath(), 'utf8'));
+      }
+    }
   } else if (group === 'skills') {
     switch (sub) {
-      case 'status':
-        print(getLocalSkillStatuses(), asJson, formatSkillLine);
+      case 'status': {
+        let statuses;
+        try {
+          statuses = await call('skills.status');
+        } catch {
+          statuses = getLocalSkillStatuses();
+        }
+        print(statuses, asJson, formatSkillLine);
         break;
-      case 'install':
-        print(installLocalSkill(args[2] ?? 'all'), asJson, (w) => `✓ 已安装 ${w.id} → ${w.path}`);
+      }
+      case 'install': {
+        const target = args[2] ?? 'all';
+        let written;
+        try {
+          written = await call('skills.install', { target });
+        } catch {
+          written = installLocalSkill(target);
+        }
+        print(written, asJson, (w) => `✓ 已安装 ${w.id} → ${w.path}`);
         break;
+      }
       case 'refresh': {
-        const outdated = getLocalSkillStatuses().filter((item) => item.installed && !item.upToDate);
-        const refreshed = outdated.flatMap((item) => installLocalSkill(item.id));
+        let refreshed;
+        try {
+          refreshed = await call('skills.refresh');
+        } catch {
+          const outdated = getLocalSkillStatuses().filter((item) => item.installed && !item.upToDate);
+          refreshed = outdated.flatMap((item) => installLocalSkill(item.id));
+        }
         print(refreshed, asJson, (w) => `✓ 已更新 ${w.id} → ${w.path}`);
         break;
       }
+      case 'plugin': {
+        const id = args[2];
+        if (!id) {
+          console.error('用法: warren skills plugin <pluginId> [--json]');
+          process.exit(1);
+        }
+        const doc = await call('skills.plugin', { id });
+        if (asJson) print(doc, true);
+        else process.stdout.write(doc.markdown);
+        break;
+      }
       default:
-        console.error(usageOf('skills', ' [target|all]'));
+        console.error(usageOf('skills', ' [target|all|pluginId]'));
         process.exit(1);
     }
   } else if (group === 'methods') {
@@ -1163,6 +1211,28 @@ try {
         }
         print(await call('plugin.list'), asJson, formatPluginLine);
         break;
+      case 'skill': {
+        const id = args[2];
+        if (!id) {
+          console.error('用法: warren plugin skill <id> [--json]');
+          process.exit(1);
+        }
+        const doc = await call('plugin.readSkill', { id });
+        if (asJson) print(doc, true);
+        else process.stdout.write(doc.markdown);
+        break;
+      }
+      case 'skill-exposure': {
+        const id = args[2];
+        const rawMode = String(args[3] ?? '').toLowerCase();
+        if (!id || !['on', 'off', 'true', 'false'].includes(rawMode)) {
+          console.error('用法: warren plugin skill-exposure <id> <on|off>');
+          process.exit(1);
+        }
+        const exposed = rawMode === 'on' || rawMode === 'true';
+        print(await call('plugin.setSkillExposed', { id, exposed }), asJson);
+        break;
+      }
       case 'run': {
         const id = args[2];
         const command = args[3];
@@ -2459,6 +2529,10 @@ try {
         print(await call('browser.highlight', { id: environmentId, target }), asJson);
         break;
       }
+      case 'detect-login': {
+        print(await call('browser.detectLoginFields', { id: environmentId, space: flags.space }), asJson);
+        break;
+      }
       default:
         console.error(usageOf('browser'));
         process.exit(1);
@@ -2520,6 +2594,7 @@ try {
   warren browser diff <env> <snapshot|screenshot|urls> [a] [b] [--threshold=0.05] [--output=diff.png]
   warren browser screenshot <env> [--output=<path>] [--full-page] [--annotate] [--format=png|jpeg] [--base64]
   warren browser highlight <env> [选择器]   # 高亮元素给人看（不传选择器 = 清除）
+  warren browser detect-login <env>  # 隔离世界自动探测当前页登录输入框与提交按钮
   warren browser info <env>          # url/title/loading/dialog/标签/最近导航错因
   warren browser events <env>        # 读并清空 dialog/popup/download/fileChooser
   warren browser console <env>       # 页面 console 摘要
@@ -2529,8 +2604,8 @@ try {
   warren notes get|set|append|list|rm [site] [text]   # 站点记忆（自动注入 snapshot/read）
   warren flow steps|save|run|list|show|rm ...         # 只读参数化 GET API Flow（严禁凭据与写请求）
   warren methods [name] [--json]                 # 实时反射全部 RPC 方法与参数
-  warren --skill                                 # 输出内置 SKILL.md 手册
-  warren skills install|status|refresh [target]  # 本地 Skill 校验戳管理（不依赖启动应用）
+  warren --skill [--full|--base-only|--plugin=<id>]  # 输出实时合成版 SKILL.md（自动注入已启用插件）
+  warren skills install|status|refresh|plugin [target|pluginId]  # 本地 Skill 与插件 Skill 管理
 
   warren net rules <env>             # 该环境的拦截规则 + 命中数
   warren net rule add <env> --match='*/api/*' --mock='{"id":1}' [--status=200] [--method=GET]
@@ -2583,6 +2658,8 @@ try {
   warren plugin status <id>                     # 插件运行状态（不传 id = 全部）
   warren plugin logs <id> [--n=50]              # 插件日志
   warren plugin config <id> [set <key> <value>] # 读插件设置 / 写一条
+  warren plugin skill <id>                      # 打印指定插件的完整 Skill 手册
+  warren plugin skill-exposure <id> <on|off>    # 开关该插件向 Agent 暴露 Skill
   warren plugin grant <id> <permission...>
   warren plugin run <id> <command> --env=<env>
   warren plugin rpc <id> <method> [--input='{"k":1}'] [--lease=<leaseId>]

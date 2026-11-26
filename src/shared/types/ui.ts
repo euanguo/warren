@@ -34,6 +34,7 @@ export type BrowserShortcut =
   | 'zoomReset'
   | 'print'
   | 'savePage'
+  | 'quickAutofill'
   | { selectTab: number };
 
 export type DevToolsDockMode = 'right' | 'bottom' | 'detach';

@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { Icon, type IconName } from '@/components/icons';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { PluginBoundary } from '@/app/plugin-surfaces';
+import { Icon, isIconName, type IconName } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
+import { Kbd } from '@/components/ui/kbd';
 import { MenuLabel } from '@/components/ui/menu';
+import { Spinner } from '@/components/ui/spinner';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { getPluginBrand } from '@/lib/plugin-brand';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { usePluginState } from '@/state/plugin-store';
 import { elevatedMenuSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
 import type { DownloadItemInfo, FindInPageResult, SpaceId, UrlHistoryEntry, ViewportPresetId } from '@shared/types';
 
@@ -308,6 +314,130 @@ function ViewportView({ props }: { props: Record<string, unknown> }) {
   );
 }
 
+function PluginPopoverView({ props }: { props: Record<string, unknown> }) {
+  const { registry, loaded } = usePluginState();
+  const pluginId = typeof props.pluginId === 'string' ? props.pluginId : '';
+  const surfaceId = typeof props.surfaceId === 'string' ? props.surfaceId : '';
+  const environmentId = typeof props.environmentId === 'string' ? props.environmentId : undefined;
+  const space: SpaceId = props.space === 'agent' ? 'agent' : 'person';
+  const url = typeof props.url === 'string' ? props.url : '';
+
+  const surface = registry.popovers.find((item) => item.pluginId === pluginId && item.id === surfaceId);
+  const railPage = registry.railPages.find((item) => item.pluginId === pluginId);
+  const inspectorTab = registry.inspectorTabs.find((item) => item.pluginId === pluginId);
+  const brand = getPluginBrand(pluginId, surface?.icon);
+  const iconName: IconName = isIconName(brand.icon) ? brand.icon : 'Plug';
+
+  const closePopover = () => {
+    void window.envApi.closePopover('plugin-popover');
+  };
+  const openPluginPage = (targetSurfaceId?: string) => {
+    const id = targetSurfaceId ?? railPage?.id;
+    if (!id) return;
+    void window.envApi.dispatchPopoverAction({
+      id: 'plugin-popover',
+      action: 'openPluginPage',
+      payload: { pluginId, surfaceId: id },
+    });
+    closePopover();
+  };
+  const openInspectorTab = (targetSurfaceId?: string) => {
+    const id = targetSurfaceId ?? inspectorTab?.id;
+    if (!id) return;
+    void window.envApi.dispatchPopoverAction({
+      id: 'plugin-popover',
+      action: 'openInspectorTab',
+      payload: { pluginId, surfaceId: id },
+    });
+    closePopover();
+  };
+
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active.closest('[data-slot="plugin-popover-header"]')) {
+      hostRef.current?.focus({ preventScroll: true });
+    }
+  }, [pluginId, surfaceId]);
+
+  return (
+    <div
+      ref={hostRef}
+      tabIndex={-1}
+      data-slot="plugin-popover-host"
+      data-plugin-id={pluginId}
+      data-surface-id={surfaceId}
+      className={cn(
+        elevatedMenuSurfaceClass,
+        'flex h-full flex-col overflow-hidden rounded-[var(--radius-menu)] border-0 text-xs text-foreground shadow-none outline-none',
+      )}
+    >
+      <div
+        data-slot="plugin-popover-header"
+        className="flex shrink-0 items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5"
+      >
+        <Icon
+          name={iconName}
+          style={{ '--brand-hue': brand.hue } as CSSProperties}
+          className="plugin-brand-icon size-3.5 shrink-0"
+        />
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{surface?.title ?? '插件快捷面板'}</span>
+        {surface?.shortcut && <Kbd className="shrink-0 text-[length:var(--font-size-micro)]">{surface.shortcut}</Kbd>}
+        {inspectorTab && (
+          <IconButton
+            variant="ghost"
+            title="在右侧工作台打开"
+            aria-label="在右侧工作台打开"
+            onClick={() => openInspectorTab(inspectorTab.id)}
+          >
+            <Icon name="PanelRight" className="size-3.5" />
+          </IconButton>
+        )}
+        {railPage && (
+          <IconButton
+            variant="ghost"
+            title="打开完整管理页"
+            aria-label="打开完整管理页"
+            onClick={() => openPluginPage(railPage.id)}
+          >
+            <Icon name="ExternalLink" className="size-3.5" />
+          </IconButton>
+        )}
+        <IconButton variant="ghost" title="关闭 (Esc)" aria-label="关闭" onClick={closePopover}>
+          <Icon name="X" className="size-3.5" />
+        </IconButton>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!loaded ? (
+          <div className="flex h-full items-center justify-center gap-2 p-6 text-muted-foreground">
+            <Spinner />
+            <span>正在加载插件面板…</span>
+          </div>
+        ) : !surface ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+            <Icon name="AlertTriangle" className="size-5 text-[var(--warning)]" />
+            <p className="text-foreground">未找到该插件快捷面板</p>
+            <p className="font-mono text-[11px]">{`${pluginId}:${surfaceId}`}</p>
+          </div>
+        ) : (
+          <PluginBoundary pluginId={pluginId} title={surface.title}>
+            <surface.component
+              pluginId={pluginId}
+              environmentId={environmentId}
+              space={space}
+              url={url}
+              closePopover={closePopover}
+              openPluginPage={openPluginPage}
+              openInspectorTab={openInspectorTab}
+            />
+          </PluginBoundary>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * PopoverHost 子窗口渲染入口（加载 `index.html?surface=popover`）。
  * 依托操作系统 `parent` 子窗，直接凌驾于 `WebContentsView` 与主窗之上，绝不遮挡/节流页面。
@@ -335,11 +465,14 @@ export function PopoverRoot() {
   if (!state) return null;
 
   return (
-    <div className="h-full w-full p-0.5">
-      {state.id === 'address-suggest' && <AddressSuggestView props={state.props} />}
-      {state.id === 'find-in-page' && <FindInPageView props={state.props} />}
-      {state.id === 'downloads' && <DownloadsView props={state.props} />}
-      {state.id === 'viewport' && <ViewportView props={state.props} />}
-    </div>
+    <TooltipProvider>
+      <div className="h-full w-full">
+        {state.id === 'address-suggest' && <AddressSuggestView props={state.props} />}
+        {state.id === 'find-in-page' && <FindInPageView props={state.props} />}
+        {state.id === 'downloads' && <DownloadsView props={state.props} />}
+        {state.id === 'viewport' && <ViewportView props={state.props} />}
+        {state.id === 'plugin-popover' && <PluginPopoverView props={state.props} />}
+      </div>
+    </TooltipProvider>
   );
 }

@@ -10,6 +10,7 @@ import { EnvironmentSidebar } from '@/features/environments/environment-sidebar'
 import { EnvironmentStage } from '@/features/environments/environment-stage';
 import { SettingsPage } from '@/features/settings/settings-page';
 import { usePluginBadges } from '@/lib/plugin-badges';
+import { OPEN_PLUGIN_INSPECTOR_EVENT, OPEN_PLUGIN_POPOVER_EVENT } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
 import { environmentActions, useEnvironmentState } from '@/state/environment-store';
 import {
@@ -103,6 +104,24 @@ export function App() {
           openSettings(result.section);
         } else if (result?.command === 'openPluginPage' && result.pluginId && result.surfaceId) {
           openPluginPage(result.pluginId, result.surfaceId);
+        } else if (result?.command === 'openPluginPopover' && result.pluginId && result.surfaceId) {
+          openEnvironments();
+          window.requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent(OPEN_PLUGIN_POPOVER_EVENT, {
+                detail: { pluginId: result.pluginId, surfaceId: result.surfaceId },
+              }),
+            );
+          });
+        } else if (result?.command === 'openPluginInspectorTab' && result.pluginId && result.surfaceId) {
+          openEnvironments();
+          window.requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent(OPEN_PLUGIN_INSPECTOR_EVENT, {
+                detail: { pluginId: result.pluginId, surfaceId: result.surfaceId },
+              }),
+            );
+          });
         }
       });
   }, []);
@@ -338,6 +357,8 @@ export function App() {
                       onNavigate={navigate}
                       pluginTabs={registry.inspectorTabs}
                       pluginPopovers={registry.popovers}
+                      pluginStatusBadges={registry.statusBadges}
+                      pluginRailPages={registry.railPages}
                     />
                   </ResizablePanel>
                 </ResizablePanelGroup>
@@ -364,7 +385,27 @@ export function App() {
                     pluginId={activePluginPage.pluginId}
                     title={activePluginPage.title}
                     Component={activePluginPage.component}
-                    props={{ pluginId: activePluginPage.pluginId, environmentId: selected }}
+                    props={{
+                      pluginId: activePluginPage.pluginId,
+                      environmentId: selected,
+                      space: activeSpaceId,
+                      url: nav?.url || current?.currentUrl || '',
+                      openPluginPage: (surfaceId) =>
+                        openPluginPage(activePluginPage.pluginId, surfaceId ?? activePluginPage.id),
+                      openInspectorTab: (surfaceId) => {
+                        const targetId =
+                          surfaceId ?? registry.inspectorTabs.find((t) => t.pluginId === activePluginPage.pluginId)?.id;
+                        if (!targetId) return;
+                        openEnvironments();
+                        window.requestAnimationFrame(() => {
+                          window.dispatchEvent(
+                            new CustomEvent(OPEN_PLUGIN_INSPECTOR_EVENT, {
+                              detail: { pluginId: activePluginPage.pluginId, surfaceId: targetId },
+                            }),
+                          );
+                        });
+                      },
+                    }}
                   />
                 </div>
               )}

@@ -69,6 +69,35 @@ export interface PluginContributes {
   rpc: string[];
 }
 
+export interface PluginSkillDecl {
+  /** 包内相对路径，默认指向插件的 SKILL.md */
+  entry: string;
+  /** 给主 Skill 索引表用的一句话摘要（≤240 字符） */
+  summary?: string;
+  /** 触发场景/关键词，帮助外部 Agent 决定何时按需读取本插件 Skill */
+  triggers?: string[];
+  /** 可选附带参考文档（包内相对路径，最多 8 个） */
+  references?: string[];
+}
+
+export interface PluginSkillSummary {
+  entry?: string;
+  summary: string;
+  triggers: string[];
+  references: string[];
+  hasExplicitSkill: boolean;
+  exposed: boolean;
+  bytes: number;
+  sha256: string;
+}
+
+export interface PluginSkillDocument extends PluginSkillSummary {
+  pluginId: string;
+  pluginName: string;
+  version: string;
+  markdown: string;
+}
+
 export interface InstalledPlugin {
   id: string;
   name: string;
@@ -89,6 +118,10 @@ export interface InstalledPlugin {
   granted: string[];
   needsConfirmation: string[];
   enabled: boolean;
+  /** 是否允许将该插件的 Skill 自动注入到外部 Agent 的 Warren Skill 目录（默认 true）。 */
+  skillExposed: boolean;
+  /** 插件自带或兜底生成的 Skill 摘要（元数据，不含完整正文）。 */
+  skill?: PluginSkillSummary;
   status: PluginStatus;
   statusDetail?: string;
   contributes: PluginContributes;
@@ -134,7 +167,8 @@ export interface PluginRpcResponse {
  */
 export type PluginRpcCaller = 'ui' | 'agent';
 
-export type PluginBusEventType = 'nav.committed' | 'lease.changed' | 'tab.created' | 'env.status' | 'net.hit';
+export type PluginBusEventType =
+  'nav.committed' | 'lease.changed' | 'tab.created' | 'tab.activated' | 'space.switched' | 'env.status' | 'net.hit';
 
 export interface PluginEventFilter {
   environmentId?: string;
