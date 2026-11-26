@@ -105,6 +105,7 @@ export class EnvViewCoordinator {
             contextIsolation: true,
             sandbox: true,
             nodeIntegration: false,
+            backgroundThrottling: false,
           },
         }),
       () => !this.#window.isDestroyed() && this.#window.isFocused(),
@@ -602,7 +603,7 @@ export class EnvViewCoordinator {
     if (options.dock) this.#devtools.setDefaultDock(options.dock);
     if (options.defaultViewport) this.#defaultViewport = options.defaultViewport;
     if (typeof options.pageBorderRadius === 'boolean') {
-      this.#layers.setPageRadius(options.pageBorderRadius ? 8 : 0);
+      this.#layers.setPageRadius(options.pageBorderRadius ? 6 : 0);
     }
   }
 

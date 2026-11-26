@@ -2,6 +2,7 @@ import { WebContentsView } from 'electron';
 import type { WindowLayerManager } from './ui/layer-manager.ts';
 
 export type ShieldMode = 'agent' | 'idle';
+export type ShieldTheme = 'dark' | 'light';
 
 export interface ShieldVisualAction {
   kind: 'click' | 'fill' | 'hover' | 'move';
@@ -24,31 +25,48 @@ function buildShieldHtml(): string {
   #catch {
     position: fixed; inset: 0;
     cursor: not-allowed;
-    border-radius: 8px;
+    border-radius: 6px;
   }
   #aura {
-    position: fixed; inset: 0; pointer-events: none; border-radius: 8px;
+    position: fixed; inset: 0; pointer-events: none; border-radius: 6px;
     transition: box-shadow 0.24s ease;
   }
   body[data-mode="idle"] #aura {
-    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.42);
+    box-shadow: inset 0 0 0 1.5px rgba(148, 163, 184, 0.56);
+  }
+  body[data-theme="light"][data-mode="idle"] #aura {
+    box-shadow: inset 0 0 0 1.5px rgba(100, 116, 139, 0.52);
   }
   body[data-mode="agent"] #aura {
     box-shadow:
-      inset 0 0 0 1.5px rgba(56, 189, 248, 0.54),
-      inset 0 0 24px rgba(56, 189, 248, 0.16);
+      inset 0 0 0 2px rgba(56, 189, 248, 0.68),
+      inset 0 0 26px rgba(56, 189, 248, 0.2);
+  }
+  body[data-theme="light"][data-mode="agent"] #aura {
+    box-shadow:
+      inset 0 0 0 2px rgba(2, 132, 199, 0.72),
+      inset 0 0 24px rgba(14, 165, 233, 0.16);
   }
   #sweep {
-    position: fixed; top: 0; left: 0; right: 0; height: 2px;
-    pointer-events: none; opacity: 0;
-    background: linear-gradient(90deg, transparent 0%, #38bdf8 46%, #818cf8 66%, transparent 100%);
-    background-size: 42% 100%; background-repeat: no-repeat;
+    position: fixed; top: 0; left: 0; right: 0; height: 2.5px;
+    pointer-events: none; opacity: 0; border-radius: 6px 6px 0 0;
+    background: linear-gradient(90deg, transparent 0%, #38bdf8 44%, #818cf8 66%, transparent 100%);
+    background-size: 46% 100%; background-repeat: no-repeat;
+    box-shadow: 0 1px 10px rgba(56, 189, 248, 0.4);
     transition: opacity 0.2s ease;
   }
-  body[data-mode="agent"] #sweep { opacity: 0.92; }
+  body[data-theme="light"] #sweep {
+    background: linear-gradient(90deg, transparent 0%, #0284c7 44%, #6366f1 66%, transparent 100%);
+    background-size: 46% 100%; background-repeat: no-repeat;
+    box-shadow: 0 1px 8px rgba(2, 132, 199, 0.32);
+  }
+  body[data-mode="agent"] #sweep { opacity: 0.96; }
   @media (prefers-reduced-motion: no-preference) {
     body[data-mode="agent"] #aura {
       animation: haloBreath 2.6s ease-in-out infinite;
+    }
+    body[data-theme="light"][data-mode="agent"] #aura {
+      animation: haloBreathLight 2.6s ease-in-out infinite;
     }
     body[data-mode="agent"] #sweep {
       animation: sweepBar 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
@@ -57,13 +75,25 @@ function buildShieldHtml(): string {
   @keyframes haloBreath {
     0%, 100% {
       box-shadow:
-        inset 0 0 0 1.5px rgba(56, 189, 248, 0.34),
-        inset 0 0 16px rgba(56, 189, 248, 0.08);
+        inset 0 0 0 1.5px rgba(56, 189, 248, 0.45),
+        inset 0 0 18px rgba(56, 189, 248, 0.12);
     }
     50% {
       box-shadow:
-        inset 0 0 0 2px rgba(56, 189, 248, 0.72),
-        inset 0 0 30px rgba(56, 189, 248, 0.22);
+        inset 0 0 0 2.5px rgba(56, 189, 248, 0.85),
+        inset 0 0 34px rgba(56, 189, 248, 0.26);
+    }
+  }
+  @keyframes haloBreathLight {
+    0%, 100% {
+      box-shadow:
+        inset 0 0 0 2px rgba(2, 132, 199, 0.52),
+        inset 0 0 18px rgba(14, 165, 233, 0.12);
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 2.5px rgba(2, 132, 199, 0.88),
+        inset 0 0 30px rgba(14, 165, 233, 0.22);
     }
   }
   @keyframes sweepBar {
@@ -128,6 +158,16 @@ function buildShieldHtml(): string {
     transition: opacity 0.16s ease;
   }
   #nudge.show { opacity: 1; pointer-events: auto; }
+  body[data-theme="light"] #nudge {
+    background: rgba(255, 255, 255, 0.94); color: #0f172a;
+    border-color: rgba(2, 132, 199, 0.32);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.14);
+  }
+  body[data-theme="light"] #nudge a {
+    background: rgba(2, 132, 199, 0.14); color: #0369a1;
+    border-color: rgba(2, 132, 199, 0.35);
+  }
+  body[data-theme="light"] #nudge a:hover { background: rgba(2, 132, 199, 0.24); }
   #nudge a {
     display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
     background: rgba(56, 189, 248, 0.22); color: #bae6fd; text-decoration: none;
@@ -135,7 +175,7 @@ function buildShieldHtml(): string {
   }
   #nudge a:hover { background: rgba(56, 189, 248, 0.36); }
 </style></head>
-<body data-mode="idle">
+<body data-mode="idle" data-theme="dark">
   <div id="catch"></div>
   <div id="aura"></div>
   <div id="sweep"></div>
@@ -148,7 +188,7 @@ function buildShieldHtml(): string {
   <div id="nudge"><span id="nudge-text"></span><a id="nudge-takeover" href="warren-action://takeover">接管</a></div>
   <script>
     (() => {
-      const state = { caller: 'Agent', mode: 'idle', showControlPill: true };
+      const state = { caller: 'Agent', mode: 'idle', theme: 'dark', showControlPill: true };
       const catchEl = document.getElementById('catch');
       const targetBox = document.getElementById('target-box');
       const targetTag = document.getElementById('target-tag');
@@ -173,8 +213,10 @@ function buildShieldHtml(): string {
         if (!next) return;
         if (typeof next.caller === 'string') state.caller = next.caller || 'Agent';
         if (next.mode === 'agent' || next.mode === 'idle') state.mode = next.mode;
+        if (next.theme === 'dark' || next.theme === 'light') state.theme = next.theme;
         if (typeof next.showControlPill === 'boolean') state.showControlPill = next.showControlPill;
         document.body.dataset.mode = state.mode;
+        document.body.dataset.theme = state.theme;
         if (state.mode !== 'agent') hideTraces();
       };
 
@@ -187,7 +229,7 @@ function buildShieldHtml(): string {
         cursor.style.top = y + 'px';
         cursor.style.opacity = '1';
         clearTimeout(cursorTimer);
-        cursorTimer = setTimeout(() => { cursor.style.opacity = '0'; }, 2600);
+        cursorTimer = setTimeout(() => { cursor.style.opacity = state.mode === 'agent' ? '0.48' : '0'; }, 2600);
 
         if (act.rect && act.rect.width > 0 && act.rect.height > 0) {
           const rx = Math.max(0, act.rect.x - 2);
@@ -200,7 +242,7 @@ function buildShieldHtml(): string {
           const tagText = state.caller + ' · ' + (act.label || act.kind);
           targetTag.textContent = tagText;
           targetTag.style.left = Math.min(rx, Math.max(8, window.innerWidth - 180)) + 'px';
-          targetTag.style.top = Math.max(6, ry - 20) + 'px';
+          targetTag.style.top = Math.max(6, ry - 22) + 'px';
           targetTag.style.opacity = '1';
           clearTimeout(boxTimer);
           boxTimer = setTimeout(() => {
@@ -252,15 +294,29 @@ export class InputShield {
   #layers?: WindowLayerManager;
   #callerLabel = 'Agent';
   #mode: ShieldMode = 'idle';
+  #theme: ShieldTheme = 'dark';
   #showControlPill = true;
   #onTakeover?: () => void;
 
-  constructor(options: { layers?: WindowLayerManager; showControlPill?: boolean; onTakeover?: () => void } = {}) {
+  constructor(
+    options: {
+      layers?: WindowLayerManager;
+      showControlPill?: boolean;
+      theme?: ShieldTheme;
+      onTakeover?: () => void;
+    } = {},
+  ) {
     this.#layers = options.layers;
     this.#showControlPill = options.showControlPill ?? true;
+    this.#theme = options.theme ?? 'dark';
     this.#onTakeover = options.onTakeover;
     this.#view = new WebContentsView({
-      webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+      webPreferences: {
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+      },
     });
     this.#view.setBackgroundColor('#00000000');
     this.#view.webContents.on('will-navigate', (event, url) => {
@@ -301,6 +357,12 @@ export class InputShield {
     this.#pushState();
   }
 
+  setTheme(theme: ShieldTheme): void {
+    if (theme === this.#theme) return;
+    this.#theme = theme;
+    this.#pushState();
+  }
+
   setShowControlPill(show: boolean): void {
     if (this.#showControlPill === show) return;
     this.#showControlPill = show;
@@ -319,9 +381,15 @@ export class InputShield {
     const payload = JSON.stringify({
       caller: this.#callerLabel,
       mode: this.#mode,
+      theme: this.#theme,
       showControlPill: this.#showControlPill,
     });
-    void this.#view.webContents.executeJavaScript(`window.__warrenShieldState?.(${payload});`).catch(() => {});
+    void this.#view.webContents
+      .executeJavaScript(`window.__warrenShieldState?.(${payload});`)
+      .then(() => {
+        if (!this.#view.webContents.isDestroyed()) this.#view.webContents.invalidate();
+      })
+      .catch(() => {});
   }
 
   attach(window: Electron.BaseWindow, bounds: { x: number; y: number; width: number; height: number }): void {

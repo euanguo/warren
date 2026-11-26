@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useEffect, useRef } from 'react';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
 import type { PluginInspectorTab } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
@@ -181,16 +182,32 @@ export function EnvironmentInspector({
 }: Props) {
   const running = current?.status === 'running';
   const errorCount = consoleEntries.filter((entry) => entry.level === 'error').length;
+  const tabsListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const list = tabsListRef.current;
+    if (!list) return;
+    const active = list.querySelector<HTMLElement>(
+      '[data-slot="tabs-trigger"][data-active], [data-slot="tabs-trigger"][aria-selected="true"]',
+    );
+    active?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [activeTab, pluginTabs.length]);
 
   return (
-    <Tabs value={activeTab} onValueChange={onTabChange} className="h-full gap-0">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
-        <TabsList variant="line" className="h-auto min-w-0 flex-1 gap-0.5 overflow-x-auto [scrollbar-width:none]">
-          <TabsTrigger value="events">事件</TabsTrigger>
-          <TabsTrigger value="snapshot" disabled={!running}>
+    <Tabs value={activeTab} onValueChange={onTabChange} className="h-full w-full min-w-0 gap-0 overflow-hidden">
+      <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 border-b border-border px-2">
+        <TabsList
+          ref={tabsListRef}
+          variant="line"
+          className="h-auto min-w-0 flex-1 justify-start gap-0.5 overflow-x-auto pr-4 [scrollbar-width:none]"
+        >
+          <TabsTrigger value="events" className="shrink-0 px-2 text-xs">
+            事件
+          </TabsTrigger>
+          <TabsTrigger value="snapshot" disabled={!running} className="shrink-0 px-2 text-xs">
             快照
           </TabsTrigger>
-          <TabsTrigger value="console" disabled={!running}>
+          <TabsTrigger value="console" disabled={!running} className="shrink-0 px-2 text-xs">
             控制台
             {errorCount > 0 && (
               <Badge variant="outline" className="border-destructive/50 text-destructive">
@@ -198,49 +215,58 @@ export function EnvironmentInspector({
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="network" disabled={!running}>
+          <TabsTrigger value="network" disabled={!running} className="shrink-0 px-2 text-xs">
             网络
             {networkEntries.length > 0 && <Badge variant="outline">{networkEntries.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="rules" disabled={!running}>
+          <TabsTrigger value="rules" disabled={!running} className="shrink-0 px-2 text-xs">
             规则
             {netRules.length > 0 && <Badge variant="outline">{netRules.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="storage" disabled={!running}>
+          <TabsTrigger value="storage" disabled={!running} className="shrink-0 px-2 text-xs">
             存储
             {cookies && cookies.length > 0 && <Badge variant="outline">{cookies.length}</Badge>}
           </TabsTrigger>
           {pluginTabs.map((tab) => (
-            <TabsTrigger key={tab.id} value={`plugin:${tab.pluginId}:${tab.id}`} disabled={!running}>
+            <TabsTrigger
+              key={tab.id}
+              value={`plugin:${tab.pluginId}:${tab.id}`}
+              disabled={!running}
+              className="shrink-0 px-2 text-xs"
+            >
               {tab.title}
             </TabsTrigger>
           ))}
         </TabsList>
-        <IconButton
-          title="刷新 Agent 快照"
-          aria-label="刷新 Agent 快照"
-          disabled={!running || snapshotLoading}
-          onClick={onRefreshSnapshot}
-          className="shrink-0"
-        >
-          <Icon name="RotateClockwise" className={snapshotLoading ? 'animate-spin' : undefined} />
-        </IconButton>
+        {activeTab === 'snapshot' && (
+          <IconButton
+            title="刷新 Agent 快照"
+            aria-label="刷新 Agent 快照"
+            disabled={!running || snapshotLoading}
+            onClick={onRefreshSnapshot}
+            className="shrink-0"
+          >
+            <Icon name="RotateClockwise" className={snapshotLoading ? 'animate-spin' : undefined} />
+          </IconButton>
+        )}
       </div>
 
       <TabsContent value="events" className="min-h-0">
         <ScrollArea className="h-full">
-          <div className="flex flex-col gap-0.5 px-3 py-2 text-xs">
+          <div className="flex flex-col gap-1 px-3 pt-2 pr-4 pb-5 text-xs leading-5">
             {events.length === 0 && <p className="text-muted-foreground">暂无事件。</p>}
             {events
               .slice(-80)
               .reverse()
               .map((event) => (
                 <div key={event.id} className="flex gap-2">
-                  <span className="shrink-0 text-muted-foreground">
+                  <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
                     {new Date(event.createdAt).toLocaleTimeString()}
                   </span>
-                  <span className={cn('w-14 shrink-0', actorClass[event.actor])}>{event.actor}</span>
-                  <span className="truncate">{event.message}</span>
+                  <span className={cn('w-12 shrink-0', actorClass[event.actor])}>{event.actor}</span>
+                  <span className="truncate" title={event.message}>
+                    {event.message}
+                  </span>
                 </div>
               ))}
           </div>

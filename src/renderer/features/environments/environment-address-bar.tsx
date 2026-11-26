@@ -339,6 +339,7 @@ export function EnvironmentAddressBar({
         title={title('后退')}
         disabled={!editable || !canGoBack}
         onClick={() => onNavigate({ kind: 'back' })}
+        className="disabled:opacity-40"
       >
         <Icon name="ChevronLeft" />
       </IconButton>
@@ -347,6 +348,7 @@ export function EnvironmentAddressBar({
         title={title('前进')}
         disabled={!editable || !canGoForward}
         onClick={() => onNavigate({ kind: 'forward' })}
+        className="disabled:opacity-40"
       >
         <Icon name="ChevronRight" />
       </IconButton>
@@ -356,6 +358,7 @@ export function EnvironmentAddressBar({
         disabled={!editable}
         onClick={() => onNavigate({ kind: 'reload' })}
         onContextMenu={(event) => void openReloadMenu(event)}
+        className="disabled:opacity-40"
       >
         <Icon name="Refresh" />
       </IconButton>
@@ -363,13 +366,17 @@ export function EnvironmentAddressBar({
       <div ref={boxRef} className="relative min-w-0 flex-1">
         <div
           className={cn(
-            'flex h-7 min-w-0 items-center gap-2 rounded-full border border-border/70 bg-[var(--input-fill)] px-3',
+            'flex h-7 min-w-0 items-center gap-2 rounded-full border border-border/80 bg-[var(--input-fill)] px-3',
             'focus-within:border-focus',
             !inputEditable && 'opacity-70',
           )}
         >
           <span title={security.label} className="flex shrink-0 items-center">
-            <Icon name={security.name} className={security.className} aria-label={security.label} />
+            <Icon
+              name={security.name}
+              className={cn(security.className, canStartOnSubmit && !running && 'text-foreground/70')}
+              aria-label={security.label}
+            />
           </span>
           <input
             ref={inputRef}
@@ -506,6 +513,7 @@ export function EnvironmentAddressBar({
         title={editable ? 'Chrome 开发者工具（点击开关，右键切换停靠位置）' : title('开发者工具')}
         disabled={!editable}
         aria-pressed={devToolsOpen}
+        aria-expanded={devToolsOpen}
         onClick={onToggleDevTools}
         onContextMenu={(event) => void openDevToolsMenu(event)}
         className="aria-pressed:bg-surface-active aria-pressed:text-foreground"

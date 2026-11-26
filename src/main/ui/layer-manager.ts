@@ -13,19 +13,19 @@ export type { LayerSlot };
 export class WindowLayerManager {
   #window: BaseWindow;
   #model = new LayerOrderModel<WebContentsView>();
-  #pageRadius = 8;
+  #pageRadius = 6;
 
-  constructor(window: BaseWindow, pageRadius = 8) {
+  constructor(window: BaseWindow, pageRadius = 6) {
     this.#window = window;
     this.#pageRadius = pageRadius;
   }
 
   setPageRadius(radius: number): void {
     this.#pageRadius = Math.max(0, Math.round(radius));
-    const pageView = this.#model.get('page').view;
-    if (pageView) this.#applyBorderRadius(pageView, this.#pageRadius);
-    const devtoolsView = this.#model.get('devtools').view;
-    if (devtoolsView) this.#applyBorderRadius(devtoolsView, this.#pageRadius);
+    for (const slot of ['page', 'devtools', 'shield'] as const) {
+      const view = this.#model.get(slot).view;
+      if (view) this.#applyBorderRadius(view, this.#pageRadius);
+    }
   }
 
   setSlot(
@@ -40,8 +40,9 @@ export class WindowLayerManager {
     this.#model.setSlot(slot, view, options?.bounds);
     if (options?.visible !== undefined) this.#model.setVisible(slot, options.visible);
     if (view) {
-      if (slot === 'page') this.#applyBorderRadius(view, this.#pageRadius);
-      else if (slot === 'devtools') this.#applyBorderRadius(view, this.#pageRadius);
+      if (slot === 'page' || slot === 'devtools' || slot === 'shield') {
+        this.#applyBorderRadius(view, this.#pageRadius);
+      }
       this.restack();
       this.#syncSlotProps(slot);
     }
@@ -52,6 +53,7 @@ export class WindowLayerManager {
     const record = this.#model.get(slot);
     if (record.view && this.#isLive(record.view)) {
       record.view.setBounds(bounds);
+      if (record.visible) record.view.webContents.invalidate?.();
     }
   }
 
@@ -60,6 +62,7 @@ export class WindowLayerManager {
     const record = this.#model.get(slot);
     if (record.view && this.#isLive(record.view)) {
       record.view.setVisible(visible);
+      if (visible) record.view.webContents.invalidate?.();
     }
   }
 
@@ -107,6 +110,7 @@ export class WindowLayerManager {
     if (!record.view || !this.#isLive(record.view)) return;
     if (record.bounds) record.view.setBounds(record.bounds);
     record.view.setVisible(record.visible);
+    if (record.visible) record.view.webContents.invalidate?.();
   }
 
   #applyBorderRadius(view: WebContentsView, radius: number): void {

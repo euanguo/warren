@@ -58,7 +58,7 @@ interface Props {
   pluginPopovers?: PluginPopoverSurface[];
 }
 
-const INSPECTOR_WIDTH = { default: 360, min: 260, max: 720 };
+const INSPECTOR_WIDTH = { default: 360, min: 280, max: 520 };
 const INSPECTOR_WIDTH_KEY = 'warren.inspector.width';
 const INSPECTOR_TABS = ['events', 'snapshot', 'console', 'network', 'rules', 'storage'] as const;
 
@@ -134,6 +134,7 @@ export function EnvironmentStage({
       : INSPECTOR_WIDTH.default;
   });
   const inspectorWidthRef = useRef(inspectorWidth);
+  const inspectorReadyRef = useRef(false);
   useEffect(() => {
     inspectorWidthRef.current = inspectorWidth;
   }, [inspectorWidth]);
@@ -217,10 +218,14 @@ export function EnvironmentStage({
     if (current && running && devToolsState.open && shouldExcludeRight(devToolsState.dock)) {
       void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
       toast.info('已收起右侧 DevTools 为工作台留出空间', {
+        id: 'panel-exclusivity',
+        duration: 3000,
         description: '右键 </> 可切换底部停靠或独立窗口以便并行查看',
       });
     }
     panel.expand();
+    const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
+    window.requestAnimationFrame(() => panel.resize(targetWidth));
   }, [
     inspectorOpen,
     inspectorPanelRef,
@@ -241,8 +246,12 @@ export function EnvironmentStage({
       if (inspectorOpen && shouldExcludeRight(devToolsState.dock)) {
         inspectorPanelRef.current?.collapse();
         toast.info('已收起工作台抽屉为 DevTools 留出空间', {
+          id: 'panel-exclusivity',
+          duration: 3000,
           description: '右键 </> 可切换底部停靠或独立窗口以便并行查看',
         });
+      } else {
+        toast.dismiss('panel-exclusivity');
       }
       void window.envApi.openDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
     }
@@ -262,6 +271,8 @@ export function EnvironmentStage({
     (dock: DevToolsDockMode) => {
       if (dock === 'right' && devToolsState.open && inspectorOpen && shouldExcludeRight('right')) {
         inspectorPanelRef.current?.collapse();
+      } else {
+        toast.dismiss('panel-exclusivity');
       }
       void window.envApi.setDevToolsDock(dock).then(() => void syncPagePrefs());
     },
@@ -378,6 +389,9 @@ export function EnvironmentStage({
       if (!panel) return;
       panel.resize(inspectorWidthRef.current);
       panel.collapse();
+      window.requestAnimationFrame(() => {
+        inspectorReadyRef.current = true;
+      });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [inspectorPanelRef]);
@@ -418,6 +432,8 @@ export function EnvironmentStage({
         void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
       }
       inspectorPanelRef.current?.expand();
+      const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
+      window.requestAnimationFrame(() => inspectorPanelRef.current?.resize(targetWidth));
     },
     [
       inspectorOpen,
@@ -487,17 +503,17 @@ export function EnvironmentStage({
         onOpenPluginSurface={openPluginSurface}
       />
 
-      <div ref={stageContainerRef} className="flex min-h-0 flex-1">
+      <div ref={stageContainerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           <ResizablePanel id="page" className="min-w-0">
             <div className="h-full bg-surface-recessed p-1.5">
               <div
                 ref={stageRef}
                 data-slot="stage-placeholder"
-                className="relative h-full rounded-[var(--radius-sm)] bg-muted/20 ring-1 ring-border/75"
+                className="relative h-full rounded-[6px] bg-muted/20 ring-1 ring-border/75"
               >
                 {(!running || tabs.length === 0) && (
-                  <Empty className="absolute inset-0 border-0">
+                  <Empty className="absolute inset-0 border-0 pb-8">
                     <EmptyHeader>
                       <EmptyMedia>
                         <WarrenMark className="size-12" />
@@ -510,7 +526,7 @@ export function EnvironmentStage({
                           ? '新建或从左侧选择一个隔离环境，页面会在这里显示。'
                           : running
                             ? '新建标签页开始浏览，或在上方地址栏直接输入网址。'
-                            : `${egressLabel(current.proxy)}${current.startUrl ? ` · 默认打开 ${current.startUrl}` : ''}`}
+                            : `网络出口：${egressLabel(current.proxy)}${current.startUrl ? ` · 默认打开 ${current.startUrl}` : ''}`}
                       </EmptyDescription>
                     </EmptyHeader>
                     {!current ? (
@@ -573,6 +589,7 @@ export function EnvironmentStage({
             minSize={INSPECTOR_WIDTH.min}
             maxSize={INSPECTOR_WIDTH.max}
             onResize={(size) => {
+              if (!inspectorReadyRef.current) return;
               if (size.inPixels > 0) setInspectorWidth(size.inPixels);
             }}
             collapsible

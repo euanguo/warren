@@ -42,7 +42,9 @@ const check = (name, ok, detail) => {
   await sleep(800);
   execFileSync('node', ['bin/warren.mjs', 'env', 'start', 'cap'], { encoding: 'utf8', stdio: 'ignore' });
   execFileSync('node', ['bin/warren.mjs', 'env', 'select', 'cap'], { encoding: 'utf8', stdio: 'ignore' });
-  await sleep(800);
+  await sleep(400);
+  await evalr("window.envApi.spaceSelect('cap', 'person')");
+  await sleep(500);
 
   const createdEnvs = [];
   const envCount = () =>

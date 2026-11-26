@@ -890,8 +890,8 @@ export default function register(app) {
         h('span', { className: 'text-sm font-medium' }, '代理实例'),
         h(
           'span',
-          { className: 'text-xs text-muted-foreground' },
-          `${instances.filter((item) => item.alive).length}/${instances.length} 在跑 · ${w2}`,
+          { className: 'text-xs text-muted-foreground', title: w2 },
+          `${instances.filter((item) => item.alive).length}/${instances.length} 在跑 · ${w2.startsWith('bundled:') ? '内置 Whistle' : w2}`,
         ),
         h(Button, { variant: 'ghost', className: 'ml-auto', onClick: load }, '刷新'),
         h(NewInstanceDialog, { environments, busy, run, onCreated: () => setSelected(null) }),
@@ -978,13 +978,29 @@ export default function register(app) {
     if (!bound) {
       return h(
         'div',
-        { className: 'flex flex-col gap-2 text-xs', 'data-slot': 'whistle-inspector' },
-        h('p', { className: 'text-muted-foreground' }, '当前环境未绑定 Whistle 代理实例。'),
+        { className: 'flex flex-col gap-2.5 text-xs', 'data-slot': 'whistle-inspector' },
+        h(
+          'div',
+          { className: cn(cardSurfaceClass, 'flex flex-col gap-1.5 py-2.5') },
+          h(
+            'div',
+            { className: 'flex items-center gap-1.5 font-medium text-foreground' },
+            h(Icon, { name: 'Globe', className: 'size-3.5 text-muted-foreground' }),
+            h('span', null, '当前环境未绑定 Whistle 代理实例'),
+          ),
+          h(
+            'p',
+            { className: 'text-[11px] leading-relaxed text-muted-foreground' },
+            instances.length > 0
+              ? '可从下方快捷绑定已有实例，自动配置代理并信任根证书。'
+              : '可在顶栏切至全局「代理」页新建独立实例并绑定到此环境。',
+          ),
+        ),
         instances.length > 0
           ? h(
               'div',
               { className: 'flex flex-col gap-1.5' },
-              h('span', { className: 'text-muted-foreground' }, '快捷绑定已有实例：'),
+              h('span', { className: 'text-[11px] text-muted-foreground' }, '快捷绑定已有实例：'),
               ...instances.slice(0, 5).map((inst) =>
                 h(
                   'div',
@@ -1009,7 +1025,7 @@ export default function register(app) {
                 ),
               ),
             )
-          : h('p', { className: 'text-muted-foreground' }, '可在全局「代理」页新建独立实例并绑定。'),
+          : null,
       );
     }
 

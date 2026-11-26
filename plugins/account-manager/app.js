@@ -391,7 +391,11 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex h-full flex-col gap-3 overflow-auto p-4', 'data-slot': 'account-manager-page' },
+      {
+        className: 'flex h-full flex-col gap-3 overflow-auto',
+        style: { maxWidth: '1040px', marginInline: 'auto', width: '100%', padding: '16px 24px' },
+        'data-slot': 'account-manager-page',
+      },
       h(
         'div',
         { className: 'flex flex-wrap items-center gap-2' },
@@ -604,7 +608,16 @@ export default function register(app) {
         : null,
       error ? h('p', { className: 'text-destructive' }, error) : null,
       sorted.length === 0
-        ? h('p', { className: 'text-muted-foreground' }, '还没有账号，可在全局「账号」页新增。')
+        ? h(
+            'div',
+            { className: cn(cardSurfaceClass, 'flex flex-col gap-1 py-2.5') },
+            h('span', { className: 'font-medium text-foreground' }, '还没有可用账号'),
+            h(
+              'p',
+              { className: 'text-[11px] leading-relaxed text-muted-foreground' },
+              '可在顶栏切至全局「账号」页新增测试账号，后续可在此一键填充至当前站点。',
+            ),
+          )
         : h(
             'div',
             { className: 'flex flex-col gap-2' },

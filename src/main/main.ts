@@ -5,6 +5,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   powerSaveBlocker,
   protocol,
   session,
@@ -191,6 +192,8 @@ function createWindow(): BrowserWindow {
     // 渲染层首帧之前的窗口底色。取外壳色，避免启动时闪一圈黑。
     backgroundColor: '#1c1c1c',
     titleBarStyle: 'hiddenInset',
+    // 让 macOS 12px 红绿灯圆心落在 y=20，与 40px 顶栏按钮中轴对齐
+    trafficLightPosition: { x: 14, y: 14 },
     // macOS 的窗口/Dock 图标由 app bundle 决定，这个参数只有 Windows/Linux 认
     icon: path.join(app.getAppPath(), 'assets', 'icon.png'),
     webPreferences: {
@@ -366,6 +369,9 @@ function registerIpc(): void {
   handle('settings:set', (patch: Partial<AppSettings>) => {
     const next = store.setAppSettings(patch);
     manager?.applySettings(next);
+    manager?.setShieldTheme(
+      next.theme === 'light' ? 'light' : next.theme === 'system' && !nativeTheme.shouldUseDarkColors ? 'light' : 'dark',
+    );
     store.record(makeEvent('settings.updated', `应用设置更新: ${JSON.stringify(patch)}`, 'human'));
     broadcastEnvDelta('settings');
     broadcastPluginChanged('settings');
@@ -715,7 +721,7 @@ app.whenReady().then(async () => {
 
   const initialSettings = store.appSettings();
   window = createWindow();
-  layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 8);
+  layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 6);
   const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
       const devUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -797,7 +803,26 @@ app.whenReady().then(async () => {
   syncPowerSaveBlocker();
 
   store.record(makeEvent('core.ready', `core ready on pid ${process.pid}`));
+  manager.setShieldTheme(
+    initialSettings.theme === 'light'
+      ? 'light'
+      : initialSettings.theme === 'system' && !nativeTheme.shouldUseDarkColors
+        ? 'light'
+        : 'dark',
+  );
+  nativeTheme.on('updated', () => {
+    const cur = store.appSettings();
+    if (cur.theme === 'system') {
+      manager?.setShieldTheme(nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+    }
+  });
   window.webContents.send('state:changed');
+  // 打包/本地 file:// 模式下渲染层常在 registerIpc() 之前挂载，必须同步补发一次 plugin:changed
+  broadcastPluginChanged('plugins');
+  window.webContents.once('did-finish-load', () => {
+    window?.webContents.send('state:changed');
+    broadcastPluginChanged('plugins');
+  });
 
   // 崩溃恢复放最后、**不 await**：它要真的加载页面（最长 30s），
   // 挡住 RPC 起来的话 CLI 会先报「找不到运行中的核心」。

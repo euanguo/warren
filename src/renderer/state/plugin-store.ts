@@ -63,20 +63,24 @@ export async function refreshSettingsOnly(): Promise<void> {
 export async function refreshPluginsAndSettings(reloadPlugins = true): Promise<void> {
   if (typeof window === 'undefined' || !window.envApi) return;
   const seq = ++refreshSeq;
-  const [plugins, settings] = await Promise.all([
-    reloadPlugins ? window.envApi.plugins() : Promise.resolve(state.plugins),
-    window.envApi.settings(),
-  ]);
-  const registry = reloadPlugins ? await loadPluginApps(plugins) : state.registry;
-  if (seq !== refreshSeq) return;
-  syncTheme(settings);
-  state = {
-    plugins,
-    settings,
-    registry,
-    loaded: true,
-  };
-  emit();
+  try {
+    const [plugins, settings] = await Promise.all([
+      reloadPlugins ? window.envApi.plugins() : Promise.resolve(state.plugins),
+      window.envApi.settings(),
+    ]);
+    const registry = reloadPlugins ? await loadPluginApps(plugins) : state.registry;
+    if (seq !== refreshSeq) return;
+    syncTheme(settings);
+    state = {
+      plugins,
+      settings,
+      registry,
+      loaded: true,
+    };
+    emit();
+  } catch {
+    // 打包冷启动早期 IPC 可能尚未完成注册；等待主进程就绪后的 plugin:changed 广播自动重试
+  }
 }
 
 export function ensurePluginStoreStarted(): void {

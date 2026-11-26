@@ -100,18 +100,18 @@ export function SidebarEnvRow({
         >
           <ListRowLabel className="flex-1">
             <StatusMark tone={env.error ? 'error' : statusTone(env.status)} />
-            <span className="ml-0.5 min-w-0 flex-1 truncate text-sm">{env.name}</span>
+            <span className="ml-0.5 min-w-[3.25rem] flex-1 truncate text-sm">{env.name}</span>
             {env.owner !== 'none' && (
               <span
                 className={cn(
                   'ml-1 flex shrink-0 items-center gap-0.5 text-[10px]',
-                  env.owner === 'agent' ? 'text-[var(--info)]' : 'text-[var(--warning)]',
+                  env.owner === 'agent' ? 'text-[var(--info)]' : 'text-[var(--success)]',
                 )}
                 title={ownerLabel[env.owner]}
               >
                 <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3.5" />
                 {!compact && env.owner === 'agent' && (
-                  <span className="max-w-[4.5rem] truncate font-mono">{env.leaseLabel || 'AI'}</span>
+                  <span className="max-w-[3.75rem] truncate font-mono">{env.leaseLabel || 'AI'}</span>
                 )}
               </span>
             )}
@@ -130,12 +130,14 @@ export function SidebarEnvRow({
                 {!compact && <span className="truncate">{badge.first.label}</span>}
               </span>
             )}
-            <ListRowMeta
-              className={cn('ml-1 shrink-0 pl-1', badge.first ? 'max-w-[28%]' : 'max-w-[40%]')}
-              title={egressLabel(env.proxy)}
-            >
-              {egressLabel(env.proxy)}
-            </ListRowMeta>
+            {env.owner === 'none' && (
+              <ListRowMeta
+                className={cn('ml-1 shrink-0 pl-1', badge.first ? 'max-w-[28%]' : 'max-w-[40%]')}
+                title={egressLabel(env.proxy)}
+              >
+                {egressLabel(env.proxy)}
+              </ListRowMeta>
+            )}
           </ListRowLabel>
         </ListRowMain>
         <ListRowActions alwaysVisible>

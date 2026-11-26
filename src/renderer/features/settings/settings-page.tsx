@@ -3,7 +3,6 @@ import { PluginSurfaceHost } from '@/app/plugin-surfaces';
 import { Icon, type IconName } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Kbd } from '@/components/ui/kbd';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PluginsPanel } from '@/features/plugins/plugins-panel';
 import { VaultPanel } from '@/features/plugins/vault-panel';
@@ -22,7 +21,7 @@ const SECTION_TRIGGER_CLASS = 'h-auto! flex-none justify-start gap-2 px-2.5 py-1
 
 interface SectionDescriptor {
   id: SettingsSection;
-  group: '基础' | '研发' | '自动化' | '安全' | '扩展' | '维护';
+  group: '界面与浏览' | '自动化与安全' | '扩展与维护';
   title: string;
   subtitle: string;
   icon: IconName;
@@ -33,7 +32,7 @@ interface SectionDescriptor {
 const BUILTIN_SECTIONS: SectionDescriptor[] = [
   {
     id: 'general',
-    group: '基础',
+    group: '界面与浏览',
     title: '通用与外观',
     subtitle: '切换深浅主题、调整顶栏密度与页面圆角、管理数据根目录。',
     icon: 'Sliders',
@@ -41,7 +40,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
   },
   {
     id: 'browser',
-    group: '研发',
+    group: '界面与浏览',
     title: '浏览器与 DevTools',
     subtitle: '设置开发者工具默认停靠方式、默认视口、并发与休眠阈值以及按域偏好。',
     icon: 'Code',
@@ -49,15 +48,15 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
   },
   {
     id: 'agent',
-    group: '自动化',
+    group: '自动化与安全',
     title: 'Agent 与审批',
-    subtitle: '配置控制权审批门控、Lease 租约时长、底部控制胶囊与内置 Skill 安装。',
+    subtitle: '配置控制权审批门控、Lease 租约时长、页面防误触提示与内置 Skill 安装。',
     icon: 'Robot',
     keywords: 'agent 审批 控制权 租约 lease ttl 胶囊 skill claude codex opencode cli',
   },
   {
     id: 'vault',
-    group: '安全',
+    group: '自动化与安全',
     title: '凭据与安全边界',
     subtitle: '使用系统 Keychain 安全录入或移除凭据，审视无明文回流机制。',
     icon: 'Key',
@@ -65,7 +64,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
   },
   {
     id: 'plugins',
-    group: '扩展',
+    group: '扩展与维护',
     title: '插件管理',
     subtitle: '安装、启停、重载插件，批准 confirm 权限矩阵，检索插件子进程日志。',
     icon: 'Plug',
@@ -73,7 +72,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
   },
   {
     id: 'diagnostics',
-    group: '维护',
+    group: '扩展与维护',
     title: '诊断与关于',
     subtitle: '执行全局健康自检（Doctor）、导出脱敏报告、查看运行时与数据目录。',
     icon: 'Activity',
@@ -81,7 +80,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
   },
 ];
 
-const GROUP_ORDER: Array<SectionDescriptor['group']> = ['基础', '研发', '自动化', '安全', '扩展', '维护'];
+const GROUP_ORDER: Array<SectionDescriptor['group']> = ['界面与浏览', '自动化与安全', '扩展与维护'];
 
 interface Props {
   section: SettingsSection;
@@ -123,7 +122,7 @@ export function SettingsPage({
   const allSections = useMemo<SectionDescriptor[]>(() => {
     const dynamic: SectionDescriptor[] = pluginSections.map((pluginSection) => ({
       id: `plugin:${pluginSection.pluginId}:${pluginSection.id}`,
-      group: '扩展',
+      group: '扩展与维护',
       title: pluginSection.title,
       subtitle: pluginSection.description || `扩展「${pluginSection.pluginId}」专属配置`,
       icon: 'Plug',
@@ -157,89 +156,77 @@ export function SettingsPage({
 
   return (
     <div data-slot="settings-page" className="flex h-full min-h-0 flex-col bg-background">
-      {/* 顶部搜索副栏：返回环境与全局切换由外壳 Row 1 统一提供，这里专注过滤设置项。 */}
-      <header className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center justify-between gap-3 border-b border-border px-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">设置中心</span>
-          {settingsQuery.trim() && (
-            <span className="text-xs text-muted-foreground">匹配 {filteredSections.length} 项</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative w-64">
-            <Icon
-              name="Search"
-              className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              ref={searchRef}
-              value={settingsQuery}
-              onChange={(event) => setSettingsQuery(event.target.value)}
-              placeholder="搜索设置、选项或插件…"
-              aria-label="搜索设置"
-              className="h-7 pr-7 pl-8 text-xs"
-            />
-            {settingsQuery && (
-              <button
-                type="button"
-                aria-label="清空搜索"
-                onClick={() => {
-                  setSettingsQuery('');
-                  searchRef.current?.focus();
-                }}
-                className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <Icon name="X" className="size-3.5" />
-              </button>
-            )}
-          </div>
-          {onClose && (
-            <span className="hidden items-center gap-1 text-[11px] text-muted-foreground sm:inline-flex">
-              <Kbd>Esc</Kbd>
-              <span>返回</span>
-            </span>
-          )}
-        </div>
-      </header>
-
       <Tabs
         orientation="vertical"
         value={effectiveSection}
         onValueChange={(value) => onSectionChange(value as SettingsSection)}
         className="min-h-0 flex-1 gap-0"
       >
-        <TabsList className="h-auto! w-52 shrink-0 flex-col items-stretch justify-start gap-3 overflow-y-auto rounded-none border-r border-border bg-transparent p-3">
-          {GROUP_ORDER.map((groupName) => {
-            const items = filteredSections.filter((item) => item.group === groupName);
-            if (items.length === 0) return null;
-            return (
-              <div key={groupName} className="flex flex-col gap-0.5">
-                <span className="px-2.5 pb-1 text-[10px] font-medium tracking-wider text-muted-foreground">
-                  {groupName}
-                </span>
-                {items.map((item) => (
-                  <TabsTrigger
-                    key={item.id}
-                    value={item.id}
-                    data-settings-section={item.id}
-                    className={SECTION_TRIGGER_CLASS}
-                  >
-                    <Icon name={item.icon} className="size-3.5 shrink-0 opacity-80" />
-                    <span className="truncate">{item.title}</span>
-                  </TabsTrigger>
-                ))}
-              </div>
-            );
-          })}
-          {filteredSections.length === 0 && (
-            <p className="px-2.5 py-4 text-xs text-muted-foreground">没有匹配的设置分区</p>
-          )}
-        </TabsList>
+        <div className="flex w-56 shrink-0 flex-col border-r border-border bg-surface-under/50">
+          <div className="border-b border-divider p-2.5">
+            <div className="relative">
+              <Icon
+                name="Search"
+                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                ref={searchRef}
+                value={settingsQuery}
+                onChange={(event) => setSettingsQuery(event.target.value)}
+                placeholder="搜索设置…"
+                aria-label="搜索设置"
+                className="h-7 pr-7 pl-8 text-xs"
+              />
+              {settingsQuery && (
+                <button
+                  type="button"
+                  aria-label="清空搜索"
+                  onClick={() => {
+                    setSettingsQuery('');
+                    searchRef.current?.focus();
+                  }}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <Icon name="X" className="size-3.5" />
+                </button>
+              )}
+            </div>
+            {settingsQuery.trim() && (
+              <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">匹配 {filteredSections.length} 项</p>
+            )}
+          </div>
+          <TabsList className="h-auto! w-full flex-1 flex-col items-stretch justify-start gap-3 overflow-y-auto rounded-none bg-transparent p-3">
+            {GROUP_ORDER.map((groupName) => {
+              const items = filteredSections.filter((item) => item.group === groupName);
+              if (items.length === 0) return null;
+              return (
+                <div key={groupName} className="flex flex-col gap-0.5">
+                  <span className="px-2.5 pb-1 text-[10px] font-medium tracking-wider text-muted-foreground">
+                    {groupName}
+                  </span>
+                  {items.map((item) => (
+                    <TabsTrigger
+                      key={item.id}
+                      value={item.id}
+                      data-settings-section={item.id}
+                      className={SECTION_TRIGGER_CLASS}
+                    >
+                      <Icon name={item.icon} className="size-3.5 shrink-0 opacity-80" />
+                      <span className="truncate">{item.title}</span>
+                    </TabsTrigger>
+                  ))}
+                </div>
+              );
+            })}
+            {filteredSections.length === 0 && (
+              <p className="px-2.5 py-4 text-xs text-muted-foreground">没有匹配的设置分区</p>
+            )}
+          </TabsList>
+        </div>
 
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-6">
           {filteredSections.length === 0 ? (
-            <div className="mx-auto flex max-w-2xl flex-col items-start gap-2 py-8">
+            <div className="flex max-w-2xl flex-col items-start gap-2 py-8">
               <p className="text-sm font-medium">没有找到包含「{settingsQuery}」的设置项</p>
               <p className="text-xs text-muted-foreground">试试主题、DevTools、审批、Vault 或插件关键字。</p>
               <Button size="sm" variant="outline" onClick={() => setSettingsQuery('')}>
@@ -247,7 +234,7 @@ export function SettingsPage({
               </Button>
             </div>
           ) : (
-            <div className="mx-auto flex max-w-2xl flex-col gap-4">
+            <div className="flex max-w-2xl flex-col gap-4">
               {activeDescriptor && (
                 <div className="flex flex-col gap-1 border-b border-border pb-3">
                   <div className="flex items-center gap-2">

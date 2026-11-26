@@ -267,7 +267,10 @@ export function App() {
             <div className="relative flex min-h-0 flex-1">
               {/* 工作区常驻挂载不卸载，全局页以绝对覆层盖在其上，切回时保留侧栏搜索、滚动与宽度 */}
               <div
-                className={cn('flex min-h-0 flex-1', stageReplaced && 'invisible pointer-events-none')}
+                className={cn(
+                  'flex min-h-0 min-w-0 flex-1 overflow-hidden',
+                  stageReplaced && 'invisible pointer-events-none',
+                )}
                 inert={stageReplaced}
               >
                 <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
@@ -370,7 +373,7 @@ export function App() {
         </div>
       </SidebarProvider>
 
-      <Toaster position="bottom-right" />
+      <Toaster position="top-right" offset={{ top: 8, right: 12 }} />
     </TooltipProvider>
   );
 }

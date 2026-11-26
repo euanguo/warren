@@ -134,7 +134,11 @@ export function EnvironmentTabstrip({
               onDragEnd={endDrag}
               onContextMenu={(event) => void openTabMenu(event, tab, index, label)}
               className={cn(
-                'flex shrink-0 rounded-[var(--control-radius)]',
+                'relative flex max-w-[180px] shrink-0 items-center rounded-[var(--control-radius)]',
+                tab.id !== activeTabId &&
+                  index < tabs.length - 1 &&
+                  tabs[index + 1]?.id !== activeTabId &&
+                  'after:pointer-events-none after:absolute after:right-0 after:h-3.5 after:w-px after:bg-border/70',
                 dragging && dragIndex === index && 'opacity-40',
                 dragging && dropIndex === index && dragIndex !== index
                   ? 'shadow-[inset_2px_0_0_0_var(--theme-accent)]'
@@ -142,6 +146,7 @@ export function EnvironmentTabstrip({
               )}
             >
               <SurfaceTab
+                className="max-w-[180px]"
                 label={label}
                 title={tab.url || label}
                 active={tab.id === activeTabId}

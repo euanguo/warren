@@ -53,6 +53,7 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-surface-under: var(--surface-under);
   --color-surface-hover: var(--surface-hover);
   --color-surface-active: var(--surface-active);
   --color-surface-selected: var(--surface-selected);
@@ -169,7 +170,7 @@
 :root {
   /* ── Chrome seeds (swap these to theme-switch) ── */
   --theme-surface: #ffffff;
-  --theme-surface-under: #f4f4f4;
+  --theme-surface-under: #eff1f4;
   --theme-ink: #141414;
   --theme-accent: #0d6efd;
 
@@ -243,7 +244,7 @@
   --radius-dialog: var(--radius-3xl);
   --radius-control: var(--radius-lg);
   --radius-composer: calc(1.375rem * var(--radius-scale));
-  --sidebar: var(--surface);
+  --sidebar: var(--surface-under);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--ink);
   --sidebar-primary-foreground: var(--surface);
@@ -353,7 +354,7 @@
   --chart-3: #fb6a22;
   --chart-4: #ad7bf9;
   --chart-5: #ff6764;
-  --sidebar: var(--surface);
+  --sidebar: var(--surface-under);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--accent-seed);
   --sidebar-primary-foreground: var(--surface-under);

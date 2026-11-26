@@ -2,7 +2,6 @@ import type { MouseEvent } from 'react';
 import { Icon, isIconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { StatusDot } from '@/components/ui/status-dot';
-import { WarrenMark } from '@/components/warren-mark';
 import { EnvironmentSpaceSwitcher } from '@/features/environments/environment-space-switcher';
 import { EnvironmentTabstrip } from '@/features/environments/environment-tabstrip';
 import { egressLabel } from '@/features/environments/sidebar-env-row';
@@ -156,12 +155,12 @@ export function AppTitlebar({
       <header
         data-slot="global-header"
         className={cn(
-          'flex h-[var(--shell-top-row-height)] shrink-0 items-center gap-2 border-b border-divider bg-surface-under pr-3',
+          'relative flex h-[var(--shell-top-row-height)] shrink-0 items-center justify-between gap-2 border-b border-divider bg-surface-under pr-2.5',
           window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
           DRAG_CLASS,
         )}
       >
-        <div className={cn('flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+        <div className={cn('flex min-w-0 items-center gap-1.5', NO_DRAG_CLASS)}>
           <Button
             size="xs"
             variant="ghost"
@@ -169,17 +168,20 @@ export function AppTitlebar({
             aria-label="返回环境"
             title="返回环境工作台 (Esc)"
             onClick={onBackToEnvironments}
+            className="max-w-[220px] text-foreground/85 hover:text-foreground"
           >
             <Icon name="ChevronLeft" />
-            <span>返回环境{environment ? ` · ${environment.name}` : ''}</span>
+            <span className="truncate">返回环境{environment ? ` · ${environment.name}` : ''}</span>
           </Button>
-          <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
         </div>
 
         <nav
           aria-label="全局视图"
           data-slot="global-nav"
-          className={cn('flex min-w-0 items-center gap-1', NO_DRAG_CLASS)}
+          className={cn(
+            'absolute left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--control-radius)] border border-border/80 bg-background/80 p-0.5 shadow-2xs',
+            NO_DRAG_CLASS,
+          )}
         >
           <Button
             size="xs"
@@ -213,7 +215,7 @@ export function AppTitlebar({
           })}
         </nav>
 
-        <div className={cn('ml-auto flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+        <div className={cn('flex shrink-0 items-center gap-1', NO_DRAG_CLASS)}>
           <IconButton
             data-slot="command-bar-trigger"
             title="命令栏 (⌘K)"
@@ -222,7 +224,6 @@ export function AppTitlebar({
           >
             <Icon name="Command" />
           </IconButton>
-          <WarrenMark className="size-4 opacity-85" />
         </div>
       </header>
     );
@@ -237,7 +238,7 @@ export function AppTitlebar({
         DRAG_CLASS,
       )}
     >
-      <div className={cn('flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+      <div className={cn('flex shrink-0 items-center gap-2', NO_DRAG_CLASS)}>
         <IconButton
           data-slot="sidebar-toggle"
           title={sidebarOpen ? '收起环境侧栏 (⌘B)' : '展开环境侧栏 (⌘B)'}
@@ -255,7 +256,7 @@ export function AppTitlebar({
             onClick={openCurrentEnvMenu}
             onContextMenu={openCurrentEnvMenu}
             title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击或右键管理环境`}
-            className="flex h-7 max-w-[216px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/70 bg-background/70 px-2 text-xs transition-colors hover:bg-surface-hover"
+            className="flex h-7 max-w-[216px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border bg-background px-2 text-xs shadow-2xs transition-colors hover:bg-surface-hover"
           >
             <StatusDot tone={environment.error ? 'error' : statusTone(environment.status)} />
             <span className="truncate font-medium text-foreground">{environment.name}</span>
@@ -269,7 +270,7 @@ export function AppTitlebar({
           </span>
         )}
 
-        {environment && (
+        {environment && running && (environment.spaces?.length ?? 0) > 0 && (
           <>
             <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
             <EnvironmentSpaceSwitcher
@@ -278,12 +279,13 @@ export function AppTitlebar({
               leaseLabel={environment.leaseLabel}
               onSelect={(space) => onSpaceSelect(environment.id, space)}
             />
+            <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
           </>
         )}
       </div>
 
       <div className="flex min-w-0 flex-1 items-center">
-        {environment ? (
+        {environment && running ? (
           <EnvironmentTabstrip
             tabs={tabs}
             activeTabId={activeTabId}
@@ -310,15 +312,15 @@ export function AppTitlebar({
             data-slot="control-pill"
             data-owner={agentOwner}
             className={cn(
-              'mr-1 flex items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-2 text-xs',
-              agentOwner === 'agent' && 'border-[var(--info)]/40 bg-[var(--info)]/10',
-              agentOwner === 'human' && 'border-[var(--success)]/40 bg-[var(--success)]/10',
-              agentOwner === 'none' && 'border-border bg-muted/40',
+              'mr-1 flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs',
+              agentOwner === 'agent' && 'border-[var(--info)]/45 bg-[var(--info)]/10',
+              agentOwner === 'human' && 'border-[var(--success)]/45 bg-[var(--success)]/10',
+              agentOwner === 'none' && 'border-border bg-background/80',
             )}
           >
             <StatusDot
-              tone={agentOwner === 'agent' ? 'warning' : agentOwner === 'human' ? 'success' : 'idle'}
-              className={cn(agentOwner === 'agent' && 'animate-pulse text-[var(--info)]')}
+              tone={agentOwner === 'agent' ? 'info' : agentOwner === 'human' ? 'success' : 'idle'}
+              className={cn(agentOwner === 'agent' && 'animate-pulse')}
             />
             <span className="max-w-[132px] truncate text-foreground">
               {agentOwner === 'agent'
@@ -328,14 +330,24 @@ export function AppTitlebar({
                   : 'Agent 空闲（只读）'}
             </span>
             {agentOwner === 'human' ? (
-              <Button size="xs" variant="secondary" onClick={() => onRelease(environment.id)}>
+              <Button
+                size="xs"
+                variant="secondary"
+                className="h-[22px] rounded-full px-2.5"
+                onClick={() => onRelease(environment.id)}
+              >
                 <Icon name="Release" />
                 交还
               </Button>
             ) : (
               <Button
                 size="xs"
-                variant={agentOwner === 'agent' ? 'default' : 'outline'}
+                variant={agentOwner === 'agent' ? 'ghost' : 'outline'}
+                className={cn(
+                  'h-[22px] rounded-full px-2.5',
+                  agentOwner === 'agent' &&
+                    'border border-[var(--info)]/45 bg-[var(--info)]/18 text-[var(--info)] hover:bg-[var(--info)]/28',
+                )}
                 onClick={() => onTakeover(environment.id)}
               >
                 <Icon name="Grab" />

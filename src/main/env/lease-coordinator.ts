@@ -1,6 +1,6 @@
 import { controlModeFor } from '../domain/approval.ts';
 import { diagnoseLease, leaseDenialError, renewLease, revokedReason } from '../domain/environment.ts';
-import type { InputShield, ShieldMode, ShieldVisualAction } from '../input-shield.ts';
+import type { InputShield, ShieldMode, ShieldTheme, ShieldVisualAction } from '../input-shield.ts';
 import type { TabManager } from '../tabs.ts';
 import type {
   ControlOwner,
@@ -43,6 +43,7 @@ export type TabManagerLike = Pick<
 export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setVisible' | 'setBounds' | 'destroy'> & {
   setShowControlPill?: (show: boolean) => void;
   setMode?: (mode: ShieldMode) => void;
+  setTheme?: (theme: ShieldTheme) => void;
   showAction?: (action: ShieldVisualAction) => void;
 };
 
@@ -83,6 +84,7 @@ export class LeaseCoordinator {
   #shields = new Map<string, ShieldLike>();
   #ttlOverrideMs?: number;
   #showControlPill = true;
+  #shieldTheme: ShieldTheme = 'dark';
 
   constructor(deps: LeaseCoordinatorDeps) {
     this.#deps = deps;
@@ -100,6 +102,13 @@ export class LeaseCoordinator {
     this.#showControlPill = show;
     for (const shield of this.#shields.values()) {
       shield.setShowControlPill?.(show);
+    }
+  }
+
+  setShieldTheme(theme: ShieldTheme): void {
+    this.#shieldTheme = theme;
+    for (const shield of this.#shields.values()) {
+      shield.setTheme?.(theme);
     }
   }
 
@@ -203,6 +212,7 @@ export class LeaseCoordinator {
     }
     if (!shield) return;
     shield.setShowControlPill?.(this.#showControlPill);
+    shield.setTheme?.(this.#shieldTheme);
     const lease = this.#leases.get(id);
     // 遮罩只盖**正在显示的那个**环境：agent 持着别的环境的 lease 时，
     // 不该把当前显示的页面盖住（人看到的是「AI 在操作」，但 AI 在别处）。

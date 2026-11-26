@@ -11,7 +11,7 @@ interface Props {
 }
 
 function agentTone(space?: EnvironmentSpace): StatusDotTone {
-  if (space?.owner === 'agent') return 'warning';
+  if (space?.owner === 'agent') return 'info';
   if (space?.owner === 'human') return 'success';
   return 'idle';
 }

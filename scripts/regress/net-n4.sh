@@ -17,7 +17,7 @@ RID=$(ids); echo "ruleId=$RID"
 sleep 2
 
 echo "== V23-1 面板能列出规则与命中数 =="
-OUT=$(evalr "(async () => { const t=[...document.querySelectorAll('[role=tab]')].find(e=>e.textContent.trim().startsWith('规则')); if(!t) return 'NO TAB'; t.click(); await new Promise(r=>setTimeout(r,400)); return [...document.querySelectorAll('[data-slot=\"net-rule\"]')].map(e=>e.textContent.trim()); })()")
+OUT=$(evalr "(async () => { const toggle=document.querySelector('[data-slot=\"inspector-toggle\"]'); if(toggle && toggle.getAttribute('aria-expanded')!=='true'){ toggle.click(); await new Promise(r=>setTimeout(r,600)); } const t=[...document.querySelectorAll('[role=tab]')].find(e=>e.textContent.trim().startsWith('规则')); if(!t) return 'NO TAB'; t.click(); await new Promise(r=>setTimeout(r,800)); return [...document.querySelectorAll('[data-slot=\"net-rule\"]')].map(e=>e.textContent.trim()); })()")
 echo "  规则行: $OUT"
 case "$OUT" in *"/cap/api/user"*"mock 200"*"命中"*) echo "PASS V23-1 | 面板列出了规则 / 动作 / 命中数" ;; *) echo "FAIL V23-1 | $OUT" ;; esac
 
@@ -53,5 +53,6 @@ case "$OUT" in *ENV_BUSY*) echo "PASS V23-4 | agent 持权时界面改规则被�
 wait $HOLD 2>/dev/null
 
 echo "== 清理 =="
+evalr "(() => { const toggle=document.querySelector('[data-slot=\"inspector-toggle\"]'); if(toggle && toggle.getAttribute('aria-expanded')==='true') toggle.click(); return 'closed'; })()" > /dev/null
 clear_rules
 $W net rules cap

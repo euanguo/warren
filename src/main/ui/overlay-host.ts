@@ -37,6 +37,7 @@ export class OverlayHost {
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
+        backgroundThrottling: false,
       },
     });
     this.#view.setBackgroundColor('#00000000');
@@ -82,6 +83,7 @@ export class OverlayHost {
     this.#layers.setVisible('overlay', true);
     this.#layers.restack();
     this.#view.webContents.send('overlay:state', request);
+    if (!this.#view.webContents.isDestroyed()) this.#view.webContents.invalidate();
     if (!this.#window.isDestroyed() && this.#window.isFocused()) {
       this.#view.webContents.focus();
     }

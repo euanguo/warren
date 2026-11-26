@@ -256,7 +256,11 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 - **Phase 2 — 地址栏分工、未启动 CTA 与紧凑侧栏**：合并侧栏搜索框与 `+` 新建按钮到单行；停机环境选中后舞台中央直接提供 `启动「<env>」`（支持 `Enter` 快捷键与双击环境行启动），地址栏支持停机态输入 URL 回车自动先启动后打开；地址栏右侧接入 `registry.popovers` 与随页工作台入口。
 - **Phase 3 — 右侧智能互斥与插件随行面板**：新增 `src/renderer/state/workbench-layout.ts`（`shouldExcludeRightPanels`），当 DevTools 为右侧停靠且舞台较窄（`< 1120px` 或网页剩余宽 `< 520px`）时与 Warren 工作台抽屉自动互斥，`bottom` / `detach` 模式自由并存；Whistle 与账号管理插件新增随页 `inspectorTab`（保留全屏 `railPage` 与明文安全警示 `data-slot="account-plaintext-warning"`）。
 - **Phase 4 — AI 透明蒙层与实时动作轨迹**：升级 `src/main/input-shield.ts` 与 `LeaseCoordinator`，区分 `owner === 'agent'`（四边呼吸光晕、顶部轻流光、中心 100% 通透）与 `owner === 'none'`（静默灰边无动画）；取消底部常驻黑药丸遮挡页面按钮，改为误点时于指针旁弹出 1.8s 轻提示；经 `PageContext.onVisualAction` 把 `actions.ts` / `keymouse.ts` 缩放换算后的视口坐标/控件框推给 `'shield'` 绘制阻尼虚拟光标、目标锚框与点击波纹（严禁携带输入明文）。
-- **Phase 5 — 回归探针与单测补齐**：更新 `scripts/regress/ui.cjs` 与 `scripts/regress/run-all.sh` 探针，新增 `tests/shell-layout-interaction.test.ts` 与 `LeaseCoordinator` 遮罩模式/轨迹播报单测。
+- **Phase 5 — 回归探针与单测补齐**：更新 `scripts/regress/ui.cjs`、`scripts/regress/net-n4.sh` 与 `scripts/regress/run-all.sh` 探针，新增 `tests/shell-layout-interaction.test.ts` 与 `LeaseCoordinator` 遮罩模式/轨迹播报单测。
+- **实机自循环验收与细节优化（4 轮 16 截图闭环）**：
+  - 静态门禁 `npm run check` 全绿（`oxlint` 0 警告 / `prettier` 0 差异 / `tsc --noEmit` 0 错误 / `373/373` 单测 PASS / Vite 渲染层构建通过）；
+  - 全量实机回归 `scripts/regress/run-all.sh` **154 PASS / 0 FAIL**（4 个预期 SKIP，UI 21/21 全绿）；专项 14 项外壳交互验收 **14/14 PASS**；
+  - 4 轮实机 1440×920 @2x 截图逐帧审计修复并复验清零：修复打包/本地冷启动 `main.ts` 漏发 `broadcastPluginChanged()` 导致的插件面丢失竞态；为 `InputShield` / `DevToolsHost` / `OverlayHost` 补全 `backgroundThrottling: false`、`setBorderRadius(6)` 与 `invalidate()` 刷新，并打通暗色/浅色双主题 AI 护盾；修正 `react-resizable-panels` 首帧回调污染工作台宽度至 `maxSize` 及 `TabsList` 居中左溢出裁切问题（锁定默认 `360px`、`justify-start` + `scrollIntoView`）；补全 `--color-surface-under` 与 `--sidebar` 浅灰层次映射、macOS 红绿灯垂直同轴（`y=14`）、侧栏头 `40px` 与地址栏 `0px` 对齐、全局顶栏导航 `0px` 绝对居中、持锁态侧栏保护环境名、青蓝色系全链路统一、`top-right` 顶栏安全区 Toast、以及 Whistle/账号伴随空态卡片与账号页 `1040px` 居中版心。最终全部 16 张页面/状态截图 0 P0 / 0 P1 验收通过。
 
 ### Warren 2.0 架构重构与实机验收（2026-11-26）
 
