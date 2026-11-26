@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { usePanelRef } from 'react-resizable-panels';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { EnvironmentTabstrip } from './environment-tabstrip';
-import { EnvironmentSpaceSwitcher } from './environment-space-switcher';
 import { EnvironmentAddressBar } from './environment-address-bar';
 import { EnvironmentInspector } from './environment-inspector';
 import type { PluginInspectorTab } from '@/lib/plugin-runtime';
@@ -41,15 +39,10 @@ interface Props {
   onNetRuleToggle: (id: string, ruleId: string, enabled: boolean) => void;
   stageRef: RefObject<HTMLDivElement | null>;
   sidebarCollapsed: boolean;
-  onSpaceSelect: (id: string, space: SpaceId) => void;
   onTabSelect: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabClose: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabCreate: (id: string, space: SpaceId) => void;
-  onTabCloseOthers: (id: string, space: SpaceId, ref: TabRef) => void;
-  onTabCloseRight: (id: string, space: SpaceId, ref: TabRef) => void;
-  onTabReorder: (id: string, space: SpaceId, from: number, to: number) => void;
   onTabReopen: (id: string, space: SpaceId) => void;
-  onTabToggleMute: (id: string, space: SpaceId, ref: TabRef, muted: boolean) => void;
   nav?: NavigationState | null;
   onNavigate: (action: NavigationAction) => void;
   pluginTabs?: PluginInspectorTab[];
@@ -73,15 +66,10 @@ export function EnvironmentStage({
   netHits,
   onNetRuleToggle,
   stageRef,
-  onSpaceSelect,
   onTabSelect,
   onTabClose,
   onTabCreate,
-  onTabCloseOthers,
-  onTabCloseRight,
-  onTabReorder,
   onTabReopen,
-  onTabToggleMute,
   nav,
   onNavigate,
   pluginTabs = [],
@@ -340,34 +328,6 @@ export function EnvironmentStage({
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center gap-1 px-2">
-        {current ? (
-          <>
-            <EnvironmentSpaceSwitcher
-              spaces={current.spaces ?? []}
-              activeSpaceId={activeSpaceId}
-              onSelect={(space) => onSpaceSelect(current.id, space)}
-            />
-            <EnvironmentTabstrip
-              tabs={tabs}
-              activeTabId={activeTabId}
-              disabled={!running}
-              locked={locked}
-              canReload={canNavigate}
-              onSelect={(ref) => onTabSelect(current.id, activeSpaceId, ref)}
-              onClose={(ref) => onTabClose(current.id, activeSpaceId, ref)}
-              onCreate={() => onTabCreate(current.id, activeSpaceId)}
-              onReload={() => onNavigate({ kind: 'reload' })}
-              onHardReload={() => onNavigate({ kind: 'hardReload' })}
-              onCloseOthers={(ref) => onTabCloseOthers(current.id, activeSpaceId, ref)}
-              onCloseRight={(ref) => onTabCloseRight(current.id, activeSpaceId, ref)}
-              onReorder={(from, to) => onTabReorder(current.id, activeSpaceId, from, to)}
-              onToggleMute={(ref, muted) => onTabToggleMute(current.id, activeSpaceId, ref, muted)}
-            />
-          </>
-        ) : null}
-      </div>
-
       <EnvironmentAddressBar
         envId={current?.id}
         spaceId={activeSpaceId}

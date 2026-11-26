@@ -1,9 +1,17 @@
-import { Icon } from '@/components/icons';
+import type { MouseEvent } from 'react';
+import { Icon, isIconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { StatusDot } from '@/components/ui/status-dot';
-import { statusLabel, statusTone } from '@/lib/labels';
+import { WarrenMark } from '@/components/warren-mark';
+import { EnvironmentSpaceSwitcher } from '@/features/environments/environment-space-switcher';
+import { EnvironmentTabstrip } from '@/features/environments/environment-tabstrip';
+import { egressLabel } from '@/features/environments/sidebar-env-row';
+import { openEnvironmentContextMenu } from '@/features/environments/sidebar-menus';
+import { statusTone } from '@/lib/labels';
+import type { PluginEnvAction, PluginRailPage } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
-import type { Environment } from '@shared/types';
+import type { SettingsSection, StageRoute } from '@/state/navigation-store';
+import type { Environment, Group, NativeMenuItem, SpaceId, TabRef, TabState } from '@shared/types';
 
 /**
  * macOS 红绿灯占位。窗口是 `titleBarStyle: 'hiddenInset'`，红绿灯浮在内容上，
@@ -15,112 +23,349 @@ const DRAG_CLASS = 'select-none [app-region:drag] [-webkit-app-region:drag]';
 const NO_DRAG_CLASS = '[app-region:no-drag] [-webkit-app-region:no-drag]';
 
 interface Props {
+  route: StageRoute;
   environment?: Environment;
-  groupName?: string;
-  /** 环境列表此刻在不在（插件页 / 设置页占满整卡时它不在，☰ 就没意义）。 */
-  showSidebarToggle: boolean;
+  groups: Group[];
+  activeSpaceId: SpaceId;
+  tabs: TabState[];
+  activeTabId?: string;
+  running: boolean;
+  locked: boolean;
+  canNavigate: boolean;
   sidebarOpen: boolean;
+  railPages: PluginRailPage[];
+  activePluginPage?: PluginRailPage;
+  pluginActions: PluginEnvAction[];
   onToggleSidebar: () => void;
+  onSpaceSelect: (id: string, space: SpaceId) => void;
+  onTabSelect: (id: string, space: SpaceId, ref: TabRef) => void;
+  onTabClose: (id: string, space: SpaceId, ref: TabRef) => void;
+  onTabCreate: (id: string, space: SpaceId) => void;
+  onTabReload: () => void;
+  onTabHardReload: () => void;
+  onTabCloseOthers: (id: string, space: SpaceId, ref: TabRef) => void;
+  onTabCloseRight: (id: string, space: SpaceId, ref: TabRef) => void;
+  onTabReorder: (id: string, space: SpaceId, from: number, to: number) => void;
+  onTabToggleMute: (id: string, space: SpaceId, ref: TabRef, muted: boolean) => void;
+  onStart: (id: string) => void;
+  onStop: (id: string) => void;
+  onRemove: (id: string) => void;
+  onMoveToGroup: (envId: string, groupId: string | undefined) => void;
+  onRunPluginAction: (pluginId: string, command: string, envId: string) => void;
   onTakeover: (id: string) => void;
   onRelease: (id: string) => void;
+  onOpenCommandBar: () => void;
+  onOpenSettings: (section?: SettingsSection) => void;
+  onOpenPluginPage: (pluginId: string, surfaceId: string) => void;
+  onBackToEnvironments: () => void;
 }
 
 /**
- * 窗口标题行。
- *
- * 这一行是 **环境级** 的上下文：看的是哪个环境、谁在控制。
- * 页面级的动作（前进/后退/地址）在内容卡片的地址栏里，两者不混。
- * 环境身份放这里而不是侧栏，是因为侧栏可以收起——收起后仍然要知道在看哪个环境。
+ * 两层精密浏览器壳首行（Row 1）：
+ * - 环境模式：红绿灯 + 侧栏折叠 + 当前环境胶囊 + 我的/Agent 空间切换 + 标签条 + 仅 Agent 空间显示的控制权胶囊 + ⌘K / 全局扩展 / 设置；
+ * - 全局模式（设置 / 插件全屏页）：切为纯全局导航条（← 返回环境 + 全局页面切换），避免环境胶囊与全局配置概念错位。
  */
 export function AppTitlebar({
+  route,
   environment,
-  groupName,
-  showSidebarToggle,
+  groups,
+  activeSpaceId,
+  tabs,
+  activeTabId,
+  running,
+  locked,
+  canNavigate,
   sidebarOpen,
+  railPages,
+  activePluginPage,
+  pluginActions,
   onToggleSidebar,
+  onSpaceSelect,
+  onTabSelect,
+  onTabClose,
+  onTabCreate,
+  onTabReload,
+  onTabHardReload,
+  onTabCloseOthers,
+  onTabCloseRight,
+  onTabReorder,
+  onTabToggleMute,
+  onStart,
+  onStop,
+  onRemove,
+  onMoveToGroup,
+  onRunPluginAction,
   onTakeover,
   onRelease,
+  onOpenCommandBar,
+  onOpenSettings,
+  onOpenPluginPage,
+  onBackToEnvironments,
 }: Props) {
-  const running = environment?.status === 'running';
+  const isGlobalMode = route !== 'environments';
   const agentOwner =
     (environment?.spaces ?? []).find((space) => space.id === 'agent')?.owner ?? environment?.owner ?? 'none';
-  const agentLabel = agentOwner === 'agent' ? 'Agent 操作中' : agentOwner === 'human' ? '你接管了 Agent' : 'Agent 空闲';
+
+  const openCurrentEnvMenu = (event: MouseEvent) => {
+    if (!environment) return;
+    void openEnvironmentContextMenu(event, environment, groups, pluginActions, {
+      onStart,
+      onStop,
+      onRemove,
+      onTakeover,
+      onRelease,
+      onMoveToGroup,
+      onRunPluginAction,
+    });
+  };
+
+  const openGlobalPluginsMenu = async (event: MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const items: NativeMenuItem[] = [];
+    if (railPages.length > 0) {
+      items.push({ label: '插件全屏页', enabled: false });
+      for (const page of railPages) {
+        items.push({
+          id: `page:${page.pluginId}:${page.id}`,
+          label: page.title,
+        });
+      }
+      items.push({ type: 'separator' });
+    }
+    items.push(
+      { id: 'settings:plugins', label: '插件与权限管理…' },
+      { id: 'settings:vault', label: '凭据与安全边界 (Vault)…' },
+      { id: 'settings:general', label: '设置中心…' },
+    );
+    const picked = await window.envApi.popupMenu(items, {
+      x: Math.round(rect.left),
+      y: Math.round(rect.bottom + 4),
+    });
+    if (!picked) return;
+    if (picked.startsWith('page:')) {
+      const rest = picked.slice(5);
+      const sep = rest.indexOf(':');
+      if (sep > 0) onOpenPluginPage(rest.slice(0, sep), rest.slice(sep + 1));
+    } else if (picked.startsWith('settings:')) {
+      onOpenSettings(picked.slice(9) as SettingsSection);
+    }
+  };
+
+  if (isGlobalMode) {
+    return (
+      <header
+        data-slot="global-header"
+        className={cn(
+          'flex h-[var(--shell-top-row-height)] shrink-0 items-center gap-2 border-b border-divider bg-surface-under pr-3',
+          window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
+          DRAG_CLASS,
+        )}
+      >
+        <div className={cn('flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+          <Button
+            size="xs"
+            variant="ghost"
+            data-slot="settings-back"
+            aria-label="返回环境"
+            title="返回环境工作台 (Esc)"
+            onClick={onBackToEnvironments}
+          >
+            <Icon name="ChevronLeft" />
+            <span>返回环境{environment ? ` · ${environment.name}` : ''}</span>
+          </Button>
+          <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+        </div>
+
+        <nav
+          aria-label="全局视图"
+          data-slot="global-nav"
+          className={cn('flex min-w-0 items-center gap-1', NO_DRAG_CLASS)}
+        >
+          <Button
+            size="xs"
+            variant={route === 'settings' ? 'secondary' : 'ghost'}
+            aria-label="设置"
+            aria-current={route === 'settings' ? 'page' : undefined}
+            onClick={() => onOpenSettings()}
+          >
+            <Icon name="Settings" />
+            <span>设置</span>
+          </Button>
+          {railPages.map((page) => {
+            const active =
+              route === 'pluginPage' &&
+              activePluginPage?.pluginId === page.pluginId &&
+              activePluginPage?.id === page.id;
+            const iconName = page.icon && isIconName(page.icon) ? page.icon : 'Plug';
+            return (
+              <Button
+                key={`${page.pluginId}:${page.id}`}
+                size="xs"
+                variant={active ? 'secondary' : 'ghost'}
+                aria-label={page.title}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => onOpenPluginPage(page.pluginId, page.id)}
+              >
+                <Icon name={iconName} />
+                <span>{page.title}</span>
+              </Button>
+            );
+          })}
+        </nav>
+
+        <div className={cn('ml-auto flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+          <IconButton
+            data-slot="command-bar-trigger"
+            title="命令栏 (⌘K)"
+            aria-label="命令栏 (⌘K)"
+            onClick={onOpenCommandBar}
+          >
+            <Icon name="Command" />
+          </IconButton>
+          <WarrenMark className="size-4 opacity-85" />
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header
-      data-slot="app-titlebar"
+      data-slot="app-header"
       className={cn(
-        'flex h-[var(--shell-title-bar-height)] shrink-0 items-center gap-2 border-b border-divider bg-background pr-4',
+        'flex h-[var(--shell-top-row-height)] shrink-0 items-center gap-1.5 border-b border-divider bg-surface-under pr-2.5',
         window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
         DRAG_CLASS,
       )}
     >
-      {/*
-        侧栏开合放在**标题行**，不放 rail —— rail 是路由切换器，和"这行窗口在干什么"不是一回事。
-        槽位宽度固定：切到插件页 / 设置页时按钮消失，不留位的话环境名会往左跳 28px。
-      */}
-      <div className={cn('flex w-[var(--rail-control-size)] shrink-0 items-center justify-center', NO_DRAG_CLASS)}>
-        {showSidebarToggle && (
-          <IconButton
-            title={sidebarOpen ? '收起侧栏' : '展开侧栏'}
-            aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
-            aria-expanded={sidebarOpen}
-            onClick={onToggleSidebar}
+      <div className={cn('flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+        <IconButton
+          data-slot="sidebar-toggle"
+          title={sidebarOpen ? '收起环境侧栏 (⌘B)' : '展开环境侧栏 (⌘B)'}
+          aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
+          aria-expanded={sidebarOpen}
+          onClick={onToggleSidebar}
+        >
+          <Icon name={sidebarOpen ? 'PanelLeftClose' : 'PanelLeftOpen'} />
+        </IconButton>
+
+        {environment ? (
+          <button
+            type="button"
+            data-slot="env-capsule"
+            onClick={openCurrentEnvMenu}
+            onContextMenu={openCurrentEnvMenu}
+            title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击或右键管理环境`}
+            className="flex h-7 max-w-[216px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/70 bg-background/70 px-2 text-xs transition-colors hover:bg-surface-hover"
           >
-            <Icon name={sidebarOpen ? 'PanelLeftClose' : 'PanelLeftOpen'} />
-          </IconButton>
+            <StatusDot tone={environment.error ? 'error' : statusTone(environment.status)} />
+            <span className="truncate font-medium text-foreground">{environment.name}</span>
+            <span className="truncate font-mono text-[11px] text-muted-foreground">
+              {environment.error ? '加载失败' : egressLabel(environment.proxy)}
+            </span>
+          </button>
+        ) : (
+          <span data-slot="env-capsule" className="px-1.5 text-xs text-muted-foreground">
+            未选择环境
+          </span>
+        )}
+
+        {environment && (
+          <>
+            <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+            <EnvironmentSpaceSwitcher
+              spaces={environment.spaces ?? []}
+              activeSpaceId={activeSpaceId}
+              leaseLabel={environment.leaseLabel}
+              onSelect={(space) => onSpaceSelect(environment.id, space)}
+            />
+          </>
         )}
       </div>
 
-      {environment ? (
-        <div className="flex min-w-0 items-center gap-1.5">
-          <StatusDot tone={environment.error ? 'error' : statusTone(environment.status)} />
-          <span className="truncate text-sm font-medium">{environment.name}</span>
-          {groupName ? (
-            <>
-              <span className="text-muted-foreground/50">·</span>
-              <span className="truncate text-xs text-muted-foreground">{groupName}</span>
-            </>
-          ) : null}
-          {/* 页面加载失败时环境**仍然是 running**，所以说「运行中」是错的——这里优先报错 */}
-          <span
-            className={cn('shrink-0 text-xs', environment.error ? 'text-destructive' : 'text-muted-foreground')}
-            title={environment.error}
-          >
-            {environment.error ? '页面加载失败' : (statusLabel[environment.status] ?? environment.status)}
-          </span>
-          <span className="shrink-0 truncate font-mono text-xs text-muted-foreground">
-            {environment.proxy ?? '直连'}
-          </span>
-        </div>
-      ) : (
-        <span className="text-sm text-muted-foreground">未选择环境</span>
-      )}
-
-      <div className={cn('ml-auto flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
+      <div className="flex min-w-0 flex-1 items-center">
         {environment ? (
-          <>
-            {/* 「谁在控制」是这一行的核心信息之一，空闲是常态、有主才要显眼 */}
-            <span
-              className={cn('text-xs', agentOwner === 'none' ? 'text-muted-foreground' : 'font-medium text-foreground')}
-            >
-              {agentLabel}
-            </span>
-            {/* 空闲时也要能接管——否则导航按钮永远解不开，是个死角 */}
-            {running && agentOwner !== 'human' && (
-              <Button size="sm" onClick={() => onTakeover(environment.id)}>
-                <Icon name="Grab" />
-                接管 Agent
-              </Button>
-            )}
-            {agentOwner === 'human' && (
-              <Button size="sm" variant="secondary" onClick={() => onRelease(environment.id)}>
-                <Icon name="Release" />
-                交还 Agent
-              </Button>
-            )}
-          </>
+          <EnvironmentTabstrip
+            tabs={tabs}
+            activeTabId={activeTabId}
+            disabled={!running}
+            locked={locked}
+            canReload={canNavigate}
+            onSelect={(ref) => onTabSelect(environment.id, activeSpaceId, ref)}
+            onClose={(ref) => onTabClose(environment.id, activeSpaceId, ref)}
+            onCreate={() => onTabCreate(environment.id, activeSpaceId)}
+            onReload={onTabReload}
+            onHardReload={onTabHardReload}
+            onCloseOthers={(ref) => onTabCloseOthers(environment.id, activeSpaceId, ref)}
+            onCloseRight={(ref) => onTabCloseRight(environment.id, activeSpaceId, ref)}
+            onReorder={(from, to) => onTabReorder(environment.id, activeSpaceId, from, to)}
+            onToggleMute={(ref, muted) => onTabToggleMute(environment.id, activeSpaceId, ref, muted)}
+          />
         ) : null}
+      </div>
+
+      <div className={cn('flex shrink-0 items-center gap-1', NO_DRAG_CLASS)}>
+        {/* 控制权胶囊只在 Agent 空间出现：我的空间永远可写，不制造接管噪音 */}
+        {environment && running && activeSpaceId === 'agent' && (
+          <div
+            data-slot="control-pill"
+            data-owner={agentOwner}
+            className={cn(
+              'mr-1 flex items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-2 text-xs',
+              agentOwner === 'agent' && 'border-[var(--info)]/40 bg-[var(--info)]/10',
+              agentOwner === 'human' && 'border-[var(--success)]/40 bg-[var(--success)]/10',
+              agentOwner === 'none' && 'border-border bg-muted/40',
+            )}
+          >
+            <StatusDot
+              tone={agentOwner === 'agent' ? 'warning' : agentOwner === 'human' ? 'success' : 'idle'}
+              className={cn(agentOwner === 'agent' && 'animate-pulse text-[var(--info)]')}
+            />
+            <span className="max-w-[132px] truncate text-foreground">
+              {agentOwner === 'agent'
+                ? `${environment.leaseLabel || 'Agent'} 操作中`
+                : agentOwner === 'human'
+                  ? '你正在接管'
+                  : 'Agent 空闲（只读）'}
+            </span>
+            {agentOwner === 'human' ? (
+              <Button size="xs" variant="secondary" onClick={() => onRelease(environment.id)}>
+                <Icon name="Release" />
+                交还
+              </Button>
+            ) : (
+              <Button
+                size="xs"
+                variant={agentOwner === 'agent' ? 'default' : 'outline'}
+                onClick={() => onTakeover(environment.id)}
+              >
+                <Icon name="Grab" />
+                {agentOwner === 'agent' ? '接管' : '接管编辑'}
+              </Button>
+            )}
+          </div>
+        )}
+
+        <IconButton
+          data-slot="command-bar-trigger"
+          title="命令栏 (⌘K)"
+          aria-label="命令栏 (⌘K)"
+          onClick={onOpenCommandBar}
+        >
+          <Icon name="Command" />
+        </IconButton>
+
+        <IconButton
+          data-slot="global-plugins-trigger"
+          title="插件全屏页与扩展工具"
+          aria-label="扩展与全局页"
+          onClick={(event) => void openGlobalPluginsMenu(event)}
+        >
+          <Icon name="Plug" />
+        </IconButton>
+
+        <IconButton data-slot="settings-trigger" title="设置中心" aria-label="设置" onClick={() => onOpenSettings()}>
+          <Icon name="Settings" />
+        </IconButton>
       </div>
     </header>
   );

@@ -269,9 +269,10 @@
    * 三列（rail / 侧栏 / 内容）的顶行共用 --shell-chrome-row-height，横向才是一条线。
    */
   --shell-title-bar-height: 3rem; /* macOS hiddenInset 拖拽区 + 红绿灯；对齐参考稿 header 50 */
+  --shell-top-row-height: 2.5rem; /* 40px 两层壳首行：红绿灯 + 环境胶囊 + Space + 标签 + 全局动作 */
   --shell-frame-lip: 0px; /* 卡片贴满窗口：右/下留白会在底部显成一条多余的灰线 */
   --shell-chrome-row-height: 2.25rem;
-  --shell-address-row-height: 2.75rem; /* 44px，对齐 bb 的浏览器工具栏行高 */
+  --shell-address-row-height: 2.5rem; /* 40px 两层壳第二行：导航 + 地址栏 + 研发工具 */
   --shell-card-radius: var(--radius-xl);
   /* rail 几何：全部落在既有阶梯上 —— 控件 32（control-size-lg）、圆角 12.5（control-radius）、
      padding 10（space-4）、间距 4（space-1）。四边 padding 同值，宽度 52 = 32 + 2×10。 */

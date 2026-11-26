@@ -157,7 +157,7 @@ export function SettingsPage({
 
   return (
     <div data-slot="settings-page" className="flex h-full min-h-0 flex-col bg-background">
-      {/* 标题行：左标题 · 中搜索 · 右返回环境，并与工作台保持完全一致的行高。 */}
+      {/* 顶部搜索副栏：返回环境与全局切换由外壳 Row 1 统一提供，这里专注过滤设置项。 */}
       <header className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center justify-between gap-3 border-b border-border px-4">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">设置中心</span>
@@ -194,13 +194,11 @@ export function SettingsPage({
               </button>
             )}
           </div>
-
           {onClose && (
-            <Button size="sm" variant="ghost" onClick={onClose} data-slot="settings-back">
-              <Icon name="ChevronLeft" />
-              <span>返回环境</span>
+            <span className="hidden items-center gap-1 text-[11px] text-muted-foreground sm:inline-flex">
               <Kbd>Esc</Kbd>
-            </Button>
+              <span>返回</span>
+            </span>
           )}
         </div>
       </header>

@@ -105,7 +105,7 @@ export function EnvironmentTabstrip({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
-      <SurfaceTabStrip aria-label="标签" className="flex-initial">
+      <SurfaceTabStrip aria-label="标签" className="flex-initial [app-region:no-drag] [-webkit-app-region:no-drag]">
         {tabs.map((tab, index) => {
           const label = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : '新标签页');
           return (
@@ -175,7 +175,13 @@ export function EnvironmentTabstrip({
           );
         })}
       </SurfaceTabStrip>
-      <IconButton variant="ghost" title="新建标签" disabled={disabled || locked} onClick={onCreate}>
+      <IconButton
+        variant="ghost"
+        title="新建标签 (⌘T)"
+        disabled={disabled || locked}
+        onClick={onCreate}
+        className="[app-region:no-drag] [-webkit-app-region:no-drag]"
+      >
         <Icon name="Plus" />
       </IconButton>
     </div>
