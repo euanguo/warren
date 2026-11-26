@@ -274,7 +274,8 @@
         {
           "kind": "inspectorTab",
           "id": "env-proxy",
-          "title": "代理"
+          "title": "代理",
+          "icon": "Globe"
         },
         {
           "kind": "settingsSection",
@@ -285,6 +286,26 @@
           "kind": "envAction",
           "id": "open",
           "title": "打开代理实例",
+          "icon": "Globe",
+          "command": "open"
+        },
+        {
+          "kind": "popover",
+          "id": "quick-proxy",
+          "title": "Whistle 代理快捷控制",
+          "icon": "Globe"
+        },
+        {
+          "kind": "statusBadge",
+          "id": "proxy-badge",
+          "title": "代理运行状态",
+          "icon": "Globe"
+        },
+        {
+          "kind": "commandBarAction",
+          "id": "open-bound",
+          "title": "打开当前环境 Whistle Web UI",
+          "description": "在当前环境标签页中打开已绑定的 Whistle 控制台",
           "icon": "Globe",
           "command": "open"
         }
