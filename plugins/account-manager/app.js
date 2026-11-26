@@ -27,7 +27,6 @@ export default function register(app) {
     EmptyContent,
     EmptyDescription,
     EmptyHeader,
-    EmptyMedia,
     EmptyTitle,
     Field,
     FieldDescription,
@@ -407,7 +406,7 @@ export default function register(app) {
             style: { '--brand-hue': 36 },
             className: 'plugin-brand-chip flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-md)]',
           },
-          h(Icon, { name: 'Key', className: 'size-4' }),
+          h(Icon, { name: 'User', className: 'size-4' }),
         ),
         h('h1', { className: 'text-lg font-semibold text-foreground' }, '账号管理'),
         h('span', { className: 'text-xs text-muted-foreground' }, `${state.accounts.length} 条 · 本机明文`),
@@ -427,10 +426,12 @@ export default function register(app) {
       h(
         'div',
         {
-          className: cn(
-            cardSurfaceClass,
-            'flex flex-wrap items-center justify-between gap-2 border-[var(--warning)]/35 bg-[var(--warning)]/10 text-xs text-[var(--warning)]',
-          ),
+          className: cn(cardSurfaceClass, 'flex flex-wrap items-center justify-between gap-2 text-xs'),
+          style: {
+            backgroundColor: 'color-mix(in srgb, var(--warning) 10%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--warning) 36%, transparent)',
+            color: 'var(--warning)',
+          },
           'data-slot': 'account-plaintext-warning',
         },
         h(
@@ -444,7 +445,8 @@ export default function register(app) {
           {
             size: 'xs',
             variant: 'outline',
-            className: 'shrink-0 border-[var(--warning)]/35 text-foreground',
+            style: { borderColor: 'color-mix(in srgb, var(--warning) 40%, transparent)' },
+            className: 'shrink-0 text-foreground',
             onClick: () => app.navigation?.openSettings?.('vault'),
           },
           h(Icon, { name: 'Key', className: 'size-3.5' }),
@@ -469,9 +471,9 @@ export default function register(app) {
           }),
         ),
         h(Input, {
-          className: 'w-40',
+          className: 'w-44',
           value: tag,
-          placeholder: '标签',
+          placeholder: '按标签筛选…',
           onChange: (event) => setTag(event.target.value),
         }),
         h(
@@ -484,28 +486,41 @@ export default function register(app) {
       error ? h('p', { className: 'text-xs text-destructive' }, error) : null,
       state.accounts.length === 0
         ? h(
-            Empty,
-            null,
+            'div',
+            { className: cn(cardSurfaceClass, 'mt-2 py-12') },
             h(
-              EmptyHeader,
-              null,
-              h(EmptyMedia, { variant: 'icon' }, h(Icon, { name: 'User' })),
-              h(EmptyTitle, null, '还没有账号'),
-              h(EmptyDescription, null, '新增测试站点账号，后续可在任意环境侧栏一键填充。'),
-            ),
-            h(
-              EmptyContent,
-              null,
+              Empty,
+              { className: 'border-0 p-0' },
               h(
-                Button,
-                {
-                  onClick: () => {
-                    setEditing(null);
-                    setEditorOpen(true);
+                EmptyHeader,
+                null,
+                h(
+                  'span',
+                  {
+                    'aria-hidden': true,
+                    style: { '--brand-hue': 36 },
+                    className: 'plugin-brand-chip mb-2 flex size-10 items-center justify-center rounded-xl',
                   },
-                },
-                h(Icon, { name: 'Plus' }),
-                '新增第一个测试账号',
+                  h(Icon, { name: 'User', className: 'size-5' }),
+                ),
+                h(EmptyTitle, null, '还没有账号'),
+                h(EmptyDescription, null, '新增测试站点账号，后续可在任意环境侧栏一键填充。'),
+              ),
+              h(
+                EmptyContent,
+                null,
+                h(
+                  Button,
+                  {
+                    variant: 'outline',
+                    onClick: () => {
+                      setEditing(null);
+                      setEditorOpen(true);
+                    },
+                  },
+                  h(Icon, { name: 'Plus' }),
+                  '新增第一个测试账号',
+                ),
               ),
             ),
           )
@@ -641,10 +656,12 @@ export default function register(app) {
       h(
         'div',
         {
-          className: cn(
-            cardSurfaceClass,
-            'flex flex-col gap-1.5 border-[var(--warning)]/35 bg-[var(--warning)]/10 text-[length:var(--font-size-micro)] text-[var(--warning)]',
-          ),
+          className: cn(cardSurfaceClass, 'flex flex-col gap-1.5 text-[length:var(--font-size-micro)]'),
+          style: {
+            backgroundColor: 'color-mix(in srgb, var(--warning) 10%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--warning) 36%, transparent)',
+            color: 'var(--warning)',
+          },
           'data-slot': 'account-plaintext-warning',
         },
         h(

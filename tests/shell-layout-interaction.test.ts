@@ -98,13 +98,17 @@ test('navigation-store：全局设置、插件页切换及返回环境状态流�
   setInspectorOpen(false);
 });
 
-test('env-identity：隔离环境色标映射确定且落在 8 组色相内', () => {
+test('env-identity：隔离环境色标映射确定且常见名称分散在不同色相', () => {
   const a1 = getEnvIdentity('env-cap', 'cap');
   const a2 = getEnvIdentity('env-cap', 'cap');
   assert.deepEqual(a1, a2);
   assert.equal(a1.initial, 'C');
   assert.ok((ENV_IDENTITY_HUES as readonly number[]).includes(a1.hue));
   assert.equal(getEnvIdentity('env-cn', '测试环境').initial, '测');
+  const hues = new Set(
+    ['cap', 'dev-proxy', 'staging-ops', 'verify-stopped-cta'].map((id) => getEnvIdentity(id, id).hue),
+  );
+  assert.ok(hues.size >= 3, `expected >= 3 distinct hues, got ${[...hues].join(',')}`);
 });
 
 test('plugin-brand：内置插件具备独立品牌图标与色相，第三方插件有稳定回退', () => {
@@ -112,7 +116,7 @@ test('plugin-brand：内置插件具备独立品牌图标与色相，第三方�
   const accounts = getPluginBrand('com.warren.accounts');
   const notes = getPluginBrand('com.example.notes');
   assert.equal(whistle.icon, 'Globe');
-  assert.equal(accounts.icon, 'Key');
+  assert.equal(accounts.icon, 'User');
   assert.equal(notes.icon, 'List');
   assert.notEqual(whistle.hue, accounts.hue);
   assert.notEqual(accounts.hue, notes.hue);

@@ -19,15 +19,27 @@ function ThemePreviewThumb({ mode }: { mode: ThemePreference }) {
     return (
       <span
         aria-hidden
-        className="mb-1.5 flex h-8 w-14 overflow-hidden rounded-[6px] border border-border-heavy shadow-2xs"
+        className="mb-2 flex h-14 w-full overflow-hidden rounded-[6px] border border-border-heavy shadow-2xs"
       >
-        <span className="flex flex-1 flex-col bg-[#181b21] p-1">
-          <span className="h-1 w-4 rounded-full bg-[#5b8cff]" />
-          <span className="mt-1 flex-1 rounded-[2px] bg-[#20242d]" />
+        <span className="flex flex-1 gap-1 bg-[#111317] p-1.5">
+          <span className="w-5 rounded-[3px] bg-[#181b21] p-1">
+            <span className="block h-1 w-full rounded-full bg-[#384152]" />
+            <span className="mt-1 block h-1 w-2/3 rounded-full bg-[#2a3140]" />
+          </span>
+          <span className="flex flex-1 flex-col gap-1">
+            <span className="h-1.5 w-8 rounded-full bg-[#5b8cff]" />
+            <span className="flex-1 rounded-[3px] border border-white/6 bg-[#1e222b]" />
+          </span>
         </span>
-        <span className="flex flex-1 flex-col bg-[#e9edf3] p-1">
-          <span className="h-1 w-4 rounded-full bg-[#3b5bdb]" />
-          <span className="mt-1 flex-1 rounded-[2px] bg-[#ffffff]" />
+        <span className="flex flex-1 gap-1 border-l border-border-heavy bg-[#e6ebf2] p-1.5">
+          <span className="w-5 rounded-[3px] bg-[#d6dde8] p-1">
+            <span className="block h-1 w-full rounded-full bg-[#9aa6ba]" />
+            <span className="mt-1 block h-1 w-2/3 rounded-full bg-[#b4bece]" />
+          </span>
+          <span className="flex flex-1 flex-col gap-1">
+            <span className="h-1.5 w-8 rounded-full bg-[#3b5bdb]" />
+            <span className="flex-1 rounded-[3px] border border-black/8 bg-[#ffffff]" />
+          </span>
         </span>
       </span>
     );
@@ -37,14 +49,26 @@ function ThemePreviewThumb({ mode }: { mode: ThemePreference }) {
     <span
       aria-hidden
       className={cn(
-        'mb-1.5 flex h-8 w-14 overflow-hidden rounded-[6px] border border-border-heavy p-1 shadow-2xs',
-        dark ? 'bg-[#111317]' : 'bg-[#e9edf3]',
+        'mb-2 flex h-14 w-full gap-1.5 overflow-hidden rounded-[6px] border border-border-heavy p-1.5 shadow-2xs',
+        dark ? 'bg-[#111317]' : 'bg-[#e6ebf2]',
       )}
     >
-      <span className={cn('mr-1 w-3 rounded-[2px]', dark ? 'bg-[#181b21]' : 'bg-[#f4f6fa]')} />
+      <span className={cn('flex w-8 flex-col gap-1 rounded-[3px] p-1', dark ? 'bg-[#181b21]' : 'bg-[#d6dde8]')}>
+        <span className={cn('h-1 w-full rounded-full', dark ? 'bg-[#3b4559]' : 'bg-[#94a2b8]')} />
+        <span className={cn('h-1 w-3/4 rounded-full', dark ? 'bg-[#2a3140]' : 'bg-[#b4bece]')} />
+        <span className={cn('h-1 w-4/5 rounded-full', dark ? 'bg-[#2a3140]' : 'bg-[#b4bece]')} />
+      </span>
       <span className="flex flex-1 flex-col gap-1">
-        <span className={cn('h-1.5 w-5 rounded-full', dark ? 'bg-[#5b8cff]' : 'bg-[#3b5bdb]')} />
-        <span className={cn('flex-1 rounded-[2px]', dark ? 'bg-[#20242d]' : 'bg-[#ffffff]')} />
+        <span className="flex items-center gap-1">
+          <span className={cn('h-1.5 w-10 rounded-full', dark ? 'bg-[#5b8cff]' : 'bg-[#3b5bdb]')} />
+          <span className={cn('ml-auto h-1.5 w-5 rounded-full', dark ? 'bg-[#2a3140]' : 'bg-[#cbd4e1]')} />
+        </span>
+        <span
+          className={cn(
+            'flex-1 rounded-[3px] border',
+            dark ? 'border-white/6 bg-[#1e222b]' : 'border-black/8 bg-[#ffffff]',
+          )}
+        />
       </span>
     </span>
   );

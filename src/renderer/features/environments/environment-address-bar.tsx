@@ -392,7 +392,7 @@ export function EnvironmentAddressBar({
           aria-label="后退"
           disabled={!editable || !canGoBack}
           onClick={() => onNavigate({ kind: 'back' })}
-          className="disabled:opacity-40"
+          className="disabled:opacity-50"
         >
           <Icon name="ChevronLeft" />
         </IconButton>
@@ -403,7 +403,7 @@ export function EnvironmentAddressBar({
           aria-label="前进"
           disabled={!editable || !canGoForward}
           onClick={() => onNavigate({ kind: 'forward' })}
-          className="disabled:opacity-40"
+          className="disabled:opacity-50"
         >
           <Icon name="ChevronRight" />
         </IconButton>
@@ -415,7 +415,7 @@ export function EnvironmentAddressBar({
           disabled={!editable}
           onClick={() => onNavigate({ kind: 'reload' })}
           onContextMenu={(event) => void openReloadMenu(event)}
-          className="disabled:opacity-40"
+          className="disabled:opacity-50"
         >
           <Icon name="Refresh" />
         </IconButton>
@@ -538,7 +538,7 @@ export function EnvironmentAddressBar({
                     'flex size-5 shrink-0 items-center justify-center rounded-full transition-all outline-none focus-visible:border focus-visible:border-focus',
                     copiedUrl
                       ? 'text-[var(--success)] opacity-100'
-                      : 'text-subtle-foreground opacity-0 group-hover/omnibox:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100',
+                      : 'text-subtle-foreground opacity-65 hover:bg-surface-hover hover:text-foreground hover:opacity-100 focus-visible:opacity-100',
                   )}
                 >
                   <Icon name={copiedUrl ? 'Check' : 'Copy'} className="size-3.5" />
@@ -594,13 +594,15 @@ export function EnvironmentAddressBar({
         </ActionTooltip>
       )}
 
-      <ActionTooltip label="页面工具（查找 / 视口 / 下载）" side="top">
+      <ActionTooltip label={running ? '页面工具（查找 / 视口 / 下载）' : '启动环境后可用页面工具'} side="top">
         <IconButton
           ref={pageToolsBtnRef}
           variant="ghost"
           data-slot="page-tools-trigger"
           aria-label="页面工具"
+          disabled={!running}
           onClick={(event) => void openPageToolsMenu(event)}
+          className="disabled:opacity-50"
         >
           <Icon name="More" />
         </IconButton>

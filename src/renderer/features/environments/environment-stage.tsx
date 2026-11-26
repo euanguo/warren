@@ -604,7 +604,7 @@ export function EnvironmentStage({
                       <EmptyMedia className="relative mb-2">
                         <div
                           aria-hidden
-                          className="warren-brand-aura pointer-events-none absolute -inset-6 rounded-full"
+                          className="warren-brand-aura pointer-events-none absolute -inset-12 rounded-full"
                         />
                         <div className="relative flex size-16 items-center justify-center rounded-[var(--radius-2xl)] border border-border-heavy/80 bg-surface-elevated/90 [box-shadow:var(--shadow-raised)]">
                           <WarrenMark className="size-11" />
@@ -626,7 +626,7 @@ export function EnvironmentStage({
                             <span className="font-mono font-medium text-foreground">{egressLabel(current.proxy)}</span>
                           </span>
                           {current.startUrl && (
-                            <span className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
+                            <span className="inline-flex max-w-[420px] items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
                               <span className="shrink-0">默认页</span>
                               <span className="truncate font-mono font-medium text-foreground">{current.startUrl}</span>
                             </span>

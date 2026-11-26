@@ -173,16 +173,18 @@
 
 /* 身份与插件微彩系统（工具静 · 身份彩） */
 .env-identity-chip {
-  background-color: hsl(var(--env-hue, 210) 70% 45% / 0.14);
-  color: hsl(var(--env-hue, 210) 72% 34%);
-  border: 1px solid hsl(var(--env-hue, 210) 68% 45% / 0.28);
+  background-color: hsl(var(--env-hue, 210) 62% 46% / 0.16);
+  color: hsl(var(--env-hue, 210) 74% 30%);
+  border: 1px solid hsl(var(--env-hue, 210) 58% 40% / 0.36);
+  box-shadow: inset 0 0 0 1px hsl(var(--env-hue, 210) 58% 40% / 0.12);
 }
 
 :root.dark .env-identity-chip,
 :root[data-theme='dark'] .env-identity-chip {
-  background-color: hsl(var(--env-hue, 210) 76% 62% / 0.16);
-  color: hsl(var(--env-hue, 210) 86% 76%);
-  border-color: hsl(var(--env-hue, 210) 78% 64% / 0.3);
+  background-color: hsl(var(--env-hue, 210) 76% 62% / 0.17);
+  color: hsl(var(--env-hue, 210) 88% 78%);
+  border-color: hsl(var(--env-hue, 210) 78% 64% / 0.34);
+  box-shadow: none;
 }
 
 .plugin-brand-icon {
@@ -195,9 +197,9 @@
 }
 
 .plugin-brand-chip {
-  background-color: hsl(var(--brand-hue, 215) 70% 48% / 0.12);
-  color: hsl(var(--brand-hue, 215) 74% 36%);
-  border: 1px solid hsl(var(--brand-hue, 215) 68% 48% / 0.24);
+  background-color: hsl(var(--brand-hue, 215) 70% 48% / 0.14);
+  color: hsl(var(--brand-hue, 215) 74% 34%);
+  border: 1px solid hsl(var(--brand-hue, 215) 68% 46% / 0.28);
 }
 
 :root.dark .plugin-brand-chip,
@@ -209,8 +211,9 @@
 
 .warren-brand-aura {
   background: radial-gradient(
-    circle at 50% 40%,
-    color-mix(in oklab, var(--theme-accent) 20%, transparent),
-    transparent 72%
+    circle at 50% 48%,
+    color-mix(in oklab, var(--theme-accent) 18%, transparent) 0%,
+    color-mix(in oklab, var(--theme-accent) 7%, transparent) 38%,
+    transparent 68%
   );
 }

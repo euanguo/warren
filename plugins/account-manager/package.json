@@ -14,7 +14,7 @@
     "runtime": "sandbox",
     "server": "server.js",
     "app": "app.js",
-    "icon": "Key",
+    "icon": "User",
     "engines": {
       "warren": ">=0.1.0"
     },

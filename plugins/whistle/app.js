@@ -34,7 +34,6 @@ export default function register(app) {
     Empty,
     EmptyContent,
     EmptyHeader,
-    EmptyMedia,
     EmptyTitle,
     EmptyDescription,
     Icon,
@@ -81,7 +80,7 @@ export default function register(app) {
     return { ...data, error, busy, load, run };
   }
 
-  function NewInstanceDialog({ environments, busy, run, onCreated }) {
+  function NewInstanceDialog({ environments, busy, run, onCreated, triggerVariant }) {
     const [open, setOpen] = useState(false);
     const [storage, setStorage] = useState('');
     const [hostPattern, setHostPattern] = useState('');
@@ -115,7 +114,7 @@ export default function register(app) {
     return h(
       React.Fragment,
       null,
-      h(Button, { onClick: () => setOpen(true) }, h(Icon, { name: 'Plus' }), '新建实例'),
+      h(Button, { variant: triggerVariant, onClick: () => setOpen(true) }, h(Icon, { name: 'Plus' }), '新建实例'),
       h(
         Dialog,
         { open, onOpenChange: setOpen },
@@ -918,19 +917,37 @@ export default function register(app) {
       error && h('p', { className: 'text-xs text-destructive' }, error),
       instances.length === 0
         ? h(
-            Empty,
-            null,
+            'div',
+            { className: cn(cardSurfaceClass, 'mt-2 py-12') },
             h(
-              EmptyHeader,
-              null,
-              h(EmptyMedia, { variant: 'icon' }, h(Icon, { name: 'Globe' })),
-              h(EmptyTitle, null, '还没有代理实例'),
-              h(EmptyDescription, null, '为环境创建独立的 Whistle 进程、端口与抓包规则。'),
-            ),
-            h(
-              EmptyContent,
-              null,
-              h(NewInstanceDialog, { environments, busy, run, onCreated: () => setSelected(null) }),
+              Empty,
+              { className: 'border-0 p-0' },
+              h(
+                EmptyHeader,
+                null,
+                h(
+                  'span',
+                  {
+                    'aria-hidden': true,
+                    style: { '--brand-hue': 192 },
+                    className: 'plugin-brand-chip mb-2 flex size-10 items-center justify-center rounded-xl',
+                  },
+                  h(Icon, { name: 'Globe', className: 'size-5' }),
+                ),
+                h(EmptyTitle, null, '还没有代理实例'),
+                h(EmptyDescription, null, '为环境创建独立的 Whistle 进程、端口与抓包规则。'),
+              ),
+              h(
+                EmptyContent,
+                null,
+                h(NewInstanceDialog, {
+                  environments,
+                  busy,
+                  run,
+                  triggerVariant: 'outline',
+                  onCreated: () => setSelected(null),
+                }),
+              ),
             ),
           )
         : h(

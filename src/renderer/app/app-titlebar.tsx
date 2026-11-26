@@ -274,7 +274,7 @@ export function AppTitlebar({
               onClick={onOpenCommandBar}
               className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-subtle-foreground hover:text-foreground"
             >
-              <Icon name="Command" className="size-3.5" />
+              <Icon name="Search" className="size-3.5" />
               <Kbd>⌘K</Kbd>
             </Button>
           </ActionTooltip>
@@ -438,7 +438,7 @@ export function AppTitlebar({
             onClick={onOpenCommandBar}
             className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-subtle-foreground hover:text-foreground"
           >
-            <Icon name="Command" className="size-3.5" />
+            <Icon name="Search" className="size-3.5" />
             <Kbd>⌘K</Kbd>
           </Button>
         </ActionTooltip>

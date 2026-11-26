@@ -90,8 +90,7 @@ export function SidebarEnvRow({
 }: Props) {
   const badge = badgesForEnv(env.id, pluginBadges);
   const identity = getEnvIdentity(env.id, env.name);
-  const showSecondLine =
-    !compact && (env.status === 'running' || env.owner !== 'none' || Boolean(badge.first) || Boolean(env.proxy));
+  const showSecondLine = !compact;
 
   return (
     <li className="relative" data-env-id={env.id}>
@@ -113,7 +112,10 @@ export function SidebarEnvRow({
             {identity.initial}
             <StatusDot
               tone={env.error ? 'error' : statusTone(env.status)}
-              className="absolute -right-0.5 -bottom-0.5 size-2 ring-[1.5px] ring-sidebar"
+              className={cn(
+                'absolute -right-0.5 -bottom-0.5 size-2 ring-[1.5px]',
+                selected ? 'ring-[var(--surface-selected)]' : 'ring-sidebar',
+              )}
             />
           </span>
           <ListRowBody className="gap-0.5">
@@ -165,13 +167,19 @@ export function SidebarEnvRow({
             )}
           </ListRowBody>
         </ListRowMain>
-        <ListRowActions alwaysVisible={env.status !== 'running'}>
+        <ListRowActions alwaysVisible>
           {env.status === 'starting' ? (
             <ListRowActionButton disabled title="启动中…" aria-label="启动中">
               <Spinner className="size-3" />
             </ListRowActionButton>
           ) : env.status === 'running' ? (
-            <ListRowActionButton tone="destructive" title="停止环境" aria-label="停止" onClick={() => onStop(env.id)}>
+            <ListRowActionButton
+              tone="destructive"
+              title="停止环境"
+              aria-label="停止"
+              className="opacity-75 hover:opacity-100"
+              onClick={() => onStop(env.id)}
+            >
               <Icon name="Stop" />
             </ListRowActionButton>
           ) : (

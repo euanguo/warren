@@ -11,7 +11,7 @@ export interface PluginBrand {
 
 const KNOWN_PLUGIN_BRANDS: Readonly<Record<string, PluginBrand>> = {
   'com.warren.whistle': { icon: 'Globe', hue: 192 },
-  'com.warren.accounts': { icon: 'Key', hue: 36 },
+  'com.warren.accounts': { icon: 'User', hue: 36 },
   'com.example.notes': { icon: 'List', hue: 274 },
   'com.example.login': { icon: 'Key', hue: 158 },
   'com.example.cookies': { icon: 'Shield', hue: 215 },

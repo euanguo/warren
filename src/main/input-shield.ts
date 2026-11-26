@@ -35,12 +35,12 @@ function buildShieldHtml(): string {
     transition: box-shadow 0.24s ease, border-color 0.24s ease;
   }
   body[data-mode="idle"] #aura {
-    border: 1.5px dashed rgba(116, 128, 150, 0.58);
-    box-shadow: inset 0 0 0 1px rgba(116, 128, 150, 0.14);
+    border: 1.5px dashed rgba(128, 140, 162, 0.72);
+    box-shadow: inset 0 0 0 1px rgba(128, 140, 162, 0.18);
   }
   body[data-theme="light"][data-mode="idle"] #aura {
-    border: 1.5px dashed rgba(100, 112, 135, 0.55);
-    box-shadow: inset 0 0 0 1px rgba(100, 112, 135, 0.14);
+    border: 1.5px dashed rgba(94, 108, 134, 0.64);
+    box-shadow: inset 0 0 0 1px rgba(94, 108, 134, 0.16);
   }
   body[data-mode="agent"] #aura {
     border: 0;
@@ -156,8 +156,9 @@ function buildShieldHtml(): string {
   #target-box {
     position: fixed; pointer-events: none; opacity: 0;
     border: 2px solid #5b8cff;
-    background: rgba(91, 140, 255, 0.12);
-    border-radius: 6px;
+    background: rgba(91, 140, 255, 0.08);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 0 0 4px rgba(91, 140, 255, 0.2);
+    border-radius: 7px;
     transition:
       left 0.34s cubic-bezier(0.22, 1, 0.36, 1),
       top 0.34s cubic-bezier(0.22, 1, 0.36, 1),
@@ -167,7 +168,8 @@ function buildShieldHtml(): string {
   }
   body[data-theme="light"] #target-box {
     border-color: #3b5bdb;
-    background: rgba(59, 91, 219, 0.1);
+    background: rgba(59, 91, 219, 0.07);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 0 4px rgba(59, 91, 219, 0.18);
   }
   #target-tag {
     position: fixed; pointer-events: none; opacity: 0;
@@ -237,7 +239,7 @@ function buildShieldHtml(): string {
   <div id="catch"></div>
   <div id="aura"></div>
   <div id="sweep"></div>
-  <div id="status-chip"><span id="status-dot"></span><span id="status-text">Agent 空间只读</span><a id="status-takeover" href="warren-action://takeover">接管编辑</a></div>
+  <div id="status-chip"><span id="status-dot"></span><span id="status-text"></span></div>
   <div id="target-box"></div>
   <div id="target-tag"></div>
   <div id="ripple"></div>
@@ -251,7 +253,6 @@ function buildShieldHtml(): string {
       const catchEl = document.getElementById('catch');
       const statusChip = document.getElementById('status-chip');
       const statusText = document.getElementById('status-text');
-      const statusTakeover = document.getElementById('status-takeover');
       const targetBox = document.getElementById('target-box');
       const targetTag = document.getElementById('target-tag');
       const cursor = document.getElementById('cursor');
@@ -265,17 +266,13 @@ function buildShieldHtml(): string {
       let chipTimer = 0;
 
       function syncChip(actionLabel) {
-        statusChip.style.display = state.showControlPill ? 'inline-flex' : 'none';
-        if (state.mode === 'agent') {
-          statusText.textContent = actionLabel
-            ? state.caller + ' · ' + actionLabel
-            : state.caller + ' 操作中';
-          statusTakeover.textContent = '接管';
-        } else {
-          statusText.textContent = 'Agent 空间空闲（只读）';
-          statusTakeover.textContent = '接管编辑';
+        if (!state.showControlPill || state.mode !== 'agent') {
+          statusChip.style.display = 'none';
           statusChip.classList.remove('dodge-left');
+          return;
         }
+        statusChip.style.display = 'inline-flex';
+        statusText.textContent = actionLabel ? actionLabel : '实时执行中';
       }
 
       function hideTraces() {
@@ -309,24 +306,27 @@ function buildShieldHtml(): string {
         syncChip(act.label || act.kind);
         clearTimeout(chipTimer);
         chipTimer = setTimeout(() => { if (state.mode === 'agent') syncChip(); }, 2800);
-        cursor.style.left = x + 'px';
-        cursor.style.top = y + 'px';
+        const hasRect = act.rect && act.rect.width > 0 && act.rect.height > 0;
+        const cursorX = hasRect && act.kind === 'fill' ? act.rect.x + act.rect.width - 4 : x;
+        const cursorY = hasRect && act.kind === 'fill' ? act.rect.y + act.rect.height - 2 : y;
+        cursor.style.left = cursorX + 'px';
+        cursor.style.top = cursorY + 'px';
         cursor.style.opacity = '1';
         clearTimeout(cursorTimer);
         cursorTimer = setTimeout(() => { cursor.style.opacity = state.mode === 'agent' ? '0.48' : '0'; }, 2600);
 
-        if (act.rect && act.rect.width > 0 && act.rect.height > 0) {
-          const rx = Math.max(0, act.rect.x - 2);
-          const ry = Math.max(0, act.rect.y - 2);
+        if (hasRect) {
+          const rx = Math.max(0, act.rect.x - 4);
+          const ry = Math.max(0, act.rect.y - 4);
           targetBox.style.left = rx + 'px';
           targetBox.style.top = ry + 'px';
-          targetBox.style.width = (act.rect.width + 4) + 'px';
-          targetBox.style.height = (act.rect.height + 4) + 'px';
+          targetBox.style.width = (act.rect.width + 8) + 'px';
+          targetBox.style.height = (act.rect.height + 8) + 'px';
           targetBox.style.opacity = '1';
-          const tagText = state.caller + ' · ' + (act.label || act.kind);
+          const tagText = act.label || act.kind;
           targetTag.textContent = tagText;
           targetTag.style.left = Math.min(rx, Math.max(8, window.innerWidth - 180)) + 'px';
-          targetTag.style.top = Math.max(6, ry - 22) + 'px';
+          targetTag.style.top = Math.max(6, ry - 23) + 'px';
           targetTag.style.opacity = '1';
           clearTimeout(boxTimer);
           boxTimer = setTimeout(() => {

@@ -39,6 +39,30 @@ const actorClass: Record<string, string> = {
   system: 'text-muted-foreground',
 };
 
+const actorText: Record<string, string> = {
+  agent: 'Agent',
+  human: '人工',
+  system: '系统',
+};
+
+function formatEventSummary(message: string): string {
+  const trimmed = message.trim();
+  const gotoMatch = trimmed.match(/^human\s+goto\s+(.+)$/i);
+  if (gotoMatch) return `访问 ${gotoMatch[1]}`;
+  if (trimmed.startsWith('设置更新')) {
+    const themeMatch = trimmed.match(/"theme"\s*:\s*"(dark|light|system)"/);
+    if (themeMatch) {
+      const label = themeMatch[1] === 'dark' ? '深色' : themeMatch[1] === 'light' ? '浅色' : '跟随系统';
+      return `切换外观主题为「${label}」`;
+    }
+    return '更新应用设置';
+  }
+  if (trimmed.includes('confirm 层')) {
+    return trimmed.replace(/（confirm 层[^）]*）/g, '（需在设置页授权）').replace(/confirm 层/g, '受控权限');
+  }
+  return trimmed;
+}
+
 const consoleLevelClass: Record<string, string> = {
   error: 'text-destructive',
   warn: 'text-[var(--warning)]',
@@ -214,8 +238,8 @@ export function EnvironmentInspector({
   const syncTabOverflow = useCallback(() => {
     const list = tabsListRef.current;
     if (!list) return;
-    const left = list.scrollLeft > 2;
-    const right = list.scrollLeft + list.clientWidth < list.scrollWidth - 2;
+    const left = list.scrollLeft > 6;
+    const right = list.scrollLeft + list.clientWidth < list.scrollWidth - 6;
     setTabScroll((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
   }, []);
 
@@ -274,17 +298,6 @@ export function EnvironmentInspector({
       className="h-full w-full min-w-0 gap-0 overflow-hidden bg-surface-drawer"
     >
       <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-0.5 border-b border-border px-1.5">
-        {tabScroll.left && (
-          <IconButton
-            size="icon-xs"
-            variant="ghost"
-            aria-label="向左滚动标签"
-            onClick={() => scrollTabsBy(-120)}
-            className="shrink-0"
-          >
-            <Icon name="ChevronLeft" />
-          </IconButton>
-        )}
         <div className="relative min-w-0 flex-1 overflow-hidden">
           <TabsList
             ref={tabsListRef}
@@ -292,13 +305,13 @@ export function EnvironmentInspector({
             onScroll={syncTabOverflow}
             className="h-auto w-full min-w-0 justify-start gap-0.5 overflow-x-auto px-0.5 [scrollbar-width:none]"
           >
-            <TabsTrigger value="events" className="shrink-0 px-2 text-xs">
+            <TabsTrigger value="events" className="shrink-0 px-1.5 text-xs">
               事件
             </TabsTrigger>
-            <TabsTrigger value="snapshot" disabled={!running} className="shrink-0 px-2 text-xs">
+            <TabsTrigger value="snapshot" disabled={!running} className="shrink-0 px-1.5 text-xs">
               快照
             </TabsTrigger>
-            <TabsTrigger value="console" disabled={!running} className="shrink-0 px-2 text-xs">
+            <TabsTrigger value="console" disabled={!running} className="shrink-0 px-1.5 text-xs">
               控制台
               {errorCount > 0 && (
                 <Badge variant="outline" className="border-destructive/50 text-destructive">
@@ -306,19 +319,19 @@ export function EnvironmentInspector({
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="network" disabled={!running} className="shrink-0 px-2 text-xs">
+            <TabsTrigger value="network" disabled={!running} className="shrink-0 px-1.5 text-xs">
               网络
               {networkEntries.length > 0 && <Badge variant="outline">{networkEntries.length}</Badge>}
             </TabsTrigger>
-            <TabsTrigger value="rules" disabled={!running} className="shrink-0 px-2 text-xs">
+            <TabsTrigger value="rules" disabled={!running} className="shrink-0 px-1.5 text-xs">
               规则
               {netRules.length > 0 && <Badge variant="outline">{netRules.length}</Badge>}
             </TabsTrigger>
-            <TabsTrigger value="storage" disabled={!running} className="shrink-0 px-2 text-xs">
+            <TabsTrigger value="storage" disabled={!running} className="shrink-0 px-1.5 text-xs">
               存储
               {cookies && cookies.length > 0 && <Badge variant="outline">{cookies.length}</Badge>}
             </TabsTrigger>
-            {pluginTabs.length > 0 && <span className="mx-1 h-3.5 w-px shrink-0 bg-border" aria-hidden />}
+            {pluginTabs.length > 0 && <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border" aria-hidden />}
             {pluginTabs.map((tab) => {
               const brand = getPluginBrand(tab.pluginId, tab.icon);
               const iconName = isIconName(brand.icon) ? brand.icon : 'Plug';
@@ -327,7 +340,7 @@ export function EnvironmentInspector({
                   key={tab.id}
                   value={`plugin:${tab.pluginId}:${tab.id}`}
                   disabled={!running}
-                  className="shrink-0 gap-1 px-2 text-xs"
+                  className="shrink-0 gap-1 px-1.5 text-xs"
                 >
                   <Icon
                     name={iconName}
@@ -340,29 +353,32 @@ export function EnvironmentInspector({
             })}
           </TabsList>
           {tabScroll.left && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-surface-drawer to-transparent"
-            />
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex items-center bg-gradient-to-r from-surface-drawer via-surface-drawer/95 to-transparent pr-3">
+              <IconButton
+                size="icon-xs"
+                variant="ghost"
+                aria-label="向左滚动标签"
+                onClick={() => scrollTabsBy(-120)}
+                className="pointer-events-auto size-5"
+              >
+                <Icon name="ChevronLeft" className="size-3.5" />
+              </IconButton>
+            </div>
           )}
           {tabScroll.right && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-surface-drawer to-transparent"
-            />
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex items-center bg-gradient-to-l from-surface-drawer via-surface-drawer/95 to-transparent pl-3">
+              <IconButton
+                size="icon-xs"
+                variant="ghost"
+                aria-label="向右滚动标签"
+                onClick={() => scrollTabsBy(120)}
+                className="pointer-events-auto size-5"
+              >
+                <Icon name="ChevronRight" className="size-3.5" />
+              </IconButton>
+            </div>
           )}
         </div>
-        {tabScroll.right && (
-          <IconButton
-            size="icon-xs"
-            variant="ghost"
-            aria-label="向右滚动标签"
-            onClick={() => scrollTabsBy(120)}
-            className="shrink-0"
-          >
-            <Icon name="ChevronRight" />
-          </IconButton>
-        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -495,14 +511,14 @@ export function EnvironmentInspector({
                   </span>
                   <span
                     className={cn(
-                      'w-11 shrink-0 font-mono text-[length:var(--font-size-micro)]',
+                      'w-10 shrink-0 text-[length:var(--font-size-micro)] font-medium',
                       actorClass[event.actor],
                     )}
                   >
-                    {event.actor}
+                    {actorText[event.actor] ?? event.actor}
                   </span>
                   <span className={cn('min-w-0 flex-1', expanded ? 'break-all whitespace-pre-wrap' : 'truncate')}>
-                    {event.message}
+                    {expanded ? event.message : formatEventSummary(event.message)}
                   </span>
                 </button>
               );

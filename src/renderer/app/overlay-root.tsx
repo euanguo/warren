@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon, isIconName, type IconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Kbd } from '@/components/ui/kbd';
+import { StatusDot } from '@/components/ui/status-dot';
 import { Switch } from '@/components/ui/switch';
+import { getEnvIdentity } from '@/lib/env-identity';
+import { statusTone } from '@/lib/labels';
+import { getPluginBrand } from '@/lib/plugin-brand';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { elevatedDialogSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
@@ -378,9 +383,13 @@ function ConfirmCard({
 
 interface CommandItem {
   id: string;
+  group: string;
   icon: IconName;
+  brandHue?: number;
+  envChip?: { hue: number; initial: string; status: Environment['status']; error?: string };
   title: string;
   subtitle?: string;
+  shortcut?: string;
   keywords: string;
   run: () => Promise<void> | void;
 }
@@ -475,6 +484,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       list.push(
         {
           id: `url:new-tab:${parsedUrl}`,
+          group: '快速打开',
           icon: 'Plus',
           title: `在「${current.name}」新标签打开 ${parsedUrl}`,
           subtitle: space === 'agent' ? 'Agent Space' : '我的空间',
@@ -489,6 +499,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           ? [
               {
                 id: `url:goto:${parsedUrl}`,
+                group: '快速打开',
                 icon: 'Globe' as IconName,
                 title: `当前标签前往 ${parsedUrl}`,
                 subtitle: current.name,
@@ -503,12 +514,15 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       );
     }
     for (const env of envs) {
+      const identity = getEnvIdentity(env.id, env.name);
       list.push({
         id: `select:${env.id}`,
-        icon: env.status === 'running' ? 'Play' : 'Globe',
-        title: `切换到环境：${env.name}`,
+        group: '环境',
+        icon: 'Globe',
+        envChip: { hue: identity.hue, initial: identity.initial, status: env.status, error: env.error },
+        title: env.name,
         subtitle: env.status === 'running' ? env.currentUrl || '运行中' : '未启动',
-        keywords: `${env.id} ${env.name} ${env.proxy ?? ''} switch select`,
+        keywords: `${env.id} ${env.name} ${env.proxy ?? ''} switch select 切换 环境`,
         run: async () => {
           if (env.status !== 'running') await window.envApi.start(env.id);
           await window.envApi.select(env.id);
@@ -521,8 +535,9 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       if (!firstEnv) continue;
       list.push({
         id: `group:${group.id}`,
+        group: '分组',
         icon: 'Folder',
-        title: `进入分组：${group.name}`,
+        title: group.name,
         subtitle: `切换至「${firstEnv.name}」`,
         keywords: `${group.name} group fenzu`,
         run: async () => {
@@ -537,9 +552,10 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       list.push(
         {
           id: 'action:new-tab',
+          group: '当前环境操作',
           icon: 'Plus',
           title: `在「${current.name}」新建标签页`,
-          subtitle: '⌘T',
+          shortcut: '⌘T',
           keywords: 'new tab xinjian biaoqian',
           run: async () => {
             await window.envApi.tabCreate(current.id, space);
@@ -548,6 +564,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         },
         {
           id: 'action:toggle-space',
+          group: '当前环境操作',
           icon: space === 'person' ? 'Robot' : 'User',
           title: space === 'person' ? '切换到 Agent 空间' : '切换到我的空间',
           subtitle: current.name,
@@ -559,9 +576,10 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         },
         {
           id: 'action:devtools',
+          group: '当前环境操作',
           icon: 'Code',
           title: '打开 Chrome 开发者工具',
-          subtitle: '⌥⌘I',
+          shortcut: '⌥⌘I',
           keywords: 'devtools chrome inspect kaifazhe',
           run: async () => {
             await window.envApi.openDevTools(current.id, space);
@@ -570,6 +588,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         },
         {
           id: 'action:devtools-right',
+          group: '当前环境操作',
           icon: 'DockRight',
           title: 'DevTools 右侧停靠',
           subtitle: current.name,
@@ -581,6 +600,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         },
         {
           id: 'action:devtools-bottom',
+          group: '当前环境操作',
           icon: 'DockBottom',
           title: 'DevTools 底部停靠',
           subtitle: current.name,
@@ -592,6 +612,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         },
         {
           id: 'action:devtools-detach',
+          group: '当前环境操作',
           icon: 'ExternalWindow',
           title: 'DevTools 独立窗口',
           subtitle: current.name,
@@ -607,11 +628,14 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       if (!plugin.enabled) continue;
       for (const surface of plugin.contributes.surfaces) {
         if (surface.kind === 'railPage') {
+          const brand = getPluginBrand(plugin.id, surface.icon);
           list.push({
             id: `page:${plugin.id}:${surface.id}`,
-            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
+            group: '全局页面与扩展',
+            icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+            brandHue: brand.hue,
             title: `打开「${surface.title}」`,
-            subtitle: `${plugin.name} · 全屏页`,
+            subtitle: plugin.name,
             keywords: `plugin page ${plugin.id} ${plugin.name} ${surface.title}`,
             run: async () => {
               await window.envApi.resolveOverlay({
@@ -624,10 +648,13 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           continue;
         }
         if (surface.kind === 'settingsSection') {
+          const brand = getPluginBrand(plugin.id, surface.icon);
           list.push({
             id: `settings:plugin:${plugin.id}:${surface.id}`,
-            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
-            title: `设置 · ${plugin.name} · ${surface.title}`,
+            group: '系统设置',
+            icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+            brandHue: brand.hue,
+            title: `${plugin.name} · ${surface.title}`,
             subtitle: '扩展配置',
             keywords: `settings plugin ${plugin.id} ${plugin.name} ${surface.title}`,
             run: async () => {
@@ -640,12 +667,15 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           continue;
         }
         if (surface.kind !== 'commandBarAction' || !surface.command) continue;
-        const iconName: IconName = surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug';
+        const brand = getPluginBrand(plugin.id, surface.icon);
         list.push({
           id: `plugin:${plugin.id}:${surface.id}`,
-          icon: iconName,
+          group: '全局页面与扩展',
+          icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+          brandHue: brand.hue,
           title: `${plugin.name} · ${surface.title}`,
-          subtitle: surface.shortcut || surface.description || plugin.id,
+          subtitle: surface.description || plugin.id,
+          shortcut: surface.shortcut,
           keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin`,
           run: async () => {
             if (!current) return;
@@ -658,6 +688,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
     for (const item of SETTINGS_COMMANDS) {
       list.push({
         id: `settings:${item.section}`,
+        group: '系统设置',
         icon: item.icon,
         title: item.title,
         subtitle: item.subtitle,
@@ -694,7 +725,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       )}
     >
       <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-        <Icon name="Command" className="text-muted-foreground" />
+        <Icon name="Search" className="text-muted-foreground" />
         <input
           ref={inputRef}
           type="text"
@@ -718,30 +749,85 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           placeholder="搜索环境、操作、地址或设置…"
           className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
-        <span className="text-[11px] text-muted-foreground">Esc 关闭</span>
+        <Kbd>Esc</Kbd>
       </div>
-      <div className="max-h-[296px] overflow-y-auto p-1.5">
+      <div className="max-h-[304px] overflow-y-auto px-2 py-1.5">
         {filtered.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">没有匹配的命令</p>
         ) : (
-          filtered.map((item, idx) => (
-            <button
-              key={item.id}
-              type="button"
-              onMouseEnter={() => setHighlighted(idx)}
-              onClick={() => void item.run()}
-              className={cn(
-                menuItemInteractiveClass,
-                'flex w-full items-center gap-2.5 px-3 py-2 text-left',
-                idx === clampedIndex && 'bg-surface-hover opacity-100',
-              )}
-            >
-              <Icon name={item.icon} className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              {item.subtitle && <span className="shrink-0 text-xs text-muted-foreground">{item.subtitle}</span>}
-            </button>
-          ))
+          filtered.map((item, idx) => {
+            const showGroup = idx === 0 || filtered[idx - 1]?.group !== item.group;
+            return (
+              <div key={item.id}>
+                {showGroup && (
+                  <div
+                    className={cn(
+                      'px-2.5 pt-2 pb-1 text-[length:var(--font-size-micro)] font-medium text-subtle-foreground select-none',
+                      idx === 0 && 'pt-0.5',
+                    )}
+                  >
+                    {item.group}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onMouseEnter={() => setHighlighted(idx)}
+                  onClick={() => void item.run()}
+                  className={cn(
+                    menuItemInteractiveClass,
+                    'flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-left',
+                    idx === clampedIndex && 'bg-surface-selected opacity-100',
+                  )}
+                >
+                  {item.envChip ? (
+                    <span
+                      aria-hidden
+                      style={{ '--env-hue': item.envChip.hue } as CSSProperties}
+                      className="env-identity-chip relative flex size-5 shrink-0 items-center justify-center rounded-[5px] text-[length:var(--font-size-micro)] font-semibold"
+                    >
+                      {item.envChip.initial}
+                      <StatusDot
+                        tone={item.envChip.error ? 'error' : statusTone(item.envChip.status)}
+                        className="absolute -right-0.5 -bottom-0.5 size-1.5 ring-1 ring-surface-elevated"
+                      />
+                    </span>
+                  ) : (
+                    <Icon
+                      name={item.icon}
+                      style={
+                        item.brandHue !== undefined ? ({ '--brand-hue': item.brandHue } as CSSProperties) : undefined
+                      }
+                      className={cn(
+                        'size-4 shrink-0',
+                        item.brandHue !== undefined ? 'plugin-brand-icon' : 'text-muted-foreground',
+                      )}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  {item.subtitle && (
+                    <span className="max-w-[200px] shrink-0 truncate font-mono text-xs text-muted-foreground">
+                      {item.subtitle}
+                    </span>
+                  )}
+                  {item.shortcut && <Kbd className="shrink-0">{item.shortcut}</Kbd>}
+                </button>
+              </div>
+            );
+          })
         )}
+      </div>
+      <div className="flex items-center justify-between border-t border-border/80 bg-surface-under/50 px-3.5 py-1.5 text-[length:var(--font-size-micro)] text-subtle-foreground">
+        <span className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1">
+            <Kbd>↑↓</Kbd> 选择
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>↵</Kbd> 执行
+          </span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Kbd>Esc</Kbd> 关闭
+        </span>
       </div>
     </dialog>
   );
