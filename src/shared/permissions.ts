@@ -22,6 +22,7 @@ export const PERMISSIONS = [
   'ui.mount',
   'storage.write',
   'rpc.serve',
+  'events.subscribe',
   'process.spawn',
   'filesystem.read',
 ] as const;
@@ -60,6 +61,11 @@ const TIERS: Record<Permission, PermissionTier> = {
   'ui.mount': 'granted',
   'storage.write': 'granted',
   'rpc.serve': 'granted',
+  /*
+   * 主进程 → 插件只读事件总线：只推送脱敏元数据（不含 Cookie 值、凭据明文、网页正文），
+   * 但能持续观察用户/Agent 的环境活动，因此放 confirm 层由用户显式批准。
+   */
+  'events.subscribe': 'confirm',
   'browser.evaluate': 'denied',
   'storage.cookie.read': 'denied',
   'storage.cookie.write': 'denied',

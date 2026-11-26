@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { diffPermissions, needsUserConfirmation, tierOf, validatePluginPackage } from '../src/main/plugins/package.ts';
+import {
+  PERMISSIONS,
+  diffPermissions,
+  needsUserConfirmation,
+  tierOf,
+  validatePluginPackage,
+} from '../src/main/plugins/package.ts';
 
 const base = {
   name: 'warren-plugin-login',
@@ -85,13 +91,46 @@ test('sandbox and host entries are exclusive', () => {
 });
 
 test('permission tiers and confirmation list', () => {
+  assert.equal(PERMISSIONS.length, 19);
   assert.equal(tierOf('environment.read'), 'granted');
   assert.equal(tierOf('vault.fill'), 'confirm');
-  assert.equal(tierOf('filesystem.read'), 'denied');
-  assert.deepEqual(needsUserConfirmation(['environment.read', 'vault.fill', 'browser.navigate']), [
+  assert.equal(tierOf('events.subscribe'), 'confirm');
+  for (const denied of [
+    'storage.cookie.read',
+    'storage.cookie.write',
+    'browser.evaluate',
+    'process.spawn',
+    'filesystem.read',
+  ]) {
+    assert.equal(tierOf(denied), 'denied', `${denied} 必须严格留在 denied 层`);
+  }
+  assert.deepEqual(needsUserConfirmation(['environment.read', 'vault.fill', 'browser.navigate', 'events.subscribe']), [
     'vault.fill',
     'browser.navigate',
+    'events.subscribe',
   ]);
+});
+
+test('new surface kinds popover, commandBarAction, and statusBadge pass package validation', () => {
+  const result = validatePluginPackage({
+    ...base,
+    warren: {
+      ...base.warren,
+      permissions: [...base.warren.permissions, 'ui.mount'],
+      contributes: {
+        surfaces: [
+          { kind: 'popover', id: 'quick-panel', title: '快捷浮卡' },
+          { kind: 'commandBarAction', id: 'quick-action', title: '命令栏动作', command: 'run' },
+          { kind: 'statusBadge', id: 'live-status', title: '状态微标' },
+        ],
+      },
+    },
+  });
+  assert.equal(result.ok, true, result.errors.join('; '));
+  assert.deepEqual(
+    result.package?.contributes.surfaces.map((item) => item.kind),
+    ['popover', 'commandBarAction', 'statusBadge'],
+  );
 });
 
 test('permission diff reports what an upgrade would add', () => {

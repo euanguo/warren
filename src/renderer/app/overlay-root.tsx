@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Icon, type IconName } from '@/components/icons';
+import { Icon, isIconName, type IconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { elevatedDialogSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
-import type { Environment, OverlayRequest } from '@shared/types';
+import type { Environment, InstalledPlugin, OverlayRequest } from '@shared/types';
 
 const DEFAULT_START_URL = 'https://example.com';
 
@@ -386,16 +386,20 @@ interface CommandItem {
 function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [envs, setEnvs] = useState<Environment[]>([]);
+  const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    void Promise.all([window.envApi.list(), window.envApi.selected()]).then(([list, cur]) => {
-      setEnvs(list);
-      setSelectedId(cur);
-    });
+    void Promise.all([window.envApi.list(), window.envApi.selected(), window.envApi.plugins()]).then(
+      ([list, cur, pluginList]) => {
+        setEnvs(list);
+        setSelectedId(cur);
+        setPlugins(pluginList);
+      },
+    );
     return () => cancelAnimationFrame(frame);
   }, []);
 
@@ -455,6 +459,25 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         },
       );
     }
+    for (const plugin of plugins) {
+      if (!plugin.enabled) continue;
+      for (const surface of plugin.contributes.surfaces) {
+        if (surface.kind !== 'commandBarAction' || !surface.command) continue;
+        const iconName: IconName = surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug';
+        list.push({
+          id: `plugin:${plugin.id}:${surface.id}`,
+          icon: iconName,
+          title: `${plugin.name} · ${surface.title}`,
+          subtitle: surface.shortcut || surface.description || plugin.id,
+          keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin`,
+          run: async () => {
+            if (!current) return;
+            await window.envApi.pluginRun(plugin.id, surface.command!, current.id);
+            await window.envApi.resolveOverlay({ command: 'pluginRun', pluginId: plugin.id, action: surface.id });
+          },
+        });
+      }
+    }
     list.push({
       id: 'action:settings',
       icon: 'Settings',
@@ -466,7 +489,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
       },
     });
     return list;
-  }, [envs, current]);
+  }, [envs, plugins, current]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

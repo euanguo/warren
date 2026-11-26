@@ -681,6 +681,7 @@ app.whenReady().then(async () => {
         popoverHost?.broadcast('browser:findResult', result);
       },
       onDownloadsChanged: () => broadcastStateChanged(),
+      onBusEvent: (event) => plugins?.dispatchEvent(event),
     },
   );
 
@@ -741,6 +742,7 @@ app.on('before-quit', () => {
   quitting = true;
   overlayHost?.destroy();
   popoverHost?.destroy();
+  void plugins?.dispose();
   manager?.shutdown();
   // 关库顺带 checkpoint WAL：不关的话 -wal 会一直留在盘上。
   // before-quit 是同步钩子，Electron 不等 async 体；同步关库必须放在 await 之前。

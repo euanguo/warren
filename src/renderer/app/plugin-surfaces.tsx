@@ -6,7 +6,10 @@
  */
 import { Component, type ComponentType, type ErrorInfo, type ReactNode } from 'react';
 import { Icon } from '@/components/icons';
-import type { PluginSurfaceProps } from '@/lib/plugin-runtime';
+import { Button } from '@/components/ui/button';
+import { cardSurfaceClass } from '@/theme/surface';
+import { cn } from '@/lib/utils';
+import { runDeclarativeButtonAction, type DeclarativeViewNode, type PluginSurfaceProps } from '@/lib/plugin-runtime';
 
 interface BoundaryProps {
   pluginId: string;
@@ -54,6 +57,52 @@ export class PluginBoundary extends Component<BoundaryProps, BoundaryState> {
       </div>
     );
   }
+}
+
+export function DeclarativeSurfaceView({
+  pluginId,
+  environmentId,
+  nodes,
+}: {
+  pluginId: string;
+  environmentId?: string;
+  nodes: DeclarativeViewNode[];
+}) {
+  return (
+    <div className="flex flex-col gap-3 p-3 text-xs">
+      {nodes.map((node, index) => {
+        if (node.type === 'text') {
+          return (
+            <p key={index} className={node.muted ? 'text-muted-foreground' : 'text-foreground'}>
+              {node.value}
+            </p>
+          );
+        }
+        if (node.type === 'keyValue') {
+          return (
+            <div key={index} className={cn(cardSurfaceClass, 'flex flex-col gap-1.5')}>
+              {node.items.map((item) => (
+                <div key={item.label} className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">{item.label}</span>
+                  <span className="font-mono text-foreground">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        return (
+          <Button
+            key={index}
+            size="sm"
+            variant="outline"
+            onClick={() => void runDeclarativeButtonAction(pluginId, node, environmentId)}
+          >
+            {node.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
 }
 
 /** 按插件包一层边界再渲染面组件。 */

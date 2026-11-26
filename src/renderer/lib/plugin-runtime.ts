@@ -232,11 +232,65 @@ export interface PluginEnvAction {
   command: string;
 }
 
+export interface PluginPopoverSurface {
+  kind: 'popover';
+  pluginId: string;
+  id: string;
+  title: string;
+  icon?: string;
+  shortcut?: string;
+  component: ComponentType<PluginSurfaceProps>;
+}
+
+export interface PluginCommandBarAction {
+  kind: 'commandBarAction';
+  pluginId: string;
+  id: string;
+  title: string;
+  description?: string;
+  icon?: string;
+  shortcut?: string;
+  command?: string;
+  onTrigger?: (environmentId?: string) => Promise<void> | void;
+}
+
+export interface PluginStatusBadge {
+  kind: 'statusBadge';
+  pluginId: string;
+  id: string;
+  title: string;
+  icon?: string;
+  component?: ComponentType<PluginSurfaceProps>;
+}
+
+/** 声明式视图节点描述（供轻量插件无需手写 JS bundle 直接由宿主渲染，组件实现在 app/plugin-surfaces.tsx） */
+export type DeclarativeViewNode =
+  | { type: 'text'; value: string; muted?: boolean }
+  | { type: 'keyValue'; items: Array<{ label: string; value: string }> }
+  | { type: 'button'; label: string; rpcMethod?: string; command?: string; input?: unknown };
+
+export async function runDeclarativeButtonAction(
+  pluginId: string,
+  node: Extract<DeclarativeViewNode, { type: 'button' }>,
+  environmentId?: string,
+): Promise<void> {
+  if (node.rpcMethod) {
+    await callPluginRpc(pluginId, node.rpcMethod, node.input);
+    toast.success('操作已执行');
+  } else if (node.command && environmentId) {
+    await window.envApi.pluginRun(pluginId, node.command, environmentId);
+    toast.success('命令已执行');
+  }
+}
+
 export interface PluginRegistry {
   railPages: PluginRailPage[];
   settingsSections: PluginSettingsSection[];
   inspectorTabs: PluginInspectorTab[];
   envActions: PluginEnvAction[];
+  popovers: PluginPopoverSurface[];
+  commandBarActions: PluginCommandBarAction[];
+  statusBadges: PluginStatusBadge[];
   errors: Array<{ pluginId: string; message: string }>;
 }
 
@@ -258,7 +312,16 @@ export interface PluginSettingsHook {
 }
 
 export function emptyRegistry(): PluginRegistry {
-  return { railPages: [], settingsSections: [], inspectorTabs: [], envActions: [], errors: [] };
+  return {
+    railPages: [],
+    settingsSections: [],
+    inspectorTabs: [],
+    envActions: [],
+    popovers: [],
+    commandBarActions: [],
+    statusBadges: [],
+    errors: [],
+  };
 }
 
 export interface PluginAppApi {
@@ -281,6 +344,9 @@ export interface PluginAppApi {
     railPage(surface: Omit<PluginRailPage, 'kind' | 'pluginId'>): void;
     settingsSection(surface: Omit<PluginSettingsSection, 'kind' | 'pluginId'>): void;
     inspectorTab(surface: Omit<PluginInspectorTab, 'kind' | 'pluginId'>): void;
+    popover(surface: Omit<PluginPopoverSurface, 'kind' | 'pluginId'>): void;
+    commandBarAction(surface: Omit<PluginCommandBarAction, 'kind' | 'pluginId'>): void;
+    statusBadge(surface: Omit<PluginStatusBadge, 'kind' | 'pluginId'>): void;
     /** 环境行状态芯片：清单声明 + 返回 setter；宿主只负责一个槽的渲染。 */
     envBadge(surface: PluginEnvBadgeSurface): PluginEnvBadgeSetter;
   };
@@ -372,6 +438,18 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
         accept('inspectorTab', surface.id);
         registry.inspectorTabs.push({ ...surface, kind: 'inspectorTab', pluginId: plugin.id });
       },
+      popover: (surface) => {
+        accept('popover', surface.id);
+        registry.popovers.push({ ...surface, kind: 'popover', pluginId: plugin.id });
+      },
+      commandBarAction: (surface) => {
+        accept('commandBarAction', surface.id);
+        registry.commandBarActions.push({ ...surface, kind: 'commandBarAction', pluginId: plugin.id });
+      },
+      statusBadge: (surface) => {
+        accept('statusBadge', surface.id);
+        registry.statusBadges.push({ ...surface, kind: 'statusBadge', pluginId: plugin.id });
+      },
       envBadge: (surface) => {
         accept('envBadge', surface.id);
         registerPluginBadgeSurface(plugin.id, generation, surface.id);
@@ -447,6 +525,17 @@ export async function loadPluginApps(plugins: InstalledPlugin[]): Promise<Plugin
             id: surface.id,
             title: surface.title,
             icon: surface.icon,
+            command: surface.command,
+          });
+        } else if (surface.kind === 'commandBarAction' && surface.command) {
+          registry.commandBarActions.push({
+            kind: 'commandBarAction',
+            pluginId: plugin.id,
+            id: surface.id,
+            title: surface.title,
+            description: surface.description,
+            icon: surface.icon,
+            shortcut: surface.shortcut,
             command: surface.command,
           });
         }

@@ -28,6 +28,7 @@ export class NetInterceptor {
   /** handler 此刻挂着没。挂/摘只由「有没有启用的规则」决定。 */
   #attached = false;
   #record: (type: string, message: string) => void;
+  #onHit?: (hit: NetHit) => void;
   /** HAR 录制 / 回放开关（N3 接上）。 */
   #recording = false;
   #replaying = false;
@@ -37,8 +38,9 @@ export class NetInterceptor {
   /** 注册给 session 的 handler 必须每次都是同一个引用，`unhandle` 才对得上。 */
   #handler = (request: Request): Promise<Response> => this.#handle(request);
 
-  constructor(record: (type: string, message: string) => void) {
+  constructor(record: (type: string, message: string) => void, onHit?: (hit: NetHit) => void) {
     this.#record = record;
+    this.#onHit = onHit;
   }
 
   /**
@@ -329,6 +331,7 @@ export class NetInterceptor {
   #push(hit: NetHit): void {
     this.#hits.push(hit);
     if (this.#hits.length > MAX_HITS) this.#hits.splice(0, this.#hits.length - MAX_HITS);
+    this.#onHit?.(hit);
   }
 
   /**

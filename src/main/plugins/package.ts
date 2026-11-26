@@ -54,7 +54,16 @@ export interface PackageValidation {
   downgraded: Permission[];
 }
 
-const SURFACE_KINDS: PluginSurfaceKind[] = ['railPage', 'settingsSection', 'envAction', 'inspectorTab', 'envBadge'];
+const SURFACE_KINDS: readonly PluginSurfaceKind[] = [
+  'railPage',
+  'settingsSection',
+  'envAction',
+  'inspectorTab',
+  'envBadge',
+  'popover',
+  'commandBarAction',
+  'statusBadge',
+];
 const SETTING_TYPES = ['string', 'number', 'boolean', 'select', 'secret'];
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
@@ -176,8 +185,8 @@ function normalizeSurfaces(raw: unknown, errors: string[]): PluginSurfaceDecl[] 
       errors.push('面声明非法');
       continue;
     }
-    const kind = typeof value.kind === 'string' ? (value.kind as PluginSurfaceKind) : ('' as PluginSurfaceKind);
-    if (!SURFACE_KINDS.includes(kind)) {
+    const kind = typeof value.kind === 'string' ? value.kind : '';
+    if (!(SURFACE_KINDS as readonly string[]).includes(kind)) {
       errors.push(`未知的挂载类型: ${JSON.stringify(value.kind)}`);
       continue;
     }
@@ -192,13 +201,14 @@ function normalizeSurfaces(raw: unknown, errors: string[]): PluginSurfaceDecl[] 
       errors.push(`envAction ${id} 必须声明 command`);
     }
     surfaces.push({
-      kind,
+      kind: kind as PluginSurfaceKind,
       id,
       title: title || id,
       description: typeof value.description === 'string' ? value.description : undefined,
       icon: typeof value.icon === 'string' ? value.icon : undefined,
       command: typeof value.command === 'string' ? value.command : undefined,
       path: typeof value.path === 'string' ? value.path : undefined,
+      shortcut: typeof value.shortcut === 'string' ? value.shortcut : undefined,
     });
   }
   return surfaces;

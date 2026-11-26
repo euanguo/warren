@@ -14,14 +14,38 @@ export interface PluginSettingDescriptor {
   options?: string[];
 }
 
+export type PluginSurfaceKind =
+  | 'railPage'
+  | 'settingsSection'
+  | 'envAction'
+  | 'inspectorTab'
+  | 'envBadge'
+  | 'popover'
+  | 'commandBarAction'
+  | 'statusBadge';
+
 export interface PluginSurfaceDecl {
-  kind: 'railPage' | 'settingsSection' | 'envAction' | 'inspectorTab' | 'envBadge';
+  kind: PluginSurfaceKind;
   id: string;
   title: string;
   description?: string;
   icon?: string;
   command?: string;
   path?: string;
+}
+
+export type PluginBusEventType = 'nav.committed' | 'lease.changed' | 'tab.created' | 'env.status' | 'net.hit';
+
+export interface PluginEventFilter {
+  environmentId?: string;
+  types?: PluginBusEventType[];
+}
+
+export interface PluginBusEvent {
+  type: PluginBusEventType;
+  environmentId: string;
+  at: string;
+  payload: Record<string, unknown>;
 }
 
 export interface PluginContributes {
@@ -64,6 +88,13 @@ export interface PluginHost {
   };
   signal: {
     publish(channel: string, payload: unknown): Promise<void>;
+  };
+  events: {
+    emit(type: string, message: string): Promise<{ ok: boolean }>;
+    subscribe(
+      filter: PluginEventFilter,
+      handler: (event: PluginBusEvent) => void | Promise<void>,
+    ): Promise<() => Promise<void>>;
   };
   ui: {
     notify(message: string): Promise<void>;
