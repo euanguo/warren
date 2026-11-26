@@ -106,7 +106,7 @@ export function EnvironmentSidebar({
 
   return (
     <Sidebar collapsible="none" className="h-full w-full min-w-0" data-collapsed="false">
-      <SidebarHeader className="flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center border-b border-divider px-2 py-0">
+      <SidebarHeader className="flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center px-2 py-0">
         <div className="flex w-full items-center gap-1.5">
           <div className="relative min-w-0 flex-1">
             <Icon
@@ -118,7 +118,7 @@ export function EnvironmentSidebar({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索环境…"
               aria-label="搜索环境"
-              className="h-[var(--control-height-icon)] pl-7 text-xs"
+              className="h-[var(--control-height-icon)] border-border/80 bg-[var(--chrome-field-fill)] pl-7 text-xs shadow-none focus-visible:border-focus"
             />
           </div>
           <IconButton

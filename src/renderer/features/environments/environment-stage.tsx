@@ -670,7 +670,7 @@ export function EnvironmentStage({
   const showTargetUrl = running && current?.id === hoverTarget.envId && Boolean(hoverTarget.url);
 
   return (
-    <main className="flex h-full min-w-0 flex-1 flex-col">
+    <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-under">
       <EnvironmentAddressBar
         envId={current?.id}
         spaceId={activeSpaceId}
@@ -763,7 +763,7 @@ export function EnvironmentStage({
       <div ref={stageContainerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           <ResizablePanel id="page" className="min-w-0">
-            <div className="h-full bg-surface-recessed p-1.5">
+            <div className="h-full bg-surface-under px-1.5 pt-0.5 pb-1.5">
               <div
                 ref={stageRef}
                 data-slot="stage-placeholder"
@@ -855,7 +855,7 @@ export function EnvironmentStage({
             </div>
           </ResizablePanel>
 
-          <ResizableHandle />
+          <ResizableHandle subtle />
 
           <ResizablePanel
             id="inspector"

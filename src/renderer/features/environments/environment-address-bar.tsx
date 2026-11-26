@@ -9,6 +9,7 @@ import { addressSecurity, resolveAddressInput } from '@/lib/address-input';
 import { getPluginBrand } from '@/lib/plugin-brand';
 import type { PluginInspectorTab, PluginPopoverSurface, PluginRailPage, PluginStatusBadge } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
+import { estimateAddressSuggestHeight } from '@shared/popover-sizing';
 import type {
   DevToolsDockMode,
   NativeMenuItem,
@@ -184,7 +185,7 @@ export function EnvironmentAddressBar({
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void window.envApi
-        .historySuggest(historyQuery, 8)
+        .historySuggest(historyQuery, 12)
         .then((entries) => {
           if (cancelled) return;
           setHistory(entries);
@@ -201,28 +202,47 @@ export function EnvironmentAddressBar({
   }, [editing, historyOpen, historyQuery]);
 
   const suggestionsVisible = editing && historyOpen && history.length > 0;
+  const suggestOpenRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (suggestOpenRef.current) {
+        suggestOpenRef.current = false;
+        void window.envApi.closePopover('address-suggest');
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!suggestionsVisible || !boxRef.current) {
-      void window.envApi.closePopover('address-suggest');
+      if (suggestOpenRef.current) {
+        suggestOpenRef.current = false;
+        void window.envApi.closePopover('address-suggest');
+      }
       return;
     }
     const rect = boxRef.current.getBoundingClientRect();
-    const height = Math.min(320, history.length * 32 + 40);
-    void window.envApi.openPopover({
-      id: 'address-suggest',
-      anchorRect: {
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      },
-      size: { width: Math.max(320, Math.round(rect.width)), height },
-      placement: 'bottom-start',
-      focusable: false,
-      beyondWindow: true,
-      props: { query: historyQuery, entries: history, highlighted },
-    });
+    const width = Math.max(320, Math.round(rect.width));
+    const props = { query: historyQuery, entries: history, highlighted, width };
+    if (!suggestOpenRef.current) {
+      suggestOpenRef.current = true;
+      void window.envApi.openPopover({
+        id: 'address-suggest',
+        anchorRect: {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        },
+        size: { width, height: estimateAddressSuggestHeight(history.length) },
+        placement: 'bottom-start',
+        focusable: false,
+        beyondWindow: true,
+        props,
+      });
+    } else {
+      void window.envApi.updatePopover('address-suggest', { props });
+    }
   }, [suggestionsVisible, historyQuery, history, highlighted]);
 
   const security = SECURITY_ICON[addressSecurity(url)];
@@ -440,7 +460,7 @@ export function EnvironmentAddressBar({
   return (
     <div
       data-slot="address-bar"
-      className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 border-b border-divider bg-background px-2"
+      className="flex h-[var(--shell-address-row-height)] min-w-0 shrink-0 items-center gap-1 overflow-hidden bg-surface-under px-2"
     >
       <ActionTooltip label={title('后退')} shortcut="⌘[" side="top">
         <IconButton
@@ -481,7 +501,7 @@ export function EnvironmentAddressBar({
         <div ref={boxRef} className="group/omnibox relative w-full max-w-[820px] min-w-0">
           <div
             className={cn(
-              'flex h-[var(--control-height-icon)] min-w-0 items-center gap-2 rounded-full border border-input bg-[var(--input-fill)] px-3 [box-shadow:var(--shadow-recessed)] transition-colors',
+              'flex h-[var(--control-height-icon)] min-w-0 items-center gap-2 rounded-full border border-border/80 bg-[var(--chrome-field-fill)] px-3 [box-shadow:var(--shadow-chip)] transition-colors',
               'focus-within:border-focus',
               !inputEditable && 'opacity-70',
             )}
@@ -677,7 +697,7 @@ export function EnvironmentAddressBar({
               }}
               onContextMenu={(event) => void openQuickSlotContextMenu(event, pop.pluginId)}
               className={cn(
-                'inline-flex h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/70 bg-surface-elevated px-2 text-xs text-foreground [box-shadow:var(--shadow-raised)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus active:scale-[0.98]',
+                'inline-flex h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/65 bg-surface-elevated px-2 text-xs text-foreground [box-shadow:var(--shadow-chip)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus active:scale-[0.98]',
                 isActive && 'border-[var(--theme-accent)]/60 bg-surface-selected text-foreground',
               )}
             >

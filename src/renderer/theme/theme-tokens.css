@@ -34,6 +34,7 @@
   --color-focus: var(--focus);
   --color-input: var(--input);
   --color-input-fill: var(--input-fill);
+  --color-chrome-field-fill: var(--chrome-field-fill);
   --color-border: var(--border);
   --color-border-light: var(--border-light);
   --color-border-heavy: var(--border-heavy);
@@ -59,6 +60,7 @@
   --color-surface-hover: var(--surface-hover);
   --color-surface-active: var(--surface-active);
   --color-surface-selected: var(--surface-selected);
+  --color-surface-selected-solid: var(--surface-selected-solid);
   --color-surface-fog: var(--surface-fog);
   --color-divider: var(--divider);
   --color-surface-recessed: var(--surface-recessed);
@@ -225,6 +227,7 @@
   --menu-border: rgba(17, 22, 33, 0.11);
   --input: rgba(17, 22, 33, 0.14);
   --input-fill: rgba(17, 22, 33, 0.052);
+  --chrome-field-fill: #ffffff;
   /* Focus is brand indigo hairline — not ink gray, not ring bloom. */
   --focus: color-mix(in oklab, var(--accent-seed) 82%, transparent);
   --ring: var(--focus);
@@ -261,6 +264,7 @@
   /* Micro-depth lighting & elevation ladder (light) */
   --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   --shadow-recessed: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-chip: 0 1px 2px rgba(15, 23, 42, 0.05);
   --shadow-raised: var(--highlight-top), 0 1px 2px rgba(15, 23, 42, 0.08);
   --elevation-stroke: 0 0 0 0.5px var(--border-heavy);
   --elevation-stage: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 2px 10px rgba(15, 23, 42, 0.07);
@@ -342,6 +346,7 @@
   --menu-border: rgba(244, 246, 250, 0.1);
   --input: rgba(244, 246, 250, 0.13);
   --input-fill: #0e1015;
+  --chrome-field-fill: #1b1f27;
   --focus: color-mix(in oklab, var(--accent-seed) 82%, transparent);
   --ring: var(--focus);
   --divider: rgba(244, 246, 250, 0.08);
@@ -366,8 +371,9 @@
   --sidebar-border: var(--border);
   --sidebar-ring: var(--focus);
   /* Micro-depth lighting & elevation ladder (dark) */
-  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   --shadow-recessed: inset 0 1px 2px rgba(0, 0, 0, 0.44);
+  --shadow-chip: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-raised: var(--highlight-top), 0 1px 2px rgba(0, 0, 0, 0.34);
   --elevation-stroke: 0 0 0 0.5px var(--border-heavy);
   --elevation-stage: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 4px 18px rgba(0, 0, 0, 0.38);
@@ -384,6 +390,7 @@
   :root[data-theme="dark"] {
     --menu: var(--popover);
     --tooltip: var(--popover);
+    --tooltip-foreground: var(--popover-foreground);
     --blur-menu: 0px;
     --blur-dialog: 0px;
     --blur-tooltip: 0px;

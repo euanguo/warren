@@ -500,7 +500,7 @@ function registerIpc(): void {
     overlayHost?.resolve(result);
   });
   handle('popover:open', (options: PopoverOpenOptions) => popoverHost?.open(options));
-  handle('popover:update', (id: string, options: Partial<PopoverOpenOptions>) => popoverHost?.update(id, options));
+  handleShell('popover:update', (id: string, options: Partial<PopoverOpenOptions>) => popoverHost?.update(id, options));
   handleShell('popover:close', (id?: string) => {
     popoverHost?.close(id);
   });

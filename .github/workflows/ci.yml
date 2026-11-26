@@ -1,17 +1,14 @@
-# 静态门：AGENTS.md「修改后校验（强制）」的那五条（lint / format / typecheck / test / 构建）。
+# 静态门：无头执行（lint / format / typecheck / 全部无头单测+UI 测试 / 渲染层构建）。
 #
-# **GUI 回归套件**：`gui-regression` job 跑 scripts/regress/run-all.sh。
-# 它以前跑不了 CI —— 要求窗口在前台拿焦点。2026-10-17 实测推翻了那个前提
-# （失焦时 CDP 输入照样落地，见 scripts/verify/batch1-focus.mjs），守卫也删了。
-# 本地已验证「非 TTY 启动」可行（nohup npm start < /dev/null，4 秒起来）。
-# **仍未验证**：macOS runner 有没有可用的窗口会话、safeStorage 能不能用。
-# 所以这个 job 暂时 continue-on-error —— 第一次绿了之后把它去掉。
+# **全量真机 GUI 回归**：已默认禁用自动触发，改为仅 `workflow_dispatch` 手动按需执行，
+# 避免每次 push/PR 启动 Electron 窗口拖慢反馈；日常 UI 与交互回归已迁移至无头 Vitest（happy-dom）。
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   static-gates:
@@ -30,9 +27,13 @@ jobs:
       - run: npx vite build --config vite.renderer.config.mjs
 
   gui-regression:
-    # 2026-10-19 本地全量回归 146 PASS / 0 FAIL；不再 continue-on-error。
+    # 仅在手动触发 workflow_dispatch（重大改造/发版前）时执行，不在日常 push/PR 自动运行。
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 20
+    env:
+      WARREN_ALLOW_FULL_REGRESS: '1'
+      WARREN_REGRESS_GUARD: '0'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

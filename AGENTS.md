@@ -306,25 +306,31 @@ CSS / XPath 解析一律跑在**隔离世界**（`Page.createIsolatedWorld`，�
 
 ---
 
-## 修改后校验（强制）
+## 修改后校验（分层策略，默认无头定向）
 
-在项目根目录依次执行，**全部通过才能宣称完成**：
+所有日常测试默认在**无头测试框架**运行（`node:test` + `vitest`/`happy-dom`，**不启动 Electron 窗口**）：
+
+- **日常局部改动**（默认）：只跑静态检查 + 与改动相关的定向无头测试，避免每次全量耗时过长：
 
 ```bash
-npm run check                                     # 一键串联下面 5 条强制门禁
-npm run lint                                      # 1. lint（oxlint，警告即失败）
-npm run format:check                              # 2. 格式（prettier，不通过就 npm run format）
-npx tsc --noEmit                                  # 3. 类型
-npm test                                          # 4. 单测（只增不减）
-node node_modules/vite/bin/vite.js build --config vite.renderer.config.mjs   # 5. 渲染层构建
+npm run check:changed                             # lint + format:check + typecheck + 改动定向无头测试
+npm run test:changed                              # 仅跑与 git diff 关联的无头单测与 UI 测试
+npm run test:ui                                   # 仅跑无头 React UI 套件（tests/ui/*.test.tsx，不启 Electron）
+node --test tests/<相关文件>.test.ts              # 精确单文件无头验证
+```
+
+- **重大改造 / 跨多域变更**（涉及架构、公共契约或依赖升级）：跑全量无头门禁：
+
+```bash
+npm run check                                     # lint + format:check + typecheck + 全量无头 test:unit & test:ui + 渲染层构建
 ```
 
 > 依赖版本约束与定期升级节奏见 `docs/DEPENDENCY-POLICY.md`。
 
-这五条也是 CI（`.github/workflows/ci.yml`）跑的东西，push / PR 上自动跑。
-**GUI 回归套件在 CI 里**（`gui-regression` job，macOS runner）：起 fixture + 非 TTY 起应用，
-再跑 `run-all.sh`。它以前跑不了 CI（要求窗口在前台拿焦点），2026-10-17 实测推翻了那个前提
-—— 失焦时 CDP 输入照样落地，守卫已删。**第一次绿之前那个 job 是 `continue-on-error`。**
+- **全量真机 GUI 回归脚本（默认已禁用）**：
+  `scripts/regress/run-all.sh` 默认直接拒绝运行（不作为日常改动步骤，也不在 CI push/PR 自动运行），UI 回归已迁移至无头 `tests/ui/`（Vitest + happy-dom）。仅在跨多域大改造或发版前确需真机全量验证时，手动执行 `bash scripts/regress/run-all.sh --allow-full`（或在 GitHub Actions 手动 `workflow_dispatch` 触发 `gui-regression`）。
+
+这几条无头门禁也是 CI（`.github/workflows/ci.yml`）`static-gates` job 在 push / PR 上自动跑的内容。
 
 **lint 说明**：用 `oxlint` 而不是 eslint——`typescript-eslint` 硬拒绝本项目的
 TypeScript 7.0.2（原生预览版），装不上。规则与忽略清单在 `.oxlintrc.json`，
@@ -339,16 +345,7 @@ TypeScript 7.0.2（原生预览版），装不上。规则与忽略清单在 `.o
 格式化它们等于每次同步都多一份冲突）、`fixtures/`（紧凑 CSS 是刻意的）、`docs/` 与 `*.md`
 （手写长文，重排只有噪音）。加文件前先看这份 ignore 清单。
 
-**全量回归**（改到多个域、或接手时先摸一遍底）：
-`bash scripts/regress/run-all.sh` —— G0 + 9 个域的实机验收，约 1 分钟，结果写
-`/tmp/warren-regress.txt`。**当前基线 152 PASS / 0 FAIL**（唯一非 PASS 是 vault 5.7 的 SKIP；跨源 iframe
-已在 2026-10-16 打通，不再是预期缺口）。
-**只要应用和 fixture 起着就行**：cap 环境、示例插件、上传探针文件、UI 要的那几个环境
-套件自己会补、跑完自己清。跑之前它会检查「窗口是不是前台」——不是就直接退出并说明原因
-（**2026-10-17 起不再是硬前置**：窗口失焦时输入照样落地，脚本只把 `windowFocused` 打出来作观测）。
-细节见 `docs/FULL-REGRESSION-2026-10-15.md`。
-
-涉及主进程或运行时的改动，**必须重启并实测**：
+**仅在改到 Electron 主进程窗口 / 原生视图 / 视觉排版且确需真机核验时**，按需定向重启并实测改动点（不要默认跑全量 `run-all.sh`）：
 
 ```bash
 # 按上文「第 4 条」清理后

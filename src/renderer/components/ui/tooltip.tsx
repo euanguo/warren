@@ -20,7 +20,7 @@ function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
 function TooltipContent({
   className,
   side = "top",
-  sideOffset = 6,
+  sideOffset = 8,
   align = "center",
   alignOffset = 0,
   children,
@@ -41,7 +41,7 @@ function TooltipContent({
           className={cn(
             elevatedTooltipSurfaceClass,
             // text-sm px-2 py-1 gap-2; shell has 1px border; no arrow.
-            "z-50 inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-2 px-2 py-1 text-sm font-normal leading-[18px] text-popover-foreground select-none whitespace-normal break-words",
+            "z-50 inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-2 px-2 py-1 text-sm font-normal leading-[18px] text-tooltip-foreground select-none whitespace-normal break-words",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}

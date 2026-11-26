@@ -79,6 +79,26 @@ function clamp(value: number, min: number, max: number): number {
   return value;
 }
 
+export {
+  ADDRESS_SUGGEST_MAX_HEIGHT,
+  ADDRESS_SUGGEST_MIN_HEIGHT,
+  clampPopoverHeight,
+  estimateAddressSuggestHeight,
+} from '../../shared/popover-sizing.ts';
+
+/**
+ * 将桌面坐标系下的鼠标点换算到浮卡窗口内局部坐标；点落在窗外时返回 null。
+ */
+export function toLocalPopoverPoint(
+  cursor: { x: number; y: number },
+  bounds: ViewportRect,
+): { x: number; y: number } | null {
+  const x = Math.round(cursor.x - bounds.x);
+  const y = Math.round(cursor.y - bounds.y);
+  if (x < 0 || y < 0 || x >= bounds.width || y >= bounds.height) return null;
+  return { x, y };
+}
+
 /**
  * 只有宿主主窗口本就在前台时，可聚焦型 Popover 才允许接管键盘焦点；
  * 主窗口处于后台时绝不调用 show()/focus()，避免跨应用窃走用户当前窗口焦点。

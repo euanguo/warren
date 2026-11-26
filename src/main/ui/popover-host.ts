@@ -1,6 +1,6 @@
 import { BrowserWindow, screen, type WebContents } from 'electron';
 import path from 'node:path';
-import { computePopoverBounds, shouldFocusPopover } from './popover-layout.ts';
+import { computePopoverBounds, shouldFocusPopover, toLocalPopoverPoint } from './popover-layout.ts';
 import type { PopoverActionEvent, PopoverOpenOptions } from '../../shared/types.ts';
 
 export interface PopoverHostOptions {
@@ -35,6 +35,8 @@ export class PopoverHost {
   #activeId: string | null = null;
   #activeSlot?: Slot;
   #currentOptions?: PopoverOpenOptions;
+  #lastBounds?: { x: number; y: number; width: number; height: number };
+  #hoverTimer?: ReturnType<typeof setInterval>;
   #suppressBlur = false;
 
   constructor(options: PopoverHostOptions) {
@@ -70,6 +72,7 @@ export class PopoverHost {
     await slot.ready;
 
     // 切槽时先藏掉另一个
+    this.#stopHoverBridge();
     if (this.#activeSlot && this.#activeSlot !== slot && !this.#activeSlot.win.isDestroyed()) {
       this.#activeSlot.win.hide();
     }
@@ -80,6 +83,7 @@ export class PopoverHost {
     this.#suppressBlur = true;
 
     const bounds = this.#calcBounds(options);
+    this.#lastBounds = bounds;
     slot.win.setBounds(bounds);
     slot.win.webContents.send('popover:state', { id: options.id, props: options.props ?? {} });
     const shouldFocus = shouldFocusPopover(focusable, !this.#mainWindow.isDestroyed() && this.#mainWindow.isFocused());
@@ -89,6 +93,9 @@ export class PopoverHost {
       slot.win.webContents.focus();
     } else {
       slot.win.showInactive();
+      if (process.platform === 'darwin') {
+        this.#startHoverBridge(slot);
+      }
     }
     setTimeout(() => {
       this.#suppressBlur = false;
@@ -97,26 +104,43 @@ export class PopoverHost {
 
   async update(id: string, patch: Partial<PopoverOpenOptions>): Promise<void> {
     if (this.#activeId !== id || !this.#currentOptions || !this.#activeSlot) return;
+    if (this.#activeSlot.win.isDestroyed()) return;
     const next: PopoverOpenOptions = {
       ...this.#currentOptions,
       ...patch,
+      size: patch.size ? { ...this.#currentOptions.size, ...patch.size } : this.#currentOptions.size,
       props: patch.props ? { ...this.#currentOptions.props, ...patch.props } : this.#currentOptions.props,
     };
     this.#currentOptions = next;
     if (patch.anchorRect || patch.size || patch.placement || patch.beyondWindow !== undefined) {
-      this.#activeSlot.win.setBounds(this.#calcBounds(next));
+      const nextBounds = this.#calcBounds(next);
+      const prev = this.#lastBounds;
+      if (
+        !prev ||
+        prev.x !== nextBounds.x ||
+        prev.y !== nextBounds.y ||
+        prev.width !== nextBounds.width ||
+        prev.height !== nextBounds.height
+      ) {
+        this.#lastBounds = nextBounds;
+        this.#activeSlot.win.setBounds(nextBounds);
+      }
     }
-    this.#activeSlot.win.webContents.send('popover:state', { id, props: next.props ?? {} });
+    if (patch.props) {
+      this.#activeSlot.win.webContents.send('popover:state', { id, props: next.props ?? {} });
+    }
   }
 
   close(id?: string, reason = 'programmatic'): void {
     if (!this.#activeId) return;
     if (id && id !== this.#activeId) return;
+    this.#stopHoverBridge();
     const closedId = this.#activeId;
     const slot = this.#activeSlot;
     this.#activeId = null;
     this.#activeSlot = undefined;
     this.#currentOptions = undefined;
+    this.#lastBounds = undefined;
     if (slot && !slot.win.isDestroyed()) {
       slot.win.hide();
       slot.win.webContents.send('popover:state', null);
@@ -137,11 +161,48 @@ export class PopoverHost {
   }
 
   destroy(): void {
+    this.#stopHoverBridge();
     for (const slot of [this.#nonFocusable, this.#focusable]) {
       if (slot && !slot.win.isDestroyed()) slot.win.destroy();
     }
     this.#nonFocusable = undefined;
     this.#focusable = undefined;
+  }
+
+  /**
+   * macOS 下 `focusable: false` + `showInactive()` 的子窗非 key window，系统默认不派发 mouseMoved 事件，
+   * 导致地址联想列表悬停无高亮。仅在非聚焦浮卡打开期间以 32ms 轻量桥接光标坐标，关闭立即销毁定时器。
+   */
+  #startHoverBridge(slot: Slot): void {
+    this.#stopHoverBridge();
+    let lastKey = '';
+    let wasInside = false;
+    this.#hoverTimer = setInterval(() => {
+      if (this.#activeSlot !== slot || slot.win.isDestroyed() || !slot.win.isVisible()) {
+        this.#stopHoverBridge();
+        return;
+      }
+      const local = toLocalPopoverPoint(screen.getCursorScreenPoint(), slot.win.getBounds());
+      if (local) {
+        const key = `${local.x},${local.y}`;
+        if (key !== lastKey) {
+          lastKey = key;
+          wasInside = true;
+          slot.win.webContents.sendInputEvent({ type: 'mouseMove', x: local.x, y: local.y });
+        }
+      } else if (wasInside) {
+        wasInside = false;
+        lastKey = '';
+        slot.win.webContents.sendInputEvent({ type: 'mouseLeave', x: -1, y: -1 });
+      }
+    }, 32);
+  }
+
+  #stopHoverBridge(): void {
+    if (this.#hoverTimer) {
+      clearInterval(this.#hoverTimer);
+      this.#hoverTimer = undefined;
+    }
   }
 
   #ensureSlot(focusable: boolean): Slot {

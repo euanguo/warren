@@ -1254,6 +1254,13 @@ RED 实测：把 `inputCall` 里的 `assertWritable` 摘掉 → 3 条红；还�
     - **右侧 secondary panel**：`DESKTOP-SHELL-MIGRATION.md` §8 定的非目标，也别加点了没反应的占位按钮。
     - **rail 60px 档位**：那是**触屏**档（36+24=60），本应用没有触屏场景；窄窗断点也够不到（`minWidth: 1024`）。
 12. **移动端抽屉（`Sheet`）在本应用里不可达** —— `EnvironmentSidebar` 传 `collapsible="none"`，而 `Sidebar` 里 `collapsible === "none"` 的分支排在 `isMobile` 判断**之前**就 return 了，所以窄窗下侧栏仍是固定 260 面板，不会变抽屉。窗口 `minWidth: 1024` 也够不到 768 断点，所以没改。（`sheet.tsx` 本身已实测可用，见上表。）
+13. **2026-11-27 外壳交互细修 + 无头测试体系落地**：
+    - 浅色模式 Tooltip 修复黑底黑字（`tooltip.tsx` 改用 `text-tooltip-foreground`，`theme-tokens.css` 补齐 `prefers-reduced-transparency` 配对与 `sideOffset=8`）。
+    - 彻底解决多标签 + Agent 控制胶囊横向溢出导致整页左偏与红绿灯重叠（`App.tsx` 改 `overflow-clip` + `min-w-0`，`app-titlebar.tsx` / `environment-tabstrip.tsx` 补齐溢出约束与激活标签自动 `scrollIntoView`）。
+    - 壳层背景色统一为 `bg-surface-under`（Row 1 / Row 2 地址栏 / 侧栏 / WebView 四周统一），简化冗余分割线与双边缝；新增 `--chrome-field-fill` 与 `--shadow-chip`（全库标签/切换滑块/outline 按钮四边边框均匀，消除双层顶边）；`SurfaceTab` 修正带图标可关闭标签误加 `pr-1` 导致的左右不对称。
+    - 地址栏历史联想浮层支持动态最小/最大高度（`src/shared/popover-sizing.ts` + `ResizeObserver` + `handleShell('popover:update')`，无底部空白死区、超 320px 滚动），并修复 macOS 非聚焦子窗鼠标悬停高亮（`PopoverHost` 32ms 光标桥接 + `openPopover`/`updatePopover` 分离）及 `⌘L` (`focusAddress`) 切回主窗渲染层焦点。
+    - 侧栏环境行重构为 28×28 身份徽章 + `1px` 紧凑双行距（`list-row.module.css` 支持 `--list-row-body-gap` / `--list-row-gap`），修正浅色选中行状态点 `ring-surface-selected-solid`。
+    - **测试分层与无头化**：默认禁用 `scripts/regress/run-all.sh`（需显式 `--allow-full` 或 `WARREN_ALLOW_FULL_REGRESS=1`），CI `gui-regression` 改为 `workflow_dispatch` 手动触发；新增 Vitest + happy-dom 无头 React UI 测试套件（`vitest.config.ts`、`tests/ui/*.test.tsx`）与改动定向运行器 `scripts/test-changed.mjs`（`npm run test:changed` / `npm run test:ui` / `npm run check:changed`）。
 
 ---
 
@@ -1438,8 +1445,14 @@ npm install
 npm start                        # 桌面端（同时起 Core 和本地 RPC）
 node scripts/serve-fixture.mjs 8899   # 本地测试站点
 
-# 全量回归（G0 + 9 个域，约 1 分钟；预期全绿，唯一非 PASS 是 vault 5.7 的 SKIP）
-bash scripts/regress/run-all.sh
+# 无头测试（日常默认，不启动 Electron 窗口）
+npm run check:changed                 # lint + format + typecheck + 改动定向无头测试
+npm run test:changed                  # 仅跑与 git diff 相关的无头 unit + UI 用例
+npm run test:ui                       # 仅跑无头 React UI 套件（Vitest + happy-dom）
+npm run check                         # 重大改造前跑全量无头门禁（含全部单测 + UI + 构建）
+
+# 全量真机 GUI 回归（默认已禁用，仅重大架构改造/发版前显式开启）
+bash scripts/regress/run-all.sh --allow-full
 
 # 另一个终端
 node bin/warren.mjs env list

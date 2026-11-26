@@ -94,7 +94,18 @@ export function SidebarEnvRow({
 
   return (
     <li className="relative" data-env-id={env.id}>
-      <ListRow selected={selected} className={showSecondLine ? 'py-1' : undefined}>
+      <ListRow
+        selected={selected}
+        className={showSecondLine ? 'py-1.5' : undefined}
+        style={
+          showSecondLine
+            ? ({
+                '--list-row-gap': '0.625rem',
+                '--list-row-body-gap': '1px',
+              } as CSSProperties)
+            : undefined
+        }
+      >
         <ListRowMain
           onClick={() => onSelect(env.id)}
           onDoubleClick={() => {
@@ -107,20 +118,32 @@ export function SidebarEnvRow({
             aria-hidden
             data-slot="env-identity-chip"
             style={{ '--env-hue': identity.hue } as CSSProperties}
-            className="env-identity-chip relative flex size-5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[length:var(--font-size-micro)] font-semibold select-none"
+            className={cn(
+              'env-identity-chip relative flex shrink-0 items-center justify-center font-semibold select-none',
+              showSecondLine
+                ? 'size-7 rounded-[var(--radius-md)] text-xs'
+                : 'size-5 rounded-[var(--radius-sm)] text-[length:var(--font-size-micro)]',
+            )}
           >
             {identity.initial}
             <StatusDot
               tone={env.error ? 'error' : statusTone(env.status)}
               className={cn(
                 'absolute -right-0.5 -bottom-0.5 size-2 ring-[1.5px]',
-                selected ? 'ring-[var(--surface-selected-solid)]' : 'ring-sidebar',
+                selected ? 'ring-surface-selected-solid' : 'ring-sidebar',
               )}
             />
           </span>
-          <ListRowBody className="gap-0.5">
+          <ListRowBody>
             <ListRowLabel className="flex-1">
-              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{env.name}</span>
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate font-medium text-foreground',
+                  showSecondLine ? 'text-[13px] leading-4 tracking-[-0.01em]' : 'text-xs leading-4',
+                )}
+              >
+                {env.name}
+              </span>
               {!showSecondLine && (
                 <ListRowMeta className="ml-1 max-w-[44%] shrink-0 pl-1" title={egressLabel(env.proxy)}>
                   {egressLabel(env.proxy)}
@@ -128,7 +151,7 @@ export function SidebarEnvRow({
               )}
             </ListRowLabel>
             {showSecondLine && (
-              <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--font-size-micro)] leading-4 text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--font-size-micro)] leading-[14px] text-subtle-foreground">
                 <span className="min-w-0 truncate font-mono" title={egressLabel(env.proxy)}>
                   {egressLabel(env.proxy)}
                 </span>
@@ -183,7 +206,13 @@ export function SidebarEnvRow({
               <Icon name="Stop" />
             </ListRowActionButton>
           ) : (
-            <ListRowActionButton tone="success" title="启动环境" aria-label="启动" onClick={() => onStart(env.id)}>
+            <ListRowActionButton
+              tone="success"
+              title="启动环境"
+              aria-label="启动"
+              className="opacity-75 hover:opacity-100"
+              onClick={() => onStart(env.id)}
+            >
               <Icon name="Play" />
             </ListRowActionButton>
           )}

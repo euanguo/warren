@@ -31,9 +31,9 @@ const buttonVariants = cva(
         // Secondary: soft wash — low-weight chip without hard border.
         secondary:
           "bg-surface-fog text-foreground hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
-        // Outline: crisp raised tactile key with visible hairline border + top highlight.
+        // Outline: crisp raised tactile key with optically uniform 4-side border.
         outline:
-          "border-border-heavy bg-surface-elevated/85 text-foreground [box-shadow:var(--shadow-raised)] hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
+          "border-border-heavy/80 bg-surface-elevated/90 text-foreground [box-shadow:var(--shadow-chip)] hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
         ghost:
           // Do not force text-foreground when expanded — colored triggers (e.g. Full access)
           // must keep their semantic color while open.

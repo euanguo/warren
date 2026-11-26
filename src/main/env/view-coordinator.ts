@@ -822,6 +822,9 @@ export class EnvViewCoordinator {
   }
 
   sendShortcut(shortcut: BrowserShortcut): void {
+    if (shortcut === 'focusAddress' && !this.#window.isDestroyed()) {
+      this.#window.webContents.focus();
+    }
     this.#window.webContents.send('browser:shortcut', shortcut);
   }
 

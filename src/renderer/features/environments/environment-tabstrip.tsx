@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { Icon } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -52,7 +52,21 @@ export function EnvironmentTabstrip({
 }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const stripHostRef = useRef<HTMLDivElement>(null);
   const dragging = dragIndex !== null;
+
+  const activeTabTitle = tabs.find((tab) => tab.id === activeTabId)?.title ?? '';
+
+  useEffect(() => {
+    if (!activeTabId || !stripHostRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const activeEl = [...(stripHostRef.current?.querySelectorAll<HTMLElement>('[data-tab-id]') ?? [])].find(
+        (el) => el.dataset.tabId === activeTabId,
+      );
+      activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTabId, tabs.length, activeTabTitle]);
 
   const endDrag = () => {
     setDragIndex(null);
@@ -104,8 +118,11 @@ export function EnvironmentTabstrip({
   };
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1">
-      <SurfaceTabStrip aria-label="标签" className="flex-initial [app-region:no-drag] [-webkit-app-region:no-drag]">
+    <div ref={stripHostRef} className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+      <SurfaceTabStrip
+        aria-label="标签"
+        className="min-w-0 max-w-full flex-initial [app-region:no-drag] [-webkit-app-region:no-drag]"
+      >
         {tabs.map((tab, index) => {
           const label = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : '新标签页');
           return (
@@ -186,7 +203,7 @@ export function EnvironmentTabstrip({
         aria-label="新建标签"
         disabled={disabled || locked}
         onClick={onCreate}
-        className="[app-region:no-drag] [-webkit-app-region:no-drag]"
+        className="shrink-0 [app-region:no-drag] [-webkit-app-region:no-drag]"
       >
         <Icon name="Plus" />
       </IconButton>

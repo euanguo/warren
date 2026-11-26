@@ -123,7 +123,7 @@ export const surfaceTabChipClass = cn(
 );
 
 export const surfaceTabChipActiveClass = cn(
-  "border-border/80 bg-surface-elevated text-foreground [box-shadow:var(--shadow-raised)] hover:bg-surface-elevated hover:text-foreground",
+  "border-border-heavy/65 bg-surface-elevated text-foreground [box-shadow:var(--shadow-chip)] hover:bg-surface-elevated hover:text-foreground",
 );
 
 export const surfaceTabChipIconOnlyClass =

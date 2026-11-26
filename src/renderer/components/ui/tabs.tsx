@@ -54,7 +54,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
         "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-[var(--control-radius)] border border-transparent px-1.5 py-0.5 text-sm font-normal whitespace-nowrap text-subtle-foreground shadow-none transition-[background-color,color,border-color,box-shadow] duration-150",
         "hover:text-foreground focus-visible:ring-0 focus-visible:ring-transparent",
         "disabled:pointer-events-none disabled:opacity-40",
-        "data-active:border-border/75 data-active:bg-surface-elevated data-active:text-foreground data-active:[box-shadow:var(--shadow-raised)]",
+        "data-active:border-border-heavy/65 data-active:bg-surface-elevated data-active:text-foreground data-active:[box-shadow:var(--shadow-chip)]",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}

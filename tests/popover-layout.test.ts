@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computePopoverBounds, shouldFocusPopover } from '../src/main/ui/popover-layout.ts';
+import {
+  ADDRESS_SUGGEST_MAX_HEIGHT,
+  ADDRESS_SUGGEST_MIN_HEIGHT,
+  clampPopoverHeight,
+  computePopoverBounds,
+  estimateAddressSuggestHeight,
+  shouldFocusPopover,
+  toLocalPopoverPoint,
+} from '../src/main/ui/popover-layout.ts';
 
 const WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
 const WINDOW = { x: 100, y: 100, width: 1000, height: 700 };
@@ -57,4 +65,22 @@ test('shouldFocusPopover 仅当宿主主窗口本就在前台时允许聚焦子�
   assert.equal(shouldFocusPopover(true, false), false);
   assert.equal(shouldFocusPopover(false, true), false);
   assert.equal(shouldFocusPopover(false, false), false);
+});
+
+test('estimateAddressSuggestHeight / clampPopoverHeight 动态适配最小与最大高度', () => {
+  assert.equal(estimateAddressSuggestHeight(0), ADDRESS_SUGGEST_MIN_HEIGHT);
+  assert.ok(estimateAddressSuggestHeight(2) < estimateAddressSuggestHeight(8));
+  assert.ok(estimateAddressSuggestHeight(8) < ADDRESS_SUGGEST_MAX_HEIGHT);
+  assert.equal(estimateAddressSuggestHeight(20), ADDRESS_SUGGEST_MAX_HEIGHT);
+  assert.equal(clampPopoverHeight(140.2), 141);
+  assert.equal(clampPopoverHeight(20), ADDRESS_SUGGEST_MIN_HEIGHT);
+  assert.equal(clampPopoverHeight(500), ADDRESS_SUGGEST_MAX_HEIGHT);
+});
+
+test('toLocalPopoverPoint 准确转换窗内坐标并在窗外返回 null', () => {
+  const bounds = { x: 200, y: 120, width: 400, height: 240 };
+  assert.deepEqual(toLocalPopoverPoint({ x: 250, y: 180 }, bounds), { x: 50, y: 60 });
+  assert.equal(toLocalPopoverPoint({ x: 199, y: 180 }, bounds), null);
+  assert.equal(toLocalPopoverPoint({ x: 600, y: 180 }, bounds), null);
+  assert.equal(toLocalPopoverPoint({ x: 250, y: 360 }, bounds), null);
 });

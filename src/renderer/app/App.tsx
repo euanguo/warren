@@ -239,12 +239,12 @@ export function App() {
 
   return (
     <TooltipProvider>
-      <SidebarProvider style={shellStyle} className="block h-svh min-h-0">
+      <SidebarProvider style={shellStyle} className="block h-svh min-h-0 w-full overflow-clip">
         <div
-          className="flex h-full overflow-hidden bg-surface-recessed pr-[var(--shell-frame-lip)] pb-[var(--shell-frame-lip)] text-foreground select-none"
+          className="flex h-full w-full min-w-0 overflow-clip bg-surface-under pr-[var(--shell-frame-lip)] pb-[var(--shell-frame-lip)] text-foreground select-none"
           data-compact-topbar={settings.compactTopbar ? 'true' : 'false'}
         >
-          <div className="flex min-h-0 flex-1 flex-col overflow-clip rounded-[var(--shell-card-radius)] bg-background">
+          <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-clip bg-surface-under">
             <AppTitlebar
               route={effectiveRoute}
               environment={current}
@@ -327,7 +327,7 @@ export function App() {
                     />
                   </ResizablePanel>
 
-                  <ResizableHandle />
+                  <ResizableHandle subtle />
 
                   <ResizablePanel id="stage" className="min-w-0">
                     <EnvironmentStage

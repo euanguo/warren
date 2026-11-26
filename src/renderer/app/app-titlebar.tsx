@@ -184,7 +184,7 @@ export function AppTitlebar({
       <header
         data-slot="global-header"
         className={cn(
-          'relative flex h-[var(--shell-top-row-height)] shrink-0 items-center justify-between gap-2 border-b border-divider bg-surface-under pr-2.5',
+          'relative flex h-[var(--shell-top-row-height)] w-full min-w-0 shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-border/60 bg-surface-under pr-2.5',
           window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
           DRAG_CLASS,
         )}
@@ -217,7 +217,7 @@ export function AppTitlebar({
             ref={globalThumbRef}
             aria-hidden
             data-slot="global-nav-thumb"
-            className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/80 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-raised)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/65 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-chip)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
           />
           <Button
             size="xs"
@@ -287,7 +287,7 @@ export function AppTitlebar({
     <header
       data-slot="app-header"
       className={cn(
-        'flex h-[var(--shell-top-row-height)] shrink-0 items-center gap-1.5 border-b border-divider bg-surface-under pr-2.5',
+        'flex h-[var(--shell-top-row-height)] w-full min-w-0 shrink-0 items-center gap-1.5 overflow-hidden bg-surface-under pr-2.5',
         window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
         DRAG_CLASS,
       )}
@@ -314,12 +314,12 @@ export function AppTitlebar({
                 onClick={openCurrentEnvMenu}
                 onContextMenu={openCurrentEnvMenu}
                 title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击管理环境`}
-                className="flex h-[var(--control-height-icon)] max-w-[232px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/80 bg-surface-elevated px-2 text-xs [box-shadow:var(--shadow-raised)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
+                className="flex h-[var(--control-height-icon)] max-w-[232px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/65 bg-surface-elevated px-2 text-xs [box-shadow:var(--shadow-chip)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
               >
                 <span
                   aria-hidden
                   style={{ '--env-hue': identity.hue } as CSSProperties}
-                  className="env-identity-chip relative flex size-[18px] shrink-0 items-center justify-center rounded-[5px] text-[length:var(--font-size-micro)] font-semibold"
+                  className="env-identity-chip relative mr-1 flex size-[18px] shrink-0 items-center justify-center rounded-[5px] text-[length:var(--font-size-micro)] font-semibold"
                 >
                   {identity.initial}
                   <StatusDot
@@ -355,7 +355,7 @@ export function AppTitlebar({
         )}
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center">
+      <div className="flex min-w-0 flex-1 items-center overflow-hidden">
         {environment && running ? (
           <EnvironmentTabstrip
             tabs={tabs}
@@ -384,10 +384,10 @@ export function AppTitlebar({
             data-owner={agentOwner}
             className={cn(
               'mr-1 flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none',
-              agentOwner === 'agent' && 'border-[var(--info)]/55 bg-[var(--info)]/14 [box-shadow:var(--shadow-raised)]',
+              agentOwner === 'agent' && 'border-[var(--info)]/55 bg-[var(--info)]/14 [box-shadow:var(--shadow-chip)]',
               agentOwner === 'human' &&
-                'border-[var(--success)]/50 bg-[var(--success)]/12 [box-shadow:var(--shadow-raised)]',
-              agentOwner === 'none' && 'border-border-heavy bg-surface-elevated/90 [box-shadow:var(--shadow-raised)]',
+                'border-[var(--success)]/50 bg-[var(--success)]/12 [box-shadow:var(--shadow-chip)]',
+              agentOwner === 'none' && 'border-border-heavy/75 bg-surface-elevated/90 [box-shadow:var(--shadow-chip)]',
             )}
           >
             <StatusDot

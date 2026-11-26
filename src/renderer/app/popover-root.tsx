@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { PluginBoundary } from '@/app/plugin-surfaces';
 import { Icon, isIconName, type IconName } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { usePluginState } from '@/state/plugin-store';
 import { elevatedMenuSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
+import { ADDRESS_SUGGEST_MAX_HEIGHT, ADDRESS_SUGGEST_MIN_HEIGHT, clampPopoverHeight } from '@shared/popover-sizing';
 import type { DownloadItemInfo, FindInPageResult, SpaceId, UrlHistoryEntry, ViewportPresetId } from '@shared/types';
 
 interface PopoverStatePayload {
@@ -18,60 +19,102 @@ interface PopoverStatePayload {
   props: Record<string, unknown>;
 }
 
-function AddressSuggestView({ props }: { props: Record<string, unknown> }) {
+export function AddressSuggestView({ props }: { props: Record<string, unknown> }) {
   const query = typeof props.query === 'string' ? props.query : '';
   const entries = Array.isArray(props.entries) ? (props.entries as UrlHistoryEntry[]) : [];
   const highlighted = typeof props.highlighted === 'number' ? props.highlighted : -1;
+  const preferredWidth = typeof props.width === 'number' && props.width >= 120 ? props.width : 320;
+  const [hoverOverride, setHoverOverride] = useState<{ index: number; base: number } | null>(null);
+  const activeIndex = hoverOverride && hoverOverride.base === highlighted ? hoverOverride.index : highlighted;
+  const contentRef = useRef<HTMLDivElement>(null);
+  const lastReportedHeightRef = useRef<number>(0);
+
+  useLayoutEffect(() => {
+    const contentEl = contentRef.current;
+    if (!contentEl) return;
+    const syncHeight = () => {
+      const rawHeight = contentEl.getBoundingClientRect().height || contentEl.scrollHeight;
+      if (rawHeight <= 0) return;
+      const nextHeight = clampPopoverHeight(rawHeight + 8, ADDRESS_SUGGEST_MIN_HEIGHT, ADDRESS_SUGGEST_MAX_HEIGHT);
+      if (Math.abs(nextHeight - lastReportedHeightRef.current) < 1) return;
+      lastReportedHeightRef.current = nextHeight;
+      void window.envApi.updatePopover('address-suggest', {
+        size: { width: preferredWidth, height: nextHeight },
+      });
+    };
+    syncHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(contentEl);
+    return () => observer.disconnect();
+  }, [entries.length, query, preferredWidth]);
+
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    document.getElementById(`address-history-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex]);
+
+  const handleHover = (index: number) => {
+    if (activeIndex === index) return;
+    setHoverOverride({ index, base: highlighted });
+    void window.envApi.dispatchPopoverAction({
+      id: 'address-suggest',
+      action: 'hover',
+      payload: index,
+    });
+  };
 
   return (
     <div
       id="address-history"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- 候选需要组合键高亮与无焦点鼠标选择
       role="listbox"
+      tabIndex={-1}
       aria-label="跨环境地址历史"
+      onMouseLeave={() => setHoverOverride(null)}
       className={cn(
         elevatedMenuSurfaceClass,
-        'flex h-full flex-col gap-0.5 overflow-y-auto rounded-[var(--radius-menu)] p-1 select-none',
+        'flex h-full w-full flex-col overflow-y-auto rounded-[var(--radius-menu)] p-1 select-none',
       )}
     >
-      <MenuLabel>{query ? '历史联想' : '最近访问（所有环境）'}</MenuLabel>
-      {entries.map((entry, index) => (
-        <button
-          key={entry.url}
-          id={`address-history-${index}`}
-          type="button"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- listbox 选项需保持父输入框焦点不丢失
-          role="option"
-          aria-selected={index === highlighted}
-          data-highlighted={index === highlighted ? '' : undefined}
-          onMouseEnter={() => {
-            void window.envApi.dispatchPopoverAction({
-              id: 'address-suggest',
-              action: 'hover',
-              payload: index,
-            });
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            void window.envApi.dispatchPopoverAction({
-              id: 'address-suggest',
-              action: 'pick',
-              payload: entry.url,
-            });
-          }}
-          className={cn(
-            menuItemInteractiveClass,
-            'flex w-full items-center gap-2 px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-left',
-            index === highlighted && 'bg-surface-hover opacity-100',
-          )}
-        >
-          <Icon name="Globe" className="shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.url}</span>
-          <span className="shrink-0 text-[length:var(--font-size-micro)] text-muted-foreground">
-            {entry.visitCount} 次
-          </span>
-        </button>
-      ))}
+      <div ref={contentRef} data-slot="address-suggest-content" className="flex flex-col gap-0.5">
+        <MenuLabel className="py-1 text-xs">{query ? '历史联想' : '最近访问（所有环境）'}</MenuLabel>
+        {entries.map((entry, index) => {
+          const isActive = index === activeIndex;
+          return (
+            <button
+              key={entry.url}
+              id={`address-history-${index}`}
+              type="button"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- listbox 选项需保持父输入框焦点不丢失
+              role="option"
+              aria-selected={isActive}
+              data-highlighted={isActive ? '' : undefined}
+              onMouseEnter={() => handleHover(index)}
+              onMouseMove={() => handleHover(index)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                void window.envApi.dispatchPopoverAction({
+                  id: 'address-suggest',
+                  action: 'pick',
+                  payload: entry.url,
+                });
+              }}
+              className={cn(
+                menuItemInteractiveClass,
+                'flex w-full cursor-pointer items-center gap-2 px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-left',
+                isActive && 'bg-surface-selected text-foreground opacity-100',
+              )}
+            >
+              <Icon name="Globe" className="shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.url}</span>
+              <span className="shrink-0 text-[length:var(--font-size-micro)] text-muted-foreground">
+                {entry.visitCount} 次
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

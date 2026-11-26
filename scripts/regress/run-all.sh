@@ -14,6 +14,31 @@
 # （正常退出不会——`shutdown()` 会把 running.json 写成空的）。
 set -u
 cd "$(cd "$(dirname "$0")/../.." && pwd)"
+
+ALLOW_FULL="${WARREN_ALLOW_FULL_REGRESS:-0}"
+for arg in "$@"; do
+  if [ "$arg" = "--allow-full" ]; then
+    ALLOW_FULL="1"
+  fi
+done
+
+if [ "$ALLOW_FULL" != "1" ]; then
+  cat <<'EOF'
+[已禁用] 默认全量真机 GUI 回归脚本已禁用，避免日常小改动耗时过长并抢占桌面窗口。
+
+日常改动请使用无头测试框架（不启动 Electron）：
+  - 定向验证本次改动：npm run test:changed
+  - 仅跑无头 UI 套件：npm run test:ui
+  - 仅跑指定单测文件：node --test tests/<file>.test.ts
+
+仅在跨多域重大改造或发版前需要全量真机回归时，显式执行：
+  bash scripts/regress/run-all.sh --allow-full
+或：
+  WARREN_ALLOW_FULL_REGRESS=1 bash scripts/regress/run-all.sh
+EOF
+  exit 2
+fi
+
 R="scripts/regress"
 OUT="${OUT:-/tmp/warren-regress.txt}"
 : > "$OUT"

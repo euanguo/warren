@@ -54,7 +54,7 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
         ref={thumbRef}
         aria-hidden
         data-slot="space-switcher-thumb"
-        className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/80 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-raised)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/65 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-chip)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
       />
       {spaces.map((space) => {
         const active = space.id === activeSpaceId;

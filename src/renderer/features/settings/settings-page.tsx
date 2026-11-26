@@ -168,8 +168,8 @@ export function SettingsPage({
         onValueChange={(value) => onSectionChange(value as SettingsSection)}
         className="min-h-0 flex-1 gap-0"
       >
-        <div className="flex w-56 shrink-0 flex-col border-r border-border bg-surface-under/50">
-          <div className="border-b border-divider p-2.5">
+        <div className="flex w-56 shrink-0 flex-col border-r border-border/70 bg-surface-under/70">
+          <div className="p-2.5 pb-1.5">
             <div className="relative">
               <Icon
                 name="Search"
