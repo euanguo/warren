@@ -178,6 +178,20 @@ export interface IconProps {
  */
 export function Icon({ name, fallback = 'Zap', className, ...props }: IconProps) {
   const resolved = isIconName(name) ? name : fallback;
+  if (resolved === 'Stop') {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        data-icon="Stop"
+        data-icon-root=""
+        className={cn('size-4 shrink-0', className)}
+        {...props}
+      >
+        <rect x="6" y="6" width="12" height="12" rx="2.75" fill="currentColor" />
+      </svg>
+    );
+  }
   return (
     <HugeiconsIcon
       icon={ICON_LOOKUP[resolved] ?? ICON_MAP.Zap}

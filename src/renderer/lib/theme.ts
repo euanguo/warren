@@ -1,5 +1,24 @@
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import type { ThemePreference } from '@shared/types';
+
+export type ResolvedTheme = 'dark' | 'light';
+
+function getDocumentTheme(): ResolvedTheme {
+  if (typeof document === 'undefined') return 'dark';
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+}
+
+function subscribeDocumentTheme(listener: () => void): () => void {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {};
+  const observer = new MutationObserver(listener);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+  return () => observer.disconnect();
+}
+
+/** 订阅当前生效的深/浅色主题，供 Toaster 等外部组件自动同步。 */
+export function useResolvedTheme(): ResolvedTheme {
+  return useSyncExternalStore(subscribeDocumentTheme, getDocumentTheme, () => 'dark');
+}
 
 function resolveIsDark(preference: ThemePreference): boolean {
   if (preference === 'light') return false;

@@ -24,6 +24,7 @@ export default function register(app) {
     DialogHeader,
     DialogTitle,
     Empty,
+    EmptyContent,
     EmptyDescription,
     EmptyHeader,
     EmptyMedia,
@@ -417,14 +418,28 @@ export default function register(app) {
       h(
         'div',
         {
-          className: cn(cardSurfaceClass, 'flex items-start gap-2 text-xs text-[var(--warning)]'),
+          className: cn(
+            cardSurfaceClass,
+            'flex flex-wrap items-center justify-between gap-2 border-[var(--warning)]/35 bg-[var(--warning)]/10 text-xs text-[var(--warning)]',
+          ),
           'data-slot': 'account-plaintext-warning',
         },
-        h(Icon, { name: 'Shield', className: 'mt-0.5 shrink-0' }),
         h(
-          'p',
-          null,
-          '这里的账号和密码以明文保存在本机。只放不重要、丢失也无所谓的账号；不要把系统密码或生产环境高权限凭据放进来。',
+          'div',
+          { className: 'flex min-w-0 flex-1 items-start gap-2' },
+          h(Icon, { name: 'Shield', className: 'mt-0.5 shrink-0' }),
+          h('p', null, '账号与密码以本机明文保存，仅存放测试或低敏感账号；生产/高权限凭据请使用加密 Vault。'),
+        ),
+        h(
+          Button,
+          {
+            size: 'xs',
+            variant: 'outline',
+            className: 'shrink-0 border-[var(--warning)]/35 text-foreground',
+            onClick: () => app.navigation?.openSettings?.('vault'),
+          },
+          h(Icon, { name: 'Key', className: 'size-3.5' }),
+          '前往加密 Vault',
         ),
       ),
       h(
@@ -450,7 +465,12 @@ export default function register(app) {
           placeholder: '标签',
           onChange: (event) => setTag(event.target.value),
         }),
-        h(Button, { variant: 'ghost', onClick: load }, '刷新'),
+        h(
+          Button,
+          { variant: 'outline', size: 'sm', onClick: load },
+          h(Icon, { name: 'Refresh', className: 'size-3.5' }),
+          '刷新',
+        ),
       ),
       error ? h('p', { className: 'text-xs text-destructive' }, error) : null,
       state.accounts.length === 0
@@ -462,7 +482,22 @@ export default function register(app) {
               null,
               h(EmptyMedia, { variant: 'icon' }, h(Icon, { name: 'User' })),
               h(EmptyTitle, null, '还没有账号'),
-              h(EmptyDescription, null, '新增一个站点账号，备注和标签也可以一起记。'),
+              h(EmptyDescription, null, '新增测试站点账号，后续可在任意环境侧栏一键填充。'),
+            ),
+            h(
+              EmptyContent,
+              null,
+              h(
+                Button,
+                {
+                  onClick: () => {
+                    setEditing(null);
+                    setEditorOpen(true);
+                  },
+                },
+                h(Icon, { name: 'Plus' }),
+                '新增第一个测试账号',
+              ),
             ),
           )
         : h(
@@ -597,25 +632,59 @@ export default function register(app) {
       h(
         'div',
         {
-          className: cn(cardSurfaceClass, 'flex items-start gap-2 text-[11px] text-[var(--warning)]'),
+          className: cn(
+            cardSurfaceClass,
+            'flex flex-col gap-1.5 border-[var(--warning)]/35 bg-[var(--warning)]/10 text-[length:var(--font-size-micro)] text-[var(--warning)]',
+          ),
           'data-slot': 'account-plaintext-warning',
         },
-        h(Icon, { name: 'Shield', className: 'mt-0.5 size-3.5 shrink-0' }),
-        h('p', null, '账号插件数据以明文保存在本机插件库，仅放测试/低敏感账号；Agent 通道只返回打码提示。'),
+        h(
+          'div',
+          { className: 'flex items-start gap-2' },
+          h(Icon, { name: 'Shield', className: 'mt-0.5 size-3.5 shrink-0' }),
+          h('p', null, '本机明文保存，仅存测试账号；Agent 仅见打码信息。'),
+        ),
+        h(
+          Button,
+          {
+            size: 'xs',
+            variant: 'ghost',
+            className: 'h-6 self-start px-1.5 text-[length:var(--font-size-micro)] text-foreground',
+            onClick: () => app.navigation?.openSettings?.('vault'),
+          },
+          h(Icon, { name: 'Key', className: 'size-3' }),
+          '高敏凭据改用加密 Vault →',
+        ),
       ),
       currentHost
-        ? h('span', { className: 'truncate font-mono text-[11px] text-muted-foreground' }, `当前站点：${currentHost}`)
+        ? h(
+            'div',
+            { className: 'flex items-center justify-between gap-2 text-[length:var(--font-size-micro)]' },
+            h('span', { className: 'text-muted-foreground' }, '当前站点'),
+            h('span', { className: 'truncate font-mono text-foreground' }, currentHost),
+          )
         : null,
       error ? h('p', { className: 'text-destructive' }, error) : null,
       sorted.length === 0
         ? h(
             'div',
-            { className: cn(cardSurfaceClass, 'flex flex-col gap-1 py-2.5') },
+            { className: cn(cardSurfaceClass, 'flex flex-col gap-2 py-2.5') },
             h('span', { className: 'font-medium text-foreground' }, '还没有可用账号'),
             h(
               'p',
-              { className: 'text-[11px] leading-relaxed text-muted-foreground' },
-              '可在顶栏切至全局「账号」页新增测试账号，后续可在此一键填充至当前站点。',
+              { className: 'text-[length:var(--font-size-micro)] leading-relaxed text-muted-foreground' },
+              '新增测试账号后，可在此按当前站点一键直填登录表单。',
+            ),
+            h(
+              Button,
+              {
+                size: 'sm',
+                className: 'mt-0.5 self-start',
+                'data-slot': 'accounts-open-global-cta',
+                onClick: () => app.navigation?.openPage?.('accounts'),
+              },
+              h(Icon, { name: 'Plus', className: 'size-3.5' }),
+              '新增测试账号',
             ),
           )
         : h(

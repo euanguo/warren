@@ -373,7 +373,7 @@ export function App() {
         </div>
       </SidebarProvider>
 
-      <Toaster position="top-right" offset={{ top: 8, right: 12 }} />
+      <Toaster position="top-center" offset={{ top: 6 }} />
     </TooltipProvider>
   );
 }

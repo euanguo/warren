@@ -1,4 +1,5 @@
 import type { MouseEvent } from 'react';
+import { toast } from 'sonner';
 import { statusLabel } from '@/lib/labels';
 import type { PluginEnvAction } from '@/lib/plugin-runtime';
 import type { Environment, Group, NativeMenuItem } from '@shared/types';
@@ -21,8 +22,9 @@ export interface GroupMenuActions {
   onToggleGroup: (id: string, collapsed: boolean) => void;
 }
 
-function copyText(text: string): void {
+function copyText(text: string, notice: string): void {
   void navigator.clipboard.writeText(text);
+  toast.success(notice, { duration: 1800 });
 }
 
 /** 弹出环境行右键原生菜单并分派用户所选操作。 */
@@ -87,8 +89,8 @@ export async function openEnvironmentContextMenu(
   else if (picked === 'stop') actions.onStop(env.id);
   else if (picked === 'takeover') actions.onTakeover(env.id);
   else if (picked === 'release') actions.onRelease(env.id);
-  else if (picked === 'copy:cli') copyText(`warren exec ${env.id}`);
-  else if (picked === 'copy:url' && env.currentUrl) copyText(env.currentUrl);
+  else if (picked === 'copy:cli') copyText(`warren exec ${env.id}`, '已复制 CLI 寻址');
+  else if (picked === 'copy:url' && env.currentUrl) copyText(env.currentUrl, '已复制当前 URL');
   else if (picked === 'open:external' && env.currentUrl) window.open(env.currentUrl, '_blank');
   else if (picked === 'edit') {
     void window.envApi.openOverlay({ kind: 'edit-env', environment: env });
@@ -161,7 +163,10 @@ export async function openGroupContextMenu(
   } else if (picked === 'stop-all') {
     groupEnvs.forEach((env) => actions.onStop(env.id));
   } else if (picked === 'copy-cli') {
-    copyText(groupEnvs.map((env) => `warren exec ${env.id}`).join('\n'));
+    copyText(
+      groupEnvs.map((env) => `warren exec ${env.id}`).join('\n'),
+      `已复制 ${groupEnvs.length} 个环境的 CLI 寻址`,
+    );
   } else if (picked === 'remove') {
     const confirmed = await window.envApi.openOverlay<boolean>({
       kind: 'confirm',

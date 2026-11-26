@@ -145,13 +145,25 @@ function FindInPageView({ props }: { props: Record<string, unknown> }) {
       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
         {query ? `${active} / ${total}` : '0 / 0'}
       </span>
-      <IconButton variant="ghost" title="上一个 (⇧⌘G)" disabled={!query || total === 0} onClick={() => step(false)}>
+      <IconButton
+        variant="ghost"
+        title="上一个 (⇧⌘G)"
+        aria-label="上一个匹配项"
+        disabled={!query || total === 0}
+        onClick={() => step(false)}
+      >
         <Icon name="ChevronUp" className="size-3.5" />
       </IconButton>
-      <IconButton variant="ghost" title="下一个 (⌘G)" disabled={!query || total === 0} onClick={() => step(true)}>
+      <IconButton
+        variant="ghost"
+        title="下一个 (⌘G)"
+        aria-label="下一个匹配项"
+        disabled={!query || total === 0}
+        onClick={() => step(true)}
+      >
         <Icon name="ChevronDown" className="size-3.5" />
       </IconButton>
-      <IconButton variant="ghost" title="关闭 (Esc)" onClick={close}>
+      <IconButton variant="ghost" title="关闭 (Esc)" aria-label="关闭页内查找" onClick={close}>
         <Icon name="X" className="size-3.5" />
       </IconButton>
     </div>
@@ -189,7 +201,12 @@ function DownloadsView({ props }: { props: Record<string, unknown> }) {
     >
       <div className="flex items-center justify-between px-1.5 py-1">
         <span className="font-medium text-foreground">下载记录</span>
-        <IconButton variant="ghost" title="关闭" onClick={() => void window.envApi.closePopover('downloads')}>
+        <IconButton
+          variant="ghost"
+          title="关闭"
+          aria-label="关闭下载记录"
+          onClick={() => void window.envApi.closePopover('downloads')}
+        >
           <Icon name="X" className="size-3.5" />
         </IconButton>
       </div>
@@ -222,6 +239,7 @@ function DownloadsView({ props }: { props: Record<string, unknown> }) {
                   <IconButton
                     variant="ghost"
                     title="在 Finder 中显示"
+                    aria-label="在 Finder 中显示"
                     onClick={() => void window.envApi.revealDownload(item.downloadId)}
                   >
                     <Icon name="FolderOpen" className="size-3.5" />

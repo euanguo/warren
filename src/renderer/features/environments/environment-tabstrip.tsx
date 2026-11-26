@@ -183,6 +183,7 @@ export function EnvironmentTabstrip({
       <IconButton
         variant="ghost"
         title="新建标签 (⌘T)"
+        aria-label="新建标签"
         disabled={disabled || locked}
         onClick={onCreate}
         className="[app-region:no-drag] [-webkit-app-region:no-drag]"

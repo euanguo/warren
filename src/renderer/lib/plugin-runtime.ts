@@ -86,7 +86,21 @@ import {
   type PluginEnvBadgeSetter,
   type PluginEnvBadgeSurface,
 } from '@/lib/plugin-badges';
+import { openPluginPage, openSettings, type BuiltinSettingsSection } from '@/state/navigation-store';
 import type { HostEnvironmentSummary, InstalledPlugin, PluginSettingValue, PluginSignal } from '@shared/types';
+
+const ALLOWED_PLUGIN_SETTINGS_SECTIONS: ReadonlySet<BuiltinSettingsSection> = new Set([
+  'general',
+  'browser',
+  'agent',
+  'vault',
+  'plugins',
+  'diagnostics',
+]);
+
+export function isAllowedPluginSettingsSection(section: string): section is BuiltinSettingsSection {
+  return ALLOWED_PLUGIN_SETTINGS_SECTIONS.has(section as BuiltinSettingsSection);
+}
 
 /**
  * 插件能用的宿主 UI —— **单一出口**。
@@ -334,6 +348,11 @@ export interface PluginAppApi {
   rpc: { call<T = unknown>(method: string, input?: unknown): Promise<T> };
   /** 只读宿主能力；写操作和插件自己的数据走 `rpc`。 */
   host: PluginHostApi;
+  /** 受控宿主导航：仅允许跳往当前插件清单已声明的 railPage 或白名单设置分节。 */
+  navigation: {
+    openPage(surfaceId: string): void;
+    openSettings(section?: BuiltinSettingsSection): void;
+  };
   /** 当前插件自己的设置快照；secret 只有 configured，没有 value。 */
   settings: PluginSettingValue[];
   /** 便利 hook：返回 settings 快照，并可走现有 `plugins()` 刷新。 */
@@ -407,6 +426,26 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
       },
       browser: {
         info: (environmentId) => callHostRead(plugin.id, 'browser.info', environmentId),
+      },
+    },
+    navigation: {
+      openPage: (surfaceId: string) => {
+        if (!declared.has(`railPage:${surfaceId}`)) {
+          console.warn(`[plugin:${plugin.id}] 拒绝跳转未声明的 railPage: ${surfaceId}`);
+          return;
+        }
+        openPluginPage(plugin.id, surfaceId);
+      },
+      openSettings: (section?: BuiltinSettingsSection) => {
+        if (!section) {
+          openSettings();
+          return;
+        }
+        if (!isAllowedPluginSettingsSection(section)) {
+          console.warn(`[plugin:${plugin.id}] 拒绝跳转非法设置分节: ${String(section)}`);
+          return;
+        }
+        openSettings(section);
       },
     },
     settings: plugin.settings,

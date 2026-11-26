@@ -10,7 +10,6 @@
   min-width: 0;
   align-items: center;
   gap: var(--space-1);
-  height: var(--size-row);
   min-height: var(--size-row);
   border: 0;
   border-radius: var(--control-radius);

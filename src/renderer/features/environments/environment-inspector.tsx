@@ -1,12 +1,21 @@
-import { Badge } from '@/components/ui/badge';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PluginSurfaceHost } from '@/app/plugin-surfaces';
 import { Icon } from '@/components/icons';
-import { IconButton } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Button, IconButton } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useEffect, useRef } from 'react';
-import { PluginSurfaceHost } from '@/app/plugin-surfaces';
 import type { PluginInspectorTab } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
 import type {
@@ -183,6 +192,18 @@ export function EnvironmentInspector({
   const running = current?.status === 'running';
   const errorCount = consoleEntries.filter((entry) => entry.level === 'error').length;
   const tabsListRef = useRef<HTMLDivElement>(null);
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
+  const [eventActorFilter, setEventActorFilter] = useState<'all' | 'agent' | 'human' | 'system'>('all');
+  const [eventQuery, setEventQuery] = useState('');
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+
+  const syncTabOverflow = useCallback(() => {
+    const list = tabsListRef.current;
+    if (!list) return;
+    const left = list.scrollLeft > 2;
+    const right = list.scrollLeft + list.clientWidth < list.scrollWidth - 2;
+    setTabScroll((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
 
   useEffect(() => {
     const list = tabsListRef.current;
@@ -191,55 +212,184 @@ export function EnvironmentInspector({
       '[data-slot="tabs-trigger"][data-active], [data-slot="tabs-trigger"][aria-selected="true"]',
     );
     active?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-  }, [activeTab, pluginTabs.length]);
+    syncTabOverflow();
+  }, [activeTab, pluginTabs.length, syncTabOverflow]);
+
+  useEffect(() => {
+    const list = tabsListRef.current;
+    if (!list) return;
+    syncTabOverflow();
+    const observer = new ResizeObserver(syncTabOverflow);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [syncTabOverflow, pluginTabs.length]);
+
+  const scrollTabsBy = (delta: number) => {
+    tabsListRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
+  };
+
+  const filteredEvents = useMemo(() => {
+    const q = eventQuery.trim().toLowerCase();
+    return events
+      .slice(-120)
+      .reverse()
+      .filter((event) => {
+        if (eventActorFilter !== 'all' && event.actor !== eventActorFilter) return false;
+        if (!q) return true;
+        return event.message.toLowerCase().includes(q) || event.actor.toLowerCase().includes(q);
+      });
+  }, [events, eventActorFilter, eventQuery]);
+
+  const builtinTabItems = [
+    { id: 'events', label: '事件', disabled: false },
+    { id: 'snapshot', label: '快照', disabled: !running },
+    { id: 'console', label: errorCount > 0 ? `控制台 (${errorCount})` : '控制台', disabled: !running },
+    {
+      id: 'network',
+      label: networkEntries.length > 0 ? `网络 (${networkEntries.length})` : '网络',
+      disabled: !running,
+    },
+    { id: 'rules', label: netRules.length > 0 ? `规则 (${netRules.length})` : '规则', disabled: !running },
+    { id: 'storage', label: cookies && cookies.length > 0 ? `存储 (${cookies.length})` : '存储', disabled: !running },
+  ];
 
   return (
-    <Tabs value={activeTab} onValueChange={onTabChange} className="h-full w-full min-w-0 gap-0 overflow-hidden">
-      <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 border-b border-border px-2">
-        <TabsList
-          ref={tabsListRef}
-          variant="line"
-          className="h-auto min-w-0 flex-1 justify-start gap-0.5 overflow-x-auto pr-4 [scrollbar-width:none]"
-        >
-          <TabsTrigger value="events" className="shrink-0 px-2 text-xs">
-            事件
-          </TabsTrigger>
-          <TabsTrigger value="snapshot" disabled={!running} className="shrink-0 px-2 text-xs">
-            快照
-          </TabsTrigger>
-          <TabsTrigger value="console" disabled={!running} className="shrink-0 px-2 text-xs">
-            控制台
-            {errorCount > 0 && (
-              <Badge variant="outline" className="border-destructive/50 text-destructive">
-                {errorCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="network" disabled={!running} className="shrink-0 px-2 text-xs">
-            网络
-            {networkEntries.length > 0 && <Badge variant="outline">{networkEntries.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="rules" disabled={!running} className="shrink-0 px-2 text-xs">
-            规则
-            {netRules.length > 0 && <Badge variant="outline">{netRules.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="storage" disabled={!running} className="shrink-0 px-2 text-xs">
-            存储
-            {cookies && cookies.length > 0 && <Badge variant="outline">{cookies.length}</Badge>}
-          </TabsTrigger>
-          {pluginTabs.map((tab) => (
-            <TabsTrigger
-              key={tab.id}
-              value={`plugin:${tab.pluginId}:${tab.id}`}
-              disabled={!running}
-              className="shrink-0 px-2 text-xs"
-            >
-              {tab.title}
+    <Tabs
+      value={activeTab}
+      onValueChange={onTabChange}
+      className="h-full w-full min-w-0 gap-0 overflow-hidden bg-background"
+    >
+      <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-0.5 border-b border-border px-1.5">
+        {tabScroll.left && (
+          <IconButton
+            size="icon-xs"
+            variant="ghost"
+            aria-label="向左滚动标签"
+            onClick={() => scrollTabsBy(-120)}
+            className="shrink-0"
+          >
+            <Icon name="ChevronLeft" />
+          </IconButton>
+        )}
+        <div className="relative min-w-0 flex-1 overflow-hidden">
+          <TabsList
+            ref={tabsListRef}
+            variant="line"
+            onScroll={syncTabOverflow}
+            className="h-auto w-full min-w-0 justify-start gap-0.5 overflow-x-auto px-0.5 [scrollbar-width:none]"
+          >
+            <TabsTrigger value="events" className="shrink-0 px-2 text-xs">
+              事件
             </TabsTrigger>
-          ))}
-        </TabsList>
+            <TabsTrigger value="snapshot" disabled={!running} className="shrink-0 px-2 text-xs">
+              快照
+            </TabsTrigger>
+            <TabsTrigger value="console" disabled={!running} className="shrink-0 px-2 text-xs">
+              控制台
+              {errorCount > 0 && (
+                <Badge variant="outline" className="border-destructive/50 text-destructive">
+                  {errorCount}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="network" disabled={!running} className="shrink-0 px-2 text-xs">
+              网络
+              {networkEntries.length > 0 && <Badge variant="outline">{networkEntries.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="rules" disabled={!running} className="shrink-0 px-2 text-xs">
+              规则
+              {netRules.length > 0 && <Badge variant="outline">{netRules.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="storage" disabled={!running} className="shrink-0 px-2 text-xs">
+              存储
+              {cookies && cookies.length > 0 && <Badge variant="outline">{cookies.length}</Badge>}
+            </TabsTrigger>
+            {pluginTabs.length > 0 && <span className="mx-1 h-3.5 w-px shrink-0 bg-border" aria-hidden />}
+            {pluginTabs.map((tab) => (
+              <TabsTrigger
+                key={tab.id}
+                value={`plugin:${tab.pluginId}:${tab.id}`}
+                disabled={!running}
+                className="shrink-0 px-2 text-xs"
+              >
+                {tab.title}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {tabScroll.left && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-background to-transparent"
+            />
+          )}
+          {tabScroll.right && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-background to-transparent"
+            />
+          )}
+        </div>
+        {tabScroll.right && (
+          <IconButton
+            size="icon-xs"
+            variant="ghost"
+            aria-label="向右滚动标签"
+            onClick={() => scrollTabsBy(120)}
+            className="shrink-0"
+          >
+            <Icon name="ChevronRight" />
+          </IconButton>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <IconButton size="icon-xs" variant="ghost" aria-label="全部工作台面板" title="切换全部工作台面板" />
+            }
+          >
+            <Icon name="ChevronDown" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-40">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>内置调试</DropdownMenuLabel>
+              {builtinTabItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  disabled={item.disabled}
+                  onClick={() => onTabChange(item.id)}
+                  className="justify-between"
+                >
+                  <span>{item.label}</span>
+                  {activeTab === item.id && <Icon name="Check" className="size-3.5 text-[var(--theme-accent)]" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            {pluginTabs.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>插件伴随</DropdownMenuLabel>
+                  {pluginTabs.map((tab) => {
+                    const value = `plugin:${tab.pluginId}:${tab.id}`;
+                    return (
+                      <DropdownMenuItem
+                        key={value}
+                        disabled={!running}
+                        onClick={() => onTabChange(value)}
+                        className="justify-between"
+                      >
+                        <span>{tab.title}</span>
+                        {activeTab === value && <Icon name="Check" className="size-3.5 text-[var(--theme-accent)]" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuGroup>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {activeTab === 'snapshot' && (
           <IconButton
+            size="icon-xs"
             title="刷新 Agent 快照"
             aria-label="刷新 Agent 快照"
             disabled={!running || snapshotLoading}
@@ -251,24 +401,80 @@ export function EnvironmentInspector({
         )}
       </div>
 
-      <TabsContent value="events" className="min-h-0">
-        <ScrollArea className="h-full">
-          <div className="flex flex-col gap-1 px-3 pt-2 pr-4 pb-5 text-xs leading-5">
-            {events.length === 0 && <p className="text-muted-foreground">暂无事件。</p>}
-            {events
-              .slice(-80)
-              .reverse()
-              .map((event) => (
-                <div key={event.id} className="flex gap-2">
-                  <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
-                    {new Date(event.createdAt).toLocaleTimeString()}
+      <TabsContent value="events" className="flex min-h-0 flex-col">
+        <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2.5 py-1.5">
+          {(
+            [
+              ['all', '全部'],
+              ['agent', 'Agent'],
+              ['human', '人工'],
+              ['system', '系统'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setEventActorFilter(value)}
+              className={cn(
+                'rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--font-size-micro)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-focus',
+                eventActorFilter === value
+                  ? 'bg-surface-selected font-medium text-foreground'
+                  : 'text-subtle-foreground hover:bg-surface-hover hover:text-foreground',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          <input
+            type="text"
+            value={eventQuery}
+            onChange={(event) => setEventQuery(event.target.value)}
+            placeholder="筛选…"
+            aria-label="筛选事件"
+            className="ml-auto h-6 w-24 min-w-0 rounded-[var(--radius-sm)] border border-border bg-[var(--input-fill)] px-2 text-[length:var(--font-size-micro)] text-foreground outline-none placeholder:text-subtle-foreground focus:border-focus"
+          />
+        </div>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="flex flex-col gap-0.5 px-2 pt-1.5 pr-3 pb-5 text-xs leading-5">
+            {filteredEvents.length === 0 && (
+              <p className="px-1.5 py-2 text-muted-foreground">
+                {events.length === 0 ? '暂无事件。' : '没有匹配的事件记录。'}
+              </p>
+            )}
+            {filteredEvents.map((event) => {
+              const expanded = expandedEventId === event.id;
+              return (
+                <button
+                  key={event.id}
+                  type="button"
+                  onClick={() => setExpandedEventId(expanded ? null : event.id)}
+                  title={expanded ? '点击收起' : `${event.message}（点击展开全文）`}
+                  className={cn(
+                    'flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-1.5 py-0.5 text-left transition-colors outline-none hover:bg-surface-hover focus-visible:ring-1 focus-visible:ring-focus',
+                    expanded && 'bg-surface-selected/70',
+                  )}
+                >
+                  <span className="shrink-0 font-mono text-[length:var(--font-size-micro)] text-muted-foreground tabular-nums">
+                    {new Date(event.createdAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
                   </span>
-                  <span className={cn('w-12 shrink-0', actorClass[event.actor])}>{event.actor}</span>
-                  <span className="truncate" title={event.message}>
+                  <span
+                    className={cn(
+                      'w-11 shrink-0 font-mono text-[length:var(--font-size-micro)]',
+                      actorClass[event.actor],
+                    )}
+                  >
+                    {event.actor}
+                  </span>
+                  <span className={cn('min-w-0 flex-1', expanded ? 'break-all whitespace-pre-wrap' : 'truncate')}>
                     {event.message}
                   </span>
-                </div>
-              ))}
+                </button>
+              );
+            })}
           </div>
         </ScrollArea>
       </TabsContent>
@@ -282,7 +488,13 @@ export function EnvironmentInspector({
               </span>
             )}
             {!snapshotLoading && !snapshot && (
-              <p className="text-xs text-muted-foreground">点右上角的刷新按钮读取页面结构。</p>
+              <div className="flex flex-col items-start gap-2 py-2">
+                <p className="text-xs text-muted-foreground">读取当前页面的可访问性节点树，便于检查 Agent 感知结构。</p>
+                <Button size="xs" variant="outline" disabled={!running} onClick={onRefreshSnapshot}>
+                  <Icon name="RotateClockwise" className="size-3.5" />
+                  读取当前页面快照
+                </Button>
+              </div>
             )}
             {!snapshotLoading && snapshot && (
               <div className="flex flex-col gap-2">

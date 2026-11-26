@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { toast } from 'sonner';
+import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -14,6 +15,20 @@ import type {
   UrlHistoryEntry,
   ViewportPresetId,
 } from '@shared/types';
+
+function splitUrlDisplay(raw: string): { prefix: string; host: string; rest: string } | null {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!parsed.host) return null;
+    const prefix = `${parsed.protocol}//`;
+    const host = parsed.host;
+    const rest = `${parsed.pathname === '/' && !parsed.search && !parsed.hash ? '' : parsed.pathname}${parsed.search}${parsed.hash}`;
+    return { prefix, host, rest };
+  } catch {
+    return null;
+  }
+}
 
 const SECURITY_ICON = {
   secure: { name: 'Lock', className: 'text-[var(--success)]', label: '连接安全（https）' },
@@ -102,10 +117,27 @@ export function EnvironmentAddressBar({
   const [history, setHistory] = useState<UrlHistoryEntry[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const pageToolsBtnRef = useRef<HTMLButtonElement>(null);
   const viewportBtnRef = useRef<HTMLButtonElement>(null);
   const downloadBtnRef = useRef<HTMLButtonElement>(null);
+  const copiedTimerRef = useRef<number>(0);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
+
+  const handleCopyUrl = () => {
+    if (!url) return;
+    void navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopiedUrl(false), 1500);
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -256,9 +288,10 @@ export function EnvironmentAddressBar({
     }
   };
 
-  const openViewportPopover = () => {
-    if (!envId || !running || !viewportBtnRef.current) return;
-    const rect = viewportBtnRef.current.getBoundingClientRect();
+  const openViewportPopover = (anchor?: HTMLElement | null) => {
+    const el = anchor ?? viewportBtnRef.current ?? pageToolsBtnRef.current;
+    if (!envId || !running || !el) return;
+    const rect = el.getBoundingClientRect();
     void window.envApi.openPopover({
       id: 'viewport',
       anchorRect: {
@@ -275,9 +308,10 @@ export function EnvironmentAddressBar({
     });
   };
 
-  const openDownloadsPopover = () => {
-    if (!downloadBtnRef.current) return;
-    const rect = downloadBtnRef.current.getBoundingClientRect();
+  const openDownloadsPopover = (anchor?: HTMLElement | null) => {
+    const el = anchor ?? downloadBtnRef.current ?? pageToolsBtnRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
     void window.envApi.openPopover({
       id: 'downloads',
       anchorRect: {
@@ -294,256 +328,318 @@ export function EnvironmentAddressBar({
     });
   };
 
-  const openPluginQuickMenu = async (event: MouseEvent<HTMLButtonElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const items: NativeMenuItem[] = [];
+  const openPageToolsMenu = async (event: MouseEvent<HTMLButtonElement>) => {
+    const anchor = event.currentTarget;
+    const rect = anchor.getBoundingClientRect();
+    const items: NativeMenuItem[] = [
+      { id: 'find', label: '页内查找', accelerator: 'CmdOrCtrl+F', enabled: running },
+      {
+        id: 'viewport',
+        label: presetLabel ? `模拟响应式视口（当前 ${presetLabel}）` : '模拟响应式视口…',
+        enabled: running,
+      },
+      { id: 'downloads', label: hasActiveDownload ? '下载记录（进行中）' : '下载记录…' },
+      { id: 'copy-url', label: '复制当前 URL', enabled: url.length > 0 },
+    ];
     if (pluginPopovers.length > 0) {
-      items.push({ label: '插件快捷浮卡', enabled: false });
+      items.push({ type: 'separator' }, { label: '插件快捷浮卡', enabled: false });
       for (const pop of pluginPopovers) {
-        items.push({ id: `popover:${pop.pluginId}:${pop.id}`, label: pop.title });
+        items.push({ id: `popover:${pop.pluginId}:${pop.id}`, label: pop.title, enabled: running });
       }
     }
     if (pluginInspectorTabs.length > 0) {
-      if (items.length > 0) items.push({ type: 'separator' });
-      items.push({ label: '随页工作台面板', enabled: false });
+      items.push({ type: 'separator' }, { label: '工作台插件面板', enabled: false });
       for (const tab of pluginInspectorTabs) {
-        items.push({ id: `inspectorTab:${tab.pluginId}:${tab.id}`, label: tab.title });
+        items.push({ id: `inspectorTab:${tab.pluginId}:${tab.id}`, label: tab.title, enabled: running });
       }
     }
-    if (items.length === 0) return;
     const picked = await window.envApi.popupMenu(items, {
       x: Math.round(rect.left),
       y: Math.round(rect.bottom + 4),
     });
     if (!picked) return;
-    const firstSep = picked.indexOf(':');
-    const kind = picked.slice(0, firstSep) as 'popover' | 'inspectorTab';
-    const rest = picked.slice(firstSep + 1);
-    const secondSep = rest.indexOf(':');
-    if (secondSep > 0) {
-      onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1));
+    if (picked === 'find') {
+      onOpenFind();
+    } else if (picked === 'viewport') {
+      openViewportPopover(anchor);
+    } else if (picked === 'downloads') {
+      openDownloadsPopover(anchor);
+    } else if (picked === 'copy-url') {
+      handleCopyUrl();
+    } else if (picked.startsWith('popover:') || picked.startsWith('inspectorTab:')) {
+      const firstSep = picked.indexOf(':');
+      const kind = picked.slice(0, firstSep) as 'popover' | 'inspectorTab';
+      const rest = picked.slice(firstSep + 1);
+      const secondSep = rest.indexOf(':');
+      if (secondSep > 0) {
+        onOpenPluginSurface?.(kind, rest.slice(0, secondSep), rest.slice(secondSep + 1));
+      }
     }
   };
 
-  const hasPluginQuickSurfaces = pluginPopovers.length > 0 || pluginInspectorTabs.length > 0;
   const zoomPercent = Math.round(zoomFactor * 100);
   const presetLabel = PRESET_BADGE[viewportPreset];
+  const urlParts = !editing ? splitUrlDisplay(url) : null;
 
   return (
     <div
       data-slot="address-bar"
       className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 border-b border-divider bg-background px-2"
     >
-      <IconButton
-        variant="ghost"
-        title={title('后退')}
-        disabled={!editable || !canGoBack}
-        onClick={() => onNavigate({ kind: 'back' })}
-        className="disabled:opacity-40"
-      >
-        <Icon name="ChevronLeft" />
-      </IconButton>
-      <IconButton
-        variant="ghost"
-        title={title('前进')}
-        disabled={!editable || !canGoForward}
-        onClick={() => onNavigate({ kind: 'forward' })}
-        className="disabled:opacity-40"
-      >
-        <Icon name="ChevronRight" />
-      </IconButton>
-      <IconButton
-        variant="ghost"
-        title={title('刷新（右键可忽略缓存硬刷新）')}
-        disabled={!editable}
-        onClick={() => onNavigate({ kind: 'reload' })}
-        onContextMenu={(event) => void openReloadMenu(event)}
-        className="disabled:opacity-40"
-      >
-        <Icon name="Refresh" />
-      </IconButton>
-
-      <div ref={boxRef} className="relative min-w-0 flex-1">
-        <div
-          className={cn(
-            'flex h-7 min-w-0 items-center gap-2 rounded-full border border-border/80 bg-[var(--input-fill)] px-3',
-            'focus-within:border-focus',
-            !inputEditable && 'opacity-70',
-          )}
+      <ActionTooltip label={title('后退')} shortcut="⌘[" side="top">
+        <IconButton
+          variant="ghost"
+          aria-label="后退"
+          disabled={!editable || !canGoBack}
+          onClick={() => onNavigate({ kind: 'back' })}
+          className="disabled:opacity-40"
         >
-          <span title={security.label} className="flex shrink-0 items-center">
-            <Icon
-              name={security.name}
-              className={cn(security.className, canStartOnSubmit && !running && 'text-foreground/70')}
-              aria-label={security.label}
-            />
-          </span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={editing ? draft : url}
-            readOnly={!inputEditable}
-            spellCheck={false}
-            autoComplete="off"
-            placeholder={
-              editable
-                ? '输入地址，例如 example.com'
-                : canStartOnSubmit
-                  ? '输入地址并回车，将自动启动环境并打开…'
-                  : running
-                    ? 'Agent 空间只读 · 点右上「接管」后可改地址'
-                    : '未选择环境'
-            }
-            aria-label="地址栏"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls="address-history"
-            aria-expanded={suggestionsVisible}
-            aria-activedescendant={
-              suggestionsVisible && highlighted >= 0 ? `address-history-${highlighted}` : undefined
-            }
-            aria-disabled={!inputEditable}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setHistoryQuery(event.target.value);
-              setHistoryOpen(true);
-            }}
-            onFocus={(event) => {
-              if (!inputEditable) {
-                event.target.blur();
-                return;
-              }
-              setEditing(true);
-              setDraft(url);
-              setHistoryQuery('');
-              setHistoryOpen(true);
-              event.target.select();
-            }}
-            onBlur={() => {
-              setEditing(false);
-              setHistoryOpen(false);
-              void window.envApi.closePopover('address-suggest');
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowDown' && suggestionsVisible) {
-                event.preventDefault();
-                setHighlighted((index) => (index + 1) % history.length);
-                return;
-              }
-              if (event.key === 'ArrowUp' && suggestionsVisible) {
-                event.preventDefault();
-                setHighlighted((index) => (index <= 0 ? history.length - 1 : index - 1));
-                return;
-              }
-              if (event.key === 'Enter') {
-                if (suggestionsVisible && highlighted >= 0) chooseHistory(history[highlighted]!);
-                else submit();
-                return;
-              }
-              if (event.key === 'Escape') {
-                if (historyOpen) {
+          <Icon name="ChevronLeft" />
+        </IconButton>
+      </ActionTooltip>
+      <ActionTooltip label={title('前进')} shortcut="⌘]" side="top">
+        <IconButton
+          variant="ghost"
+          aria-label="前进"
+          disabled={!editable || !canGoForward}
+          onClick={() => onNavigate({ kind: 'forward' })}
+          className="disabled:opacity-40"
+        >
+          <Icon name="ChevronRight" />
+        </IconButton>
+      </ActionTooltip>
+      <ActionTooltip label={title('刷新（右键硬刷新）')} shortcut="⌘R" side="top">
+        <IconButton
+          variant="ghost"
+          aria-label="刷新"
+          disabled={!editable}
+          onClick={() => onNavigate({ kind: 'reload' })}
+          onContextMenu={(event) => void openReloadMenu(event)}
+          className="disabled:opacity-40"
+        >
+          <Icon name="Refresh" />
+        </IconButton>
+      </ActionTooltip>
+
+      <div className="flex min-w-0 flex-1 justify-center px-1">
+        <div ref={boxRef} className="group/omnibox relative w-full max-w-[820px] min-w-0">
+          <div
+            className={cn(
+              'flex h-[var(--control-height-icon)] min-w-0 items-center gap-2 rounded-full border border-border/80 bg-[var(--input-fill)] px-3 transition-colors',
+              'focus-within:border-focus',
+              !inputEditable && 'opacity-70',
+            )}
+          >
+            <span title={security.label} className="flex shrink-0 items-center">
+              <Icon
+                name={security.name}
+                className={cn(security.className, canStartOnSubmit && !running && 'text-foreground/70')}
+                aria-label={security.label}
+              />
+            </span>
+            <div className="relative flex min-w-0 flex-1 items-center">
+              {urlParts && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 flex items-center truncate font-mono text-xs"
+                >
+                  <span className="shrink-0 text-muted-foreground">{urlParts.prefix}</span>
+                  <span className="shrink-0 font-medium text-foreground">{urlParts.host}</span>
+                  <span className="truncate text-muted-foreground">{urlParts.rest}</span>
+                </div>
+              )}
+              <input
+                ref={inputRef}
+                type="text"
+                value={editing ? draft : url}
+                readOnly={!inputEditable}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder={
+                  editable
+                    ? '输入地址，例如 example.com'
+                    : canStartOnSubmit
+                      ? '输入网址回车自动启动并打开…'
+                      : running
+                        ? 'Agent 空间只读 · 点右上「接管」后可改地址'
+                        : '未选择环境'
+                }
+                aria-label="地址栏"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="address-history"
+                aria-expanded={suggestionsVisible}
+                aria-activedescendant={
+                  suggestionsVisible && highlighted >= 0 ? `address-history-${highlighted}` : undefined
+                }
+                aria-disabled={!inputEditable}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setHistoryQuery(event.target.value);
+                  setHistoryOpen(true);
+                }}
+                onFocus={(event) => {
+                  if (!inputEditable) {
+                    event.target.blur();
+                    return;
+                  }
+                  setEditing(true);
+                  setDraft(url);
+                  setHistoryQuery('');
+                  setHistoryOpen(true);
+                  event.target.select();
+                }}
+                onBlur={() => {
+                  setEditing(false);
                   setHistoryOpen(false);
                   void window.envApi.closePopover('address-suggest');
-                  return;
-                }
-                setEditing(false);
-                inputRef.current?.blur();
-              }
-            }}
-            className="min-w-0 flex-1 bg-transparent font-mono text-xs text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground read-only:cursor-default"
-          />
-          {loading && <Spinner className="ml-auto shrink-0" />}
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' && suggestionsVisible) {
+                    event.preventDefault();
+                    setHighlighted((index) => (index + 1) % history.length);
+                    return;
+                  }
+                  if (event.key === 'ArrowUp' && suggestionsVisible) {
+                    event.preventDefault();
+                    setHighlighted((index) => (index <= 0 ? history.length - 1 : index - 1));
+                    return;
+                  }
+                  if (event.key === 'Enter') {
+                    if (suggestionsVisible && highlighted >= 0) chooseHistory(history[highlighted]!);
+                    else submit();
+                    return;
+                  }
+                  if (event.key === 'Escape') {
+                    if (historyOpen) {
+                      setHistoryOpen(false);
+                      void window.envApi.closePopover('address-suggest');
+                      return;
+                    }
+                    setEditing(false);
+                    inputRef.current?.blur();
+                  }
+                }}
+                className={cn(
+                  'min-w-0 flex-1 bg-transparent font-mono text-xs outline-none placeholder:font-sans placeholder:text-muted-foreground read-only:cursor-default',
+                  urlParts ? 'text-transparent caret-foreground' : 'text-foreground',
+                )}
+              />
+            </div>
+            {loading && <Spinner className="ml-auto shrink-0" />}
+            {!loading && !editing && url.length > 0 && (
+              <ActionTooltip label={copiedUrl ? '已复制当前 URL' : '复制当前 URL'} side="top">
+                <button
+                  type="button"
+                  data-slot="copy-url-button"
+                  aria-label="复制当前 URL"
+                  onClick={handleCopyUrl}
+                  className={cn(
+                    'flex size-5 shrink-0 items-center justify-center rounded-full transition-all outline-none focus-visible:border focus-visible:border-focus',
+                    copiedUrl
+                      ? 'text-[var(--success)] opacity-100'
+                      : 'text-subtle-foreground opacity-0 group-hover/omnibox:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100',
+                  )}
+                >
+                  <Icon name={copiedUrl ? 'Check' : 'Copy'} className="size-3.5" />
+                </button>
+              </ActionTooltip>
+            )}
+          </div>
         </div>
       </div>
 
       {zoomPercent !== 100 && running && (
-        <Button
-          variant="ghost"
-          size="xs"
-          title="页面缩放比例（点击复位 100%，支持 ⌘+/⌘-/⌘0）"
-          onClick={onResetZoom}
-          className="px-1.5 font-mono text-[11px] tabular-nums text-[var(--theme-accent)]"
-        >
-          {zoomPercent}%
-        </Button>
+        <ActionTooltip label="点击复位 100% 缩放" shortcut="⌘0" side="top">
+          <Button
+            variant="ghost"
+            size="xs"
+            aria-label={`当前缩放 ${zoomPercent}%，点击复位`}
+            onClick={onResetZoom}
+            className="px-1.5 font-mono text-[length:var(--font-size-micro)] tabular-nums text-[var(--theme-accent)]"
+          >
+            {zoomPercent}%
+          </Button>
+        </ActionTooltip>
       )}
 
-      <IconButton
-        ref={viewportBtnRef}
-        variant="ghost"
-        title={presetLabel ? `模拟视口 (${presetLabel})` : '模拟响应式视口'}
-        disabled={!running}
-        onClick={openViewportPopover}
-        className={cn(presetLabel && 'text-[var(--theme-accent)]')}
-      >
-        <Icon name="Viewport" />
-      </IconButton>
+      {presetLabel && running && (
+        <ActionTooltip label={`模拟视口 (${presetLabel})`} side="top">
+          <Button
+            ref={viewportBtnRef}
+            variant="ghost"
+            size="xs"
+            aria-label={`模拟视口 ${presetLabel}`}
+            onClick={() => openViewportPopover(viewportBtnRef.current)}
+            className="gap-1 px-1.5 font-mono text-[length:var(--font-size-micro)] text-[var(--theme-accent)]"
+          >
+            <Icon name="Viewport" className="size-3.5" />
+            {presetLabel}
+          </Button>
+        </ActionTooltip>
+      )}
 
-      <IconButton variant="ghost" title="页内查找 (⌘F)" disabled={!running} onClick={onOpenFind}>
-        <Icon name="Search" />
-      </IconButton>
+      {hasActiveDownload && (
+        <ActionTooltip label="查看进行中的下载" side="top">
+          <IconButton
+            ref={downloadBtnRef}
+            variant="ghost"
+            aria-label="下载记录"
+            onClick={() => openDownloadsPopover(downloadBtnRef.current)}
+            className="relative"
+          >
+            <Icon name="Download" />
+            <span className="absolute top-1.5 right-1.5 size-1.5 animate-pulse rounded-full bg-[var(--theme-accent)]" />
+          </IconButton>
+        </ActionTooltip>
+      )}
 
-      <IconButton
-        ref={downloadBtnRef}
-        variant="ghost"
-        title="下载记录"
-        onClick={openDownloadsPopover}
-        className="relative"
-      >
-        <Icon name="Download" />
-        {hasActiveDownload && (
-          <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-[var(--theme-accent)]" />
-        )}
-      </IconButton>
-
-      <IconButton
-        variant="ghost"
-        title="复制当前 URL"
-        disabled={url.length === 0}
-        onClick={() => void navigator.clipboard.writeText(url)}
-      >
-        <Icon name="Copy" />
-      </IconButton>
+      <ActionTooltip label="页面工具（查找 / 视口 / 下载）" side="top">
+        <IconButton
+          ref={pageToolsBtnRef}
+          variant="ghost"
+          data-slot="page-tools-trigger"
+          aria-label="页面工具"
+          onClick={(event) => void openPageToolsMenu(event)}
+        >
+          <Icon name="More" />
+        </IconButton>
+      </ActionTooltip>
 
       <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
 
-      <IconButton
-        variant="ghost"
-        data-slot="devtools-toggle"
-        title={editable ? 'Chrome 开发者工具（点击开关，右键切换停靠位置）' : title('开发者工具')}
-        disabled={!editable}
-        aria-pressed={devToolsOpen}
-        aria-expanded={devToolsOpen}
-        onClick={onToggleDevTools}
-        onContextMenu={(event) => void openDevToolsMenu(event)}
-        className="aria-pressed:bg-surface-active aria-pressed:text-foreground"
+      <ActionTooltip
+        label={editable ? 'Chrome 开发者工具（右键切停靠）' : title('开发者工具')}
+        shortcut="⌥⌘I"
+        side="top"
       >
-        <Icon name="Code" />
-      </IconButton>
-
-      {hasPluginQuickSurfaces && (
         <IconButton
           variant="ghost"
-          data-slot="plugin-surfaces-trigger"
-          title="当前环境插件随行面板"
-          aria-label="当前环境插件随行面板"
-          disabled={!running}
-          onClick={(event) => void openPluginQuickMenu(event)}
+          data-slot="devtools-toggle"
+          aria-label="Chrome 开发者工具"
+          disabled={!editable}
+          aria-pressed={devToolsOpen}
+          aria-expanded={devToolsOpen}
+          onClick={onToggleDevTools}
+          onContextMenu={(event) => void openDevToolsMenu(event)}
+          className="aria-pressed:bg-surface-active aria-pressed:text-foreground"
         >
-          <Icon name="Sparkles" />
+          <Icon name="Code" />
         </IconButton>
-      )}
+      </ActionTooltip>
 
-      <IconButton
-        variant="ghost"
-        data-slot="inspector-toggle"
-        title={inspectorOpen ? '收起 Warren 工作台抽屉' : '展开 Warren 工作台抽屉'}
-        aria-expanded={inspectorOpen}
-        onClick={onToggleInspector}
-        className="aria-expanded:bg-surface-active aria-expanded:text-foreground"
-      >
-        <Icon name="PanelRight" />
-      </IconButton>
+      <ActionTooltip label={inspectorOpen ? '收起 Warren 工作台' : '展开 Warren 工作台'} side="top">
+        <IconButton
+          variant="ghost"
+          data-slot="inspector-toggle"
+          aria-label={inspectorOpen ? '收起工作台抽屉' : '展开工作台抽屉'}
+          aria-expanded={inspectorOpen}
+          onClick={onToggleInspector}
+          className="aria-expanded:bg-surface-active aria-expanded:text-foreground"
+        >
+          <Icon name="PanelRight" />
+        </IconButton>
+      </ActionTooltip>
     </div>
   );
 }

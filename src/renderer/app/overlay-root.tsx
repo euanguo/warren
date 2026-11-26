@@ -38,6 +38,7 @@ function OverlayCard({
       <IconButton
         className="absolute top-3 right-3 text-subtle-foreground hover:bg-surface-hover hover:text-foreground"
         title="关闭"
+        aria-label="关闭弹窗"
         onClick={onClose}
       >
         <Icon name="X" />

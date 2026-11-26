@@ -1,6 +1,8 @@
 import type { MouseEvent } from 'react';
+import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon, isIconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
+import { Kbd } from '@/components/ui/kbd';
 import { StatusDot } from '@/components/ui/status-dot';
 import { EnvironmentSpaceSwitcher } from '@/features/environments/environment-space-switcher';
 import { EnvironmentTabstrip } from '@/features/environments/environment-tabstrip';
@@ -216,14 +218,19 @@ export function AppTitlebar({
         </nav>
 
         <div className={cn('flex shrink-0 items-center gap-1', NO_DRAG_CLASS)}>
-          <IconButton
-            data-slot="command-bar-trigger"
-            title="命令栏 (⌘K)"
-            aria-label="命令栏 (⌘K)"
-            onClick={onOpenCommandBar}
-          >
-            <Icon name="Command" />
-          </IconButton>
+          <ActionTooltip label="命令栏与全局搜索" shortcut="⌘K" side="bottom">
+            <Button
+              size="xs"
+              variant="outline"
+              data-slot="command-bar-trigger"
+              aria-label="命令栏 (⌘K)"
+              onClick={onOpenCommandBar}
+              className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-subtle-foreground hover:text-foreground"
+            >
+              <Icon name="Command" className="size-3.5" />
+              <Kbd>⌘K</Kbd>
+            </Button>
+          </ActionTooltip>
         </div>
       </header>
     );
@@ -239,15 +246,16 @@ export function AppTitlebar({
       )}
     >
       <div className={cn('flex shrink-0 items-center gap-2', NO_DRAG_CLASS)}>
-        <IconButton
-          data-slot="sidebar-toggle"
-          title={sidebarOpen ? '收起环境侧栏 (⌘B)' : '展开环境侧栏 (⌘B)'}
-          aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
-          aria-expanded={sidebarOpen}
-          onClick={onToggleSidebar}
-        >
-          <Icon name={sidebarOpen ? 'PanelLeftClose' : 'PanelLeftOpen'} />
-        </IconButton>
+        <ActionTooltip label={sidebarOpen ? '收起环境侧栏' : '展开环境侧栏'} shortcut="⌘B" side="bottom">
+          <IconButton
+            data-slot="sidebar-toggle"
+            aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
+            aria-expanded={sidebarOpen}
+            onClick={onToggleSidebar}
+          >
+            <Icon name={sidebarOpen ? 'PanelLeftClose' : 'PanelLeftOpen'} />
+          </IconButton>
+        </ActionTooltip>
 
         {environment ? (
           <button
@@ -255,14 +263,15 @@ export function AppTitlebar({
             data-slot="env-capsule"
             onClick={openCurrentEnvMenu}
             onContextMenu={openCurrentEnvMenu}
-            title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击或右键管理环境`}
-            className="flex h-7 max-w-[216px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border bg-background px-2 text-xs shadow-2xs transition-colors hover:bg-surface-hover"
+            title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击管理环境`}
+            className="flex h-[var(--control-height-icon)] max-w-[228px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border bg-background px-2 text-xs shadow-2xs outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
           >
             <StatusDot tone={environment.error ? 'error' : statusTone(environment.status)} />
             <span className="truncate font-medium text-foreground">{environment.name}</span>
-            <span className="truncate font-mono text-[11px] text-muted-foreground">
+            <span className="truncate font-mono text-[length:var(--font-size-micro)] text-muted-foreground">
               {environment.error ? '加载失败' : egressLabel(environment.proxy)}
             </span>
+            <Icon name="ChevronDown" className="size-3 shrink-0 text-subtle-foreground" />
           </button>
         ) : (
           <span data-slot="env-capsule" className="px-1.5 text-xs text-muted-foreground">
@@ -357,27 +366,35 @@ export function AppTitlebar({
           </div>
         )}
 
-        <IconButton
-          data-slot="command-bar-trigger"
-          title="命令栏 (⌘K)"
-          aria-label="命令栏 (⌘K)"
-          onClick={onOpenCommandBar}
-        >
-          <Icon name="Command" />
-        </IconButton>
+        <ActionTooltip label="命令栏与全局搜索" shortcut="⌘K" side="bottom">
+          <Button
+            size="xs"
+            variant="outline"
+            data-slot="command-bar-trigger"
+            aria-label="命令栏 (⌘K)"
+            onClick={onOpenCommandBar}
+            className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-subtle-foreground hover:text-foreground"
+          >
+            <Icon name="Command" className="size-3.5" />
+            <Kbd>⌘K</Kbd>
+          </Button>
+        </ActionTooltip>
 
-        <IconButton
-          data-slot="global-plugins-trigger"
-          title="插件全屏页与扩展工具"
-          aria-label="扩展与全局页"
-          onClick={(event) => void openGlobalPluginsMenu(event)}
-        >
-          <Icon name="Plug" />
-        </IconButton>
+        <ActionTooltip label="全局插件页与扩展工具" side="bottom">
+          <IconButton
+            data-slot="global-plugins-trigger"
+            aria-label="扩展与全局页"
+            onClick={(event) => void openGlobalPluginsMenu(event)}
+          >
+            <Icon name="Plug" />
+          </IconButton>
+        </ActionTooltip>
 
-        <IconButton data-slot="settings-trigger" title="设置中心" aria-label="设置" onClick={() => onOpenSettings()}>
-          <Icon name="Settings" />
-        </IconButton>
+        <ActionTooltip label="设置中心" side="bottom">
+          <IconButton data-slot="settings-trigger" aria-label="设置" onClick={() => onOpenSettings()}>
+            <Icon name="Settings" />
+          </IconButton>
+        </ActionTooltip>
       </div>
     </header>
   );

@@ -219,6 +219,7 @@ export function EnvironmentSidebar({
             <IconButton
               variant="ghost"
               title="新建分组"
+              aria-label="新建分组"
               onClick={() => void window.envApi.openOverlay({ kind: 'create-group' })}
             >
               <Icon name="FolderPlus" />

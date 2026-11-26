@@ -4,10 +4,12 @@ import {
   ListRow,
   ListRowActionButton,
   ListRowActions,
+  ListRowBody,
   ListRowLabel,
   ListRowMain,
   ListRowMeta,
 } from '@/components/ui/list-row';
+import { Spinner } from '@/components/ui/spinner';
 import { StatusMark } from '@/components/ui/status-dot';
 import { ownerLabel, statusLabel, statusTone } from '@/lib/labels';
 import type { PluginBadgeSnapshot, PluginEnvBadge } from '@/lib/plugin-badges';
@@ -86,67 +88,81 @@ export function SidebarEnvRow({
   onContextMenu,
 }: Props) {
   const badge = badgesForEnv(env.id, pluginBadges);
+  const showSecondLine =
+    !compact && (env.status === 'running' || env.owner !== 'none' || Boolean(badge.first) || Boolean(env.proxy));
 
   return (
     <li className="relative" data-env-id={env.id}>
-      <ListRow selected={selected}>
+      <ListRow selected={selected} className={showSecondLine ? 'py-1' : undefined}>
         <ListRowMain
           onClick={() => onSelect(env.id)}
           onDoubleClick={() => {
-            if (env.status !== 'running') onStart(env.id);
+            if (env.status !== 'running' && env.status !== 'starting') onStart(env.id);
           }}
           onContextMenu={(event) => onContextMenu(event, env)}
           title={rowTitle(env)}
         >
-          <ListRowLabel className="flex-1">
-            <StatusMark tone={env.error ? 'error' : statusTone(env.status)} />
-            <span className="ml-0.5 min-w-[3.25rem] flex-1 truncate text-sm">{env.name}</span>
-            {env.owner !== 'none' && (
-              <span
-                className={cn(
-                  'ml-1 flex shrink-0 items-center gap-0.5 text-[10px]',
-                  env.owner === 'agent' ? 'text-[var(--info)]' : 'text-[var(--success)]',
+          <StatusMark tone={env.error ? 'error' : statusTone(env.status)} className="shrink-0" />
+          <ListRowBody className="gap-0.5">
+            <ListRowLabel className="flex-1">
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{env.name}</span>
+              {!showSecondLine && (
+                <ListRowMeta className="ml-1 max-w-[44%] shrink-0 pl-1" title={egressLabel(env.proxy)}>
+                  {egressLabel(env.proxy)}
+                </ListRowMeta>
+              )}
+            </ListRowLabel>
+            {showSecondLine && (
+              <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--font-size-micro)] leading-4 text-muted-foreground">
+                <span className="min-w-0 truncate font-mono" title={egressLabel(env.proxy)}>
+                  {egressLabel(env.proxy)}
+                </span>
+                {env.owner !== 'none' && (
+                  <span
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-0.5 font-mono',
+                      env.owner === 'agent' ? 'text-[var(--info)]' : 'text-[var(--success)]',
+                    )}
+                    title={ownerLabel[env.owner]}
+                  >
+                    <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3" />
+                    <span className="max-w-[6.5rem] truncate">
+                      {env.owner === 'agent' ? env.leaseLabel || 'AI' : '接管中'}
+                    </span>
+                  </span>
                 )}
-                title={ownerLabel[env.owner]}
-              >
-                <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3.5" />
-                {!compact && env.owner === 'agent' && (
-                  <span className="max-w-[3.75rem] truncate font-mono">{env.leaseLabel || 'AI'}</span>
+                {badge.first && (
+                  <span
+                    data-slot="env-badge"
+                    className={cn(
+                      'inline-flex max-w-[4.5rem] shrink-0 items-center gap-0.5',
+                      badgeToneClass(badge.first.tone),
+                    )}
+                    title={
+                      badge.labels.length > 1
+                        ? `插件状态：${badge.labels.join(' / ')}`
+                        : `插件状态：${badge.first.label}`
+                    }
+                  >
+                    <Icon name={badge.first.icon ?? 'Zap'} className="size-3" />
+                    <span className="truncate">{badge.first.label}</span>
+                  </span>
                 )}
-              </span>
+              </div>
             )}
-            {badge.first && (
-              <span
-                data-slot="env-badge"
-                className={cn(
-                  'ml-1 flex max-w-[3.5rem] shrink-0 items-center gap-0.5 text-[10px]',
-                  badgeToneClass(badge.first.tone),
-                )}
-                title={
-                  badge.labels.length > 1 ? `插件状态：${badge.labels.join(' / ')}` : `插件状态：${badge.first.label}`
-                }
-              >
-                <Icon name={badge.first.icon ?? 'Zap'} className="size-3.5" />
-                {!compact && <span className="truncate">{badge.first.label}</span>}
-              </span>
-            )}
-            {env.owner === 'none' && (
-              <ListRowMeta
-                className={cn('ml-1 shrink-0 pl-1', badge.first ? 'max-w-[28%]' : 'max-w-[40%]')}
-                title={egressLabel(env.proxy)}
-              >
-                {egressLabel(env.proxy)}
-              </ListRowMeta>
-            )}
-          </ListRowLabel>
+          </ListRowBody>
         </ListRowMain>
-        <ListRowActions alwaysVisible>
-          {env.status === 'running' ? (
-            <ListRowActionButton title="停止" aria-label="停止" onClick={() => onStop(env.id)}>
+        <ListRowActions alwaysVisible={env.status !== 'running'}>
+          {env.status === 'starting' ? (
+            <ListRowActionButton disabled title="启动中…" aria-label="启动中">
+              <Spinner className="size-3" />
+            </ListRowActionButton>
+          ) : env.status === 'running' ? (
+            <ListRowActionButton tone="destructive" title="停止环境" aria-label="停止" onClick={() => onStop(env.id)}>
               <Icon name="Stop" />
             </ListRowActionButton>
           ) : (
-            <ListRowActionButton tone="success" title="启动" aria-label="启动" onClick={() => onStart(env.id)}>
+            <ListRowActionButton tone="success" title="启动环境" aria-label="启动" onClick={() => onStart(env.id)}>
               <Icon name="Play" />
             </ListRowActionButton>
           )}

@@ -1,11 +1,12 @@
 import { Icon } from '@/components/icons';
+import { useResolvedTheme } from '@/lib/theme';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
-// 本应用固定深色，不引入 next-themes
 const Toaster = ({ ...props }: ToasterProps) => {
+  const resolvedTheme = useResolvedTheme();
   return (
     <Sonner
-      theme="dark"
+      theme={resolvedTheme}
       className="toaster group"
       icons={{
         success: <Icon name="CheckCircle" className="size-4" />,

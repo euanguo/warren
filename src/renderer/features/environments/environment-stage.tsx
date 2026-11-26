@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
-import { toast } from 'sonner';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
 import { Icon } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
@@ -60,7 +59,18 @@ interface Props {
 
 const INSPECTOR_WIDTH = { default: 360, min: 280, max: 520 };
 const INSPECTOR_WIDTH_KEY = 'warren.inspector.width';
+const EXCLUSIVITY_HINT_COUNT_KEY = 'warren.panelExclusivityHintCount';
 const INSPECTOR_TABS = ['events', 'snapshot', 'console', 'network', 'rules', 'storage'] as const;
+
+function nextExclusivityHintCount(): number {
+  try {
+    const next = (Number(localStorage.getItem(EXCLUSIVITY_HINT_COUNT_KEY)) || 0) + 1;
+    localStorage.setItem(EXCLUSIVITY_HINT_COUNT_KEY, String(next));
+    return next;
+  } catch {
+    return 1;
+  }
+}
 
 export function EnvironmentStage({
   current,
@@ -98,6 +108,35 @@ export function EnvironmentStage({
   const canStartOnSubmit = Boolean(current && !running && activeSpaceId === 'person');
   const [addressFocusToken, setAddressFocusToken] = useState(0);
   const [activePopoverKey, setActivePopoverKey] = useState<string | null>(null);
+  const [exclusivityNotice, setExclusivityNotice] = useState<{
+    collapsed: 'inspector' | 'devtools';
+    compact: boolean;
+  } | null>(null);
+  const exclusivityTimerRef = useRef<number>(0);
+
+  const dismissExclusivityNotice = useCallback(() => {
+    if (exclusivityTimerRef.current) {
+      window.clearTimeout(exclusivityTimerRef.current);
+      exclusivityTimerRef.current = 0;
+    }
+    setExclusivityNotice(null);
+  }, []);
+
+  const showExclusivityNotice = useCallback((collapsed: 'inspector' | 'devtools') => {
+    const count = nextExclusivityHintCount();
+    setExclusivityNotice({ collapsed, compact: count > 3 });
+    if (exclusivityTimerRef.current) window.clearTimeout(exclusivityTimerRef.current);
+    exclusivityTimerRef.current = window.setTimeout(() => {
+      setExclusivityNotice(null);
+      exclusivityTimerRef.current = 0;
+    }, 7000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (exclusivityTimerRef.current) window.clearTimeout(exclusivityTimerRef.current);
+    };
+  }, []);
   const activePopover = activePopoverKey
     ? pluginPopovers.find((pop) => `${pop.pluginId}:${pop.id}` === activePopoverKey)
     : undefined;
@@ -217,11 +256,9 @@ export function EnvironmentStage({
     }
     if (current && running && devToolsState.open && shouldExcludeRight(devToolsState.dock)) {
       void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
-      toast.info('已收起右侧 DevTools 为工作台留出空间', {
-        id: 'panel-exclusivity',
-        duration: 3000,
-        description: '右键 </> 可切换底部停靠或独立窗口以便并行查看',
-      });
+      showExclusivityNotice('devtools');
+    } else {
+      dismissExclusivityNotice();
     }
     panel.expand();
     const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
@@ -236,22 +273,21 @@ export function EnvironmentStage({
     activeSpaceId,
     shouldExcludeRight,
     syncPagePrefs,
+    showExclusivityNotice,
+    dismissExclusivityNotice,
   ]);
 
   const toggleDevTools = useCallback(() => {
     if (!current || !canNavigate) return;
     if (devToolsState.open) {
+      dismissExclusivityNotice();
       void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
     } else {
       if (inspectorOpen && shouldExcludeRight(devToolsState.dock)) {
         inspectorPanelRef.current?.collapse();
-        toast.info('已收起工作台抽屉为 DevTools 留出空间', {
-          id: 'panel-exclusivity',
-          duration: 3000,
-          description: '右键 </> 可切换底部停靠或独立窗口以便并行查看',
-        });
+        showExclusivityNotice('inspector');
       } else {
-        toast.dismiss('panel-exclusivity');
+        dismissExclusivityNotice();
       }
       void window.envApi.openDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
     }
@@ -265,6 +301,8 @@ export function EnvironmentStage({
     inspectorPanelRef,
     shouldExcludeRight,
     syncPagePrefs,
+    showExclusivityNotice,
+    dismissExclusivityNotice,
   ]);
 
   const changeDevToolsDock = useCallback(
@@ -272,12 +310,27 @@ export function EnvironmentStage({
       if (dock === 'right' && devToolsState.open && inspectorOpen && shouldExcludeRight('right')) {
         inspectorPanelRef.current?.collapse();
       } else {
-        toast.dismiss('panel-exclusivity');
+        dismissExclusivityNotice();
       }
       void window.envApi.setDevToolsDock(dock).then(() => void syncPagePrefs());
     },
-    [devToolsState.open, inspectorOpen, inspectorPanelRef, shouldExcludeRight, syncPagePrefs],
+    [devToolsState.open, inspectorOpen, inspectorPanelRef, shouldExcludeRight, syncPagePrefs, dismissExclusivityNotice],
   );
+
+  const switchToBottomCoexist = useCallback(() => {
+    if (!current || !running) return;
+    dismissExclusivityNotice();
+    void window.envApi
+      .setDevToolsDock('bottom')
+      .then(() => window.envApi.openDevTools(current.id, activeSpaceId))
+      .then(() => void syncPagePrefs());
+    const panel = inspectorPanelRef.current;
+    if (panel) {
+      panel.expand();
+      const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
+      window.requestAnimationFrame(() => panel.resize(targetWidth));
+    }
+  }, [current, running, activeSpaceId, dismissExclusivityNotice, syncPagePrefs, inspectorPanelRef]);
 
   const openFindPopover = useCallback(() => {
     if (!current || !running || !stageRef.current) return;
@@ -503,6 +556,39 @@ export function EnvironmentStage({
         onOpenPluginSurface={openPluginSurface}
       />
 
+      {exclusivityNotice && running && (
+        <output
+          data-slot="panel-exclusivity-bar"
+          className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-under px-3 text-xs text-foreground"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <Icon name="Info" className="size-3.5 shrink-0 text-[var(--info)]" />
+            <span className="truncate">
+              {exclusivityNotice.collapsed === 'inspector'
+                ? '已收起工作台抽屉为右侧 DevTools 留出空间'
+                : '已收起右侧 DevTools 为工作台留出空间'}
+            </span>
+            {!exclusivityNotice.compact && (
+              <span className="hidden truncate text-muted-foreground xl:inline">· 切到底部停靠即可与工作台并存</span>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              size="xs"
+              variant="outline"
+              data-slot="panel-exclusivity-bottom-dock"
+              onClick={switchToBottomCoexist}
+            >
+              <Icon name="DockBottom" className="size-3.5" />
+              改用底部停靠并行查看
+            </Button>
+            <IconButton size="icon-xs" variant="ghost" aria-label="关闭提示" onClick={dismissExclusivityNotice}>
+              <Icon name="X" />
+            </IconButton>
+          </div>
+        </output>
+      )}
+
       <div ref={stageContainerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           <ResizablePanel id="page" className="min-w-0">
@@ -561,7 +647,7 @@ export function EnvironmentStage({
                           </Button>
                         </div>
                         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          按 <Kbd>Enter</Kbd> 直接启动，或在上方地址栏输入网址回车自动启动
+                          按 <Kbd>Enter</Kbd> 立即启动
                         </span>
                       </div>
                     )}
@@ -606,6 +692,7 @@ export function EnvironmentStage({
                     </Button>
                     <IconButton
                       title="收起工作台"
+                      aria-label="收起工作台"
                       onClick={() => {
                         setActivePopoverKey(null);
                         inspectorPanelRef.current?.collapse();

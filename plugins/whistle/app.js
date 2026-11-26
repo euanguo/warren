@@ -32,6 +32,7 @@ export default function register(app) {
     SelectTrigger,
     SelectValue,
     Empty,
+    EmptyContent,
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
@@ -893,7 +894,12 @@ export default function register(app) {
           { className: 'text-xs text-muted-foreground', title: w2 },
           `${instances.filter((item) => item.alive).length}/${instances.length} 在跑 · ${w2.startsWith('bundled:') ? '内置 Whistle' : w2}`,
         ),
-        h(Button, { variant: 'ghost', className: 'ml-auto', onClick: load }, '刷新'),
+        h(
+          Button,
+          { variant: 'outline', size: 'sm', className: 'ml-auto', onClick: load },
+          h(Icon, { name: 'Refresh', className: 'size-3.5' }),
+          '刷新',
+        ),
         h(NewInstanceDialog, { environments, busy, run, onCreated: () => setSelected(null) }),
       ),
       error && h('p', { className: 'text-xs text-destructive' }, error),
@@ -906,7 +912,12 @@ export default function register(app) {
               null,
               h(EmptyMedia, { variant: 'icon' }, h(Icon, { name: 'Globe' })),
               h(EmptyTitle, null, '还没有代理实例'),
-              h(EmptyDescription, null, '点「新建实例」，填上实例名、线上地址和本地端口即可。'),
+              h(EmptyDescription, null, '为环境创建独立的 Whistle 进程、端口与抓包规则。'),
+            ),
+            h(
+              EmptyContent,
+              null,
+              h(NewInstanceDialog, { environments, busy, run, onCreated: () => setSelected(null) }),
             ),
           )
         : h(
@@ -981,7 +992,7 @@ export default function register(app) {
         { className: 'flex flex-col gap-2.5 text-xs', 'data-slot': 'whistle-inspector' },
         h(
           'div',
-          { className: cn(cardSurfaceClass, 'flex flex-col gap-1.5 py-2.5') },
+          { className: cn(cardSurfaceClass, 'flex flex-col gap-2 py-2.5') },
           h(
             'div',
             { className: 'flex items-center gap-1.5 font-medium text-foreground' },
@@ -990,17 +1001,47 @@ export default function register(app) {
           ),
           h(
             'p',
-            { className: 'text-[11px] leading-relaxed text-muted-foreground' },
+            { className: 'text-[length:var(--font-size-micro)] leading-relaxed text-muted-foreground' },
             instances.length > 0
-              ? '可从下方快捷绑定已有实例，自动配置代理并信任根证书。'
-              : '可在顶栏切至全局「代理」页新建独立实例并绑定到此环境。',
+              ? '从下方快捷绑定已有实例，自动配置代理并信任根证书。'
+              : '尚未创建独立 Whistle 实例，新建后即可绑定到此环境。',
           ),
+          instances.length === 0
+            ? h(
+                Button,
+                {
+                  size: 'sm',
+                  className: 'mt-0.5 self-start',
+                  'data-slot': 'whistle-open-global-cta',
+                  onClick: () => app.navigation?.openPage?.('proxy'),
+                },
+                h(Icon, { name: 'Plus', className: 'size-3.5' }),
+                '前往新建代理实例',
+              )
+            : null,
         ),
         instances.length > 0
           ? h(
               'div',
               { className: 'flex flex-col gap-1.5' },
-              h('span', { className: 'text-[11px] text-muted-foreground' }, '快捷绑定已有实例：'),
+              h(
+                'div',
+                { className: 'flex items-center justify-between gap-2' },
+                h(
+                  'span',
+                  { className: 'text-[length:var(--font-size-micro)] text-muted-foreground' },
+                  '快捷绑定已有实例：',
+                ),
+                h(
+                  Button,
+                  {
+                    size: 'xs',
+                    variant: 'ghost',
+                    onClick: () => app.navigation?.openPage?.('proxy'),
+                  },
+                  '管理全部实例',
+                ),
+              ),
               ...instances.slice(0, 5).map((inst) =>
                 h(
                   'div',
