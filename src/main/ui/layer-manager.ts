@@ -13,9 +13,9 @@ export type { LayerSlot };
 export class WindowLayerManager {
   #window: BaseWindow;
   #model = new LayerOrderModel<WebContentsView>();
-  #pageRadius = 6;
+  #pageRadius = 8;
 
-  constructor(window: BaseWindow, pageRadius = 6) {
+  constructor(window: BaseWindow, pageRadius = 8) {
     this.#window = window;
     this.#pageRadius = pageRadius;
   }

@@ -17,36 +17,28 @@
 
 ---
 
-## 1. 色与表面（Dark 为准）
+## 1. 色与表面（精密微立体 · 深浅双轨独立校准）
 
 ### 1.1 Seeds（换肤只动这些）
 
-| Token                   | Dark 实测/取值 | 用途             |
-| ----------------------- | -------------- | ---------------- |
-| `--theme-surface`       | `#181818`      | 主背景           |
-| `--theme-surface-under` | `#141414`      | 更深底 / sidebar |
-| `--theme-ink`           | `#ffffff`      | 主文字           |
-| `--theme-accent`        | `#339cff`      | 焦点蓝来源       |
+| Token                   | Dark 实测/取值 | Light 实测/取值 | 用途                     |
+| ----------------------- | -------------- | --------------- | ------------------------ |
+| `--theme-surface-under` | `#111317`      | `#e9edf3`       | 最底托盘 / 顶栏 / 侧栏   |
+| `--surface-drawer`      | `#15181e`      | `#f4f6fa`       | 右侧伴随工作台抽屉       |
+| `--theme-surface`       | `#181b21`      | `#ffffff`       | 主背景 / 网页舞台        |
+| `--surface-elevated`    | `#20242d`      | `#ffffff`       | 卡片 / 凸键 / 选中胶囊   |
+| `--surface-recessed`    | `#0c0e12`      | `#e2e7ef`       | 网页舞台外凹槽           |
+| `--theme-ink`           | `#f4f6fa`      | `#111621`       | 主文字                   |
+| `--theme-accent`        | `#5b8cff`      | `#3b5bdb`       | Warren 统一品牌靛蓝      |
 
-### 1.2 语义色（由 seed 派生）
+### 1.2 语义色、对比度底线与微立体光影
 
-| Token                 | 规则 / 值                                 | 用途                    |
-| --------------------- | ----------------------------------------- | ----------------------- |
-| `--border`            | ink **8.4%**                              | 默认描边                |
-| `--border-light`      | ink **4.2%**                              | 更轻                    |
-| `--border-heavy`      | ink **15.6%**                             | 重描边 / elevation 描边 |
-| `--surface-hover`     | ink **7.8%**                              | 列表/菜单 hover 洗      |
-| `--surface-selected`  | ink **5.2%**                              | 选中洗                  |
-| `--surface-active`    | ink **~15%**                              | 按下                    |
-| `--surface-fog`       | ink **2.5%**                              | 极淡底 / secondary 按钮 |
-| `--subtle-foreground` | ink **~50%**                              | 次要字 / 未激活图标     |
-| `--input`             | ink **15.6%**                             | 字段边框色              |
-| `--input-fill`        | `rgba(45,45,45,0.96)`                     | 字段填充                |
-| `--popover`           | `rgb(45,45,45)`                           | 实心浮层底（tooltip）   |
-| `--menu`              | `rgba(54,54,54,0.96)` 一类                | 玻璃菜单底              |
-| `--focus`             | accent **76%** ≈ `rgba(131,195,255,0.76)` | 焦点发丝                |
+- **WCAG AA 底线**：暗/浅双模式下所有正文与次级标签（含 `--subtle-foreground`、`--muted-foreground`、`--warning`、`--success`、`--accent-seed`）在对应底色上均 **≥ 4.5:1**；非文本状态点（含 `--status-idle`）与护盾边界 **≥ 3.0:1**；功能中文最低字号 **11px**（`--font-size-micro`，禁止 `10px`）。
+- **悬停与选中分离**：暗色下 `--surface-hover`（6.5%）与 `--surface-selected`（12%）明确拉开，严禁同色撞车。
+- **微凹槽 vs 微凸键**：输入槽/开关轨带 `--shadow-recessed`；`Button variant="outline"`、选中 Tab、滑动滑块、环境胶囊与卡片带 `--shadow-raised`（顶沿 `1px` 高光 + 柔和底影）；浮层带真实双层暗影 `--elevation-popover`。
+- **工具静，身份彩**：高频通用工具图标保持单色线框（仅激活/告警态点亮语义色）；隔离环境使用 `--glyph-hue-1..8`（`.env-identity-chip`），插件生态使用专属双色徽标（`.plugin-brand-icon` / `.plugin-brand-chip`）。
 
-**Primary 按钮** = ink 反色填充（白底黑字 / 黑底白字），**不是** accent 实心块。
+**Primary 按钮** = ink 反色填充（带轻高光与柔影），保证高对比主焦点；**Outline 按钮** = 独立描边 + 微凸起（与无框 `secondary` 明确区分）。
 
 ### 1.3 交互不变量
 

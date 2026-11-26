@@ -884,11 +884,24 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex h-full flex-col gap-3 overflow-auto p-4', 'data-slot': 'whistle-page' },
+      {
+        className: 'flex h-full flex-col gap-4 overflow-auto',
+        style: { maxWidth: '1040px', marginInline: 'auto', width: '100%', padding: '20px 24px' },
+        'data-slot': 'whistle-page',
+      },
       h(
         'div',
-        { className: 'flex items-center gap-2' },
-        h('span', { className: 'text-sm font-medium' }, '代理实例'),
+        { className: 'flex items-center gap-2.5' },
+        h(
+          'span',
+          {
+            'aria-hidden': true,
+            style: { '--brand-hue': 192 },
+            className: 'plugin-brand-chip flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-md)]',
+          },
+          h(Icon, { name: 'Globe', className: 'size-4' }),
+        ),
+        h('h1', { className: 'text-lg font-semibold text-foreground' }, '代理实例'),
         h(
           'span',
           { className: 'text-xs text-muted-foreground', title: w2 },

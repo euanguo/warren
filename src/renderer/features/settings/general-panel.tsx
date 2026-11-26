@@ -9,10 +9,46 @@ import { cardSurfaceClass } from '@/theme/surface';
 import type { ThemePreference } from '@shared/types';
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; hint: string }> = [
-  { value: 'dark', label: '深色', hint: '低对比深灰工作台（默认）' },
-  { value: 'light', label: '浅色', hint: '高明亮日间配色' },
+  { value: 'dark', label: '深色', hint: '微冷深炭工作台（默认）' },
+  { value: 'light', label: '浅色', hint: '冷银白高对比日间配色' },
   { value: 'system', label: '跟随系统', hint: '随 macOS 外观自动切换' },
 ];
+
+function ThemePreviewThumb({ mode }: { mode: ThemePreference }) {
+  if (mode === 'system') {
+    return (
+      <span
+        aria-hidden
+        className="mb-1.5 flex h-8 w-14 overflow-hidden rounded-[6px] border border-border-heavy shadow-2xs"
+      >
+        <span className="flex flex-1 flex-col bg-[#181b21] p-1">
+          <span className="h-1 w-4 rounded-full bg-[#5b8cff]" />
+          <span className="mt-1 flex-1 rounded-[2px] bg-[#20242d]" />
+        </span>
+        <span className="flex flex-1 flex-col bg-[#e9edf3] p-1">
+          <span className="h-1 w-4 rounded-full bg-[#3b5bdb]" />
+          <span className="mt-1 flex-1 rounded-[2px] bg-[#ffffff]" />
+        </span>
+      </span>
+    );
+  }
+  const dark = mode === 'dark';
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'mb-1.5 flex h-8 w-14 overflow-hidden rounded-[6px] border border-border-heavy p-1 shadow-2xs',
+        dark ? 'bg-[#111317]' : 'bg-[#e9edf3]',
+      )}
+    >
+      <span className={cn('mr-1 w-3 rounded-[2px]', dark ? 'bg-[#181b21]' : 'bg-[#f4f6fa]')} />
+      <span className="flex flex-1 flex-col gap-1">
+        <span className={cn('h-1.5 w-5 rounded-full', dark ? 'bg-[#5b8cff]' : 'bg-[#3b5bdb]')} />
+        <span className={cn('flex-1 rounded-[2px]', dark ? 'bg-[#20242d]' : 'bg-[#ffffff]')} />
+      </span>
+    </span>
+  );
+}
 
 export function GeneralPanel() {
   const { settings } = usePluginState();
@@ -52,7 +88,7 @@ export function GeneralPanel() {
           <span className="text-sm font-medium">界面主题</span>
           <span className="text-xs text-muted-foreground">主工作台、浮层对话框与悬浮窗卡片同步生效。</span>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2.5">
           {THEME_OPTIONS.map((option) => {
             const active = (settings.theme ?? 'dark') === option.value;
             return (
@@ -64,14 +100,15 @@ export function GeneralPanel() {
                 disabled={savingKey === 'theme'}
                 onClick={() => void patch('theme', { theme: option.value })}
                 className={cn(
-                  'flex flex-col items-start gap-0.5 rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors',
+                  'flex flex-col items-start gap-0.5 rounded-[var(--radius-md)] border px-3 py-2.5 text-left transition-all outline-none focus-visible:border-focus',
                   active
-                    ? 'border-ring bg-surface-active text-foreground'
-                    : 'border-border bg-background/50 text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+                    ? 'border-[var(--theme-accent)] bg-surface-selected text-foreground [box-shadow:var(--shadow-raised)]'
+                    : 'border-border bg-background/60 text-foreground hover:bg-surface-hover',
                 )}
               >
+                <ThemePreviewThumb mode={option.value} />
                 <span className="text-xs font-medium">{option.label}</span>
-                <span className="text-[11px] opacity-75">{option.hint}</span>
+                <span className="text-[length:var(--font-size-micro)] text-muted-foreground">{option.hint}</span>
               </button>
             );
           })}
@@ -82,7 +119,7 @@ export function GeneralPanel() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-sm font-medium">紧凑顶栏密度</span>
-            <span className="text-xs text-muted-foreground">压低标签栏与地址栏高度，为网页画布留出更大纵向视口。</span>
+            <span className="text-xs text-muted-foreground">降低顶栏高度，增大网页可视区。</span>
           </div>
           <Switch
             aria-label="紧凑顶栏密度"
@@ -95,9 +132,7 @@ export function GeneralPanel() {
         <div className="flex items-center justify-between gap-4 border-t border-border pt-3">
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-sm font-medium">网页与 DevTools 视图圆角</span>
-            <span className="text-xs text-muted-foreground">
-              为网页与开发者工具视图应用 8px 圆角裁切，与外框卡片融为一体。
-            </span>
+            <span className="text-xs text-muted-foreground">为网页与开发者工具应用 8px 圆角裁切。</span>
           </div>
           <Switch
             aria-label="网页与 DevTools 视图圆角"
@@ -109,11 +144,11 @@ export function GeneralPanel() {
       </div>
 
       <div className={cn(cardSurfaceClass, 'flex items-center justify-between gap-4')}>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-sm font-medium">数据根目录（WARREN_HOME）</span>
-          <span className="truncate font-mono text-xs text-muted-foreground">{dataDir || '~/.warren'}</span>
-          <span className="text-[11px] text-muted-foreground">
-            包含环境 Session、SQLite 数据库、Vault 密文与插件目录。
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs text-muted-foreground">数据根目录（WARREN_HOME）</span>
+          <span className="truncate font-mono text-sm font-medium text-foreground">{dataDir || '~/.warren'}</span>
+          <span className="text-[length:var(--font-size-micro)] text-muted-foreground">
+            保存隔离环境 Session、SQLite、Vault 密文与插件。
           </span>
         </div>
         <Button size="sm" variant="outline" className="shrink-0" onClick={() => void window.envApi.openDataDir()}>

@@ -393,14 +393,23 @@ export default function register(app) {
     return h(
       'div',
       {
-        className: 'flex h-full flex-col gap-3 overflow-auto',
-        style: { maxWidth: '1040px', marginInline: 'auto', width: '100%', padding: '16px 24px' },
+        className: 'flex h-full flex-col gap-4 overflow-auto',
+        style: { maxWidth: '1040px', marginInline: 'auto', width: '100%', padding: '20px 24px' },
         'data-slot': 'account-manager-page',
       },
       h(
         'div',
-        { className: 'flex flex-wrap items-center gap-2' },
-        h('span', { className: 'text-sm font-medium' }, '账号管理'),
+        { className: 'flex flex-wrap items-center gap-2.5' },
+        h(
+          'span',
+          {
+            'aria-hidden': true,
+            style: { '--brand-hue': 36 },
+            className: 'plugin-brand-chip flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-md)]',
+          },
+          h(Icon, { name: 'Key', className: 'size-4' }),
+        ),
+        h('h1', { className: 'text-lg font-semibold text-foreground' }, '账号管理'),
         h('span', { className: 'text-xs text-muted-foreground' }, `${state.accounts.length} 条 · 本机明文`),
         h(
           Button,

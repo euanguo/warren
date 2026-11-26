@@ -721,7 +721,7 @@ app.whenReady().then(async () => {
 
   const initialSettings = store.appSettings();
   window = createWindow();
-  layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 6);
+  layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 8);
   const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
       const devUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

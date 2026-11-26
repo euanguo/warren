@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getPluginBrand } from '@/lib/plugin-brand';
 import type { PluginInspectorTab } from '@/lib/plugin-runtime';
+import { cardSurfaceClass } from '@/theme/surface';
 import { cn } from '@/lib/utils';
 import type {
   AxNode,
@@ -103,9 +104,21 @@ function NetRulesPanel({
   return (
     <div className="flex flex-col gap-2 px-3 py-2 text-xs">
       {rules.length === 0 && (
-        <p className="text-muted-foreground">
-          还没有规则。用 <span className="font-mono">warren net rule add</span> 加一条。
-        </p>
+        <div className={cn(cardSurfaceClass, 'flex flex-col gap-2 py-2.5')}>
+          <span className="font-medium text-foreground">还没有请求拦截规则</span>
+          <p className="text-[length:var(--font-size-micro)] leading-relaxed text-muted-foreground">
+            可通过 CLI 为当前环境添加 Mock、阻断或改头规则，或在全局「代理」页使用 Whistle 图形化配置。
+          </p>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText('warren net rule add')}
+            title="点击复制命令"
+            className="inline-flex items-center gap-1.5 self-start rounded-[var(--radius-sm)] border border-border bg-[var(--input-fill)] px-2 py-1 font-mono text-[length:var(--font-size-micro)] text-foreground transition-colors hover:bg-surface-hover"
+          >
+            <span>warren net rule add</span>
+            <Icon name="Copy" className="size-3 text-subtle-foreground" />
+          </button>
+        </div>
       )}
       {rules.map((rule) => (
         <div key={rule.id} className="flex items-start gap-2" data-slot="net-rule">
@@ -609,9 +622,8 @@ export function EnvironmentInspector({
               </div>
             ))}
             {cookies && cookies.length > 0 && (
-              <p className="mt-2 font-sans text-muted-foreground/70">
-                只有名字 / 域 / 过期 / 标志——cookie 的值不走这条通道（见 PLUGIN-CAPABILITY-DESIGN §9）。 S = secure，H =
-                httpOnly。
+              <p className="mt-2 font-sans text-[length:var(--font-size-micro)] leading-relaxed text-muted-foreground">
+                出于安全策略，此处仅展示 Cookie 名称、作用域与安全标志，不回传明文值（S = Secure，H = HttpOnly）。
               </p>
             )}
           </div>

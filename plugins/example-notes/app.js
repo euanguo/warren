@@ -343,17 +343,31 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex h-full flex-col gap-3 overflow-auto p-4', 'data-slot': 'notes-page' },
+      {
+        className: 'flex h-full flex-col gap-4 overflow-auto',
+        style: { maxWidth: '1040px', marginInline: 'auto', width: '100%', padding: '20px 24px' },
+        'data-slot': 'notes-page',
+      },
       h(
         'div',
-        { className: 'flex items-center gap-2' },
-        h('span', { className: 'text-sm font-medium' }, title),
+        { className: 'flex items-center gap-2.5' },
         h(
           'span',
-          { className: 'text-xs text-muted-foreground' },
-          `${items.length} 条 · agent 用 \`warren plugin run com.example.notes context --env <env>\` 读`,
+          {
+            'aria-hidden': true,
+            style: { '--brand-hue': 274 },
+            className: 'plugin-brand-chip flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-md)]',
+          },
+          h(Icon, { name: 'List', className: 'size-4' }),
         ),
-        h(Button, { variant: 'ghost', className: 'ml-auto', onClick: load }, '刷新'),
+        h('h1', { className: 'text-lg font-semibold text-foreground' }, title),
+        h('span', { className: 'text-xs text-muted-foreground' }, `${items.length} 条 · 按环境或全局沉淀给 Agent`),
+        h(
+          Button,
+          { variant: 'outline', size: 'sm', className: 'ml-auto', onClick: load },
+          h(Icon, { name: 'Refresh', className: 'size-3.5' }),
+          '刷新',
+        ),
       ),
       error && h('p', { className: 'text-xs text-destructive' }, error),
       h(AddRow, { environmentId: scopeEnv, run }),
