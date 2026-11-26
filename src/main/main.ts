@@ -460,10 +460,9 @@ function syncPowerSaveBlocker(): void {
 
 function installTray(): void {
   if (tray) return;
-  const icon = nativeImage.createFromPath(path.join(app.getAppPath(), 'assets', 'icon.png')).resize({
-    width: 18,
-    height: 18,
-  });
+  // 托盘必须用透明底单色模板图（tray-icon.png + @2x）；直接拿填充 Squircle 的 icon.png
+  // 调 setTemplateImage(true) 会把整张图标压成一坨纯色方块。不调 resize 以保留 @2x Retina 清晰度。
+  const icon = nativeImage.createFromPath(path.join(app.getAppPath(), 'assets', 'tray-icon.png'));
   if (process.platform === 'darwin') icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip('Warren');

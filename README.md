@@ -1,4 +1,4 @@
-<img src="assets/warren-mark.svg" alt="Warren" width="72">
+<img src="assets/icon.png" alt="Warren" width="72">
 
 # Warren
 

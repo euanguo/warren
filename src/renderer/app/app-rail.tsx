@@ -52,7 +52,7 @@ export function AppRail({ settingsActive, onOpenSettings, destinations }: Props)
       {/* 底部固定区：设置入口 + 品牌标记。不参与滚动，所以不会挤掉上面的导航。 */}
       <div className="flex w-full shrink-0 flex-col items-center gap-[var(--rail-gap)]">
         <RailButton label="设置" icon="Settings" active={settingsActive} onSelect={onOpenSettings} />
-        <WarrenMark className="size-5 opacity-70" />
+        <WarrenMark className="size-5 opacity-90" />
       </div>
     </nav>
   );
