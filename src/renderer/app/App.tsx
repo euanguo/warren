@@ -344,7 +344,7 @@ export function App() {
               </div>
 
               {settingsOpen && (
-                <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-background">
+                <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-background animate-in fade-in-0 duration-150 motion-reduce:animate-none">
                   <SettingsPage
                     section={settingsSection}
                     onSectionChange={(next) => setSettingsSection(next as SettingsSection)}
@@ -359,7 +359,7 @@ export function App() {
               )}
 
               {!settingsOpen && activePluginPage && (
-                <div className="absolute inset-0 z-20 h-full overflow-auto bg-background">
+                <div className="absolute inset-0 z-20 h-full overflow-auto bg-background animate-in fade-in-0 duration-150 motion-reduce:animate-none">
                   <PluginSurfaceHost
                     pluginId={activePluginPage.pluginId}
                     title={activePluginPage.title}

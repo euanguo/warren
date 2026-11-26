@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type MouseEvent } from 'react';
 import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon, isIconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
@@ -106,6 +106,31 @@ export function AppTitlebar({
   onBackToEnvironments,
 }: Props) {
   const isGlobalMode = route !== 'environments';
+  const globalNavRef = useRef<HTMLElement>(null);
+  const globalThumbRef = useRef<HTMLSpanElement>(null);
+  const activeGlobalKey =
+    route === 'settings' ? 'settings' : activePluginPage ? `${activePluginPage.pluginId}:${activePluginPage.id}` : '';
+
+  useLayoutEffect(() => {
+    if (!isGlobalMode) return;
+    const nav = globalNavRef.current;
+    const thumb = globalThumbRef.current;
+    if (!nav || !thumb) return;
+    const sync = () => {
+      const activeEl = nav.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!activeEl) {
+        thumb.style.opacity = '0';
+        return;
+      }
+      thumb.style.opacity = '1';
+      thumb.style.width = `${activeEl.offsetWidth}px`;
+      thumb.style.transform = `translateX(${activeEl.offsetLeft}px)`;
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [isGlobalMode, activeGlobalKey, railPages.length]);
   const agentOwner =
     (environment?.spaces ?? []).find((space) => space.id === 'agent')?.owner ?? environment?.owner ?? 'none';
 
@@ -180,6 +205,7 @@ export function AppTitlebar({
         </div>
 
         <nav
+          ref={globalNavRef}
           aria-label="全局视图"
           data-slot="global-nav"
           className={cn(
@@ -187,12 +213,22 @@ export function AppTitlebar({
             NO_DRAG_CLASS,
           )}
         >
+          <span
+            ref={globalThumbRef}
+            aria-hidden
+            data-slot="global-nav-thumb"
+            className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/80 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-raised)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+          />
           <Button
             size="xs"
-            variant={route === 'settings' ? 'outline' : 'ghost'}
+            variant="ghost"
             aria-label="设置"
             aria-current={route === 'settings' ? 'page' : undefined}
             onClick={() => onOpenSettings()}
+            className={cn(
+              'relative z-10 hover:bg-transparent',
+              route === 'settings' ? 'font-medium text-foreground' : 'text-subtle-foreground hover:text-foreground',
+            )}
           >
             <Icon name="Settings" />
             <span>设置</span>
@@ -208,10 +244,14 @@ export function AppTitlebar({
               <Button
                 key={`${page.pluginId}:${page.id}`}
                 size="xs"
-                variant={active ? 'outline' : 'ghost'}
+                variant="ghost"
                 aria-label={page.title}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onOpenPluginPage(page.pluginId, page.id)}
+                className={cn(
+                  'relative z-10 hover:bg-transparent',
+                  active ? 'font-medium text-foreground' : 'text-subtle-foreground hover:text-foreground',
+                )}
               >
                 <Icon
                   name={iconName}
@@ -279,7 +319,7 @@ export function AppTitlebar({
                 <span
                   aria-hidden
                   style={{ '--env-hue': identity.hue } as CSSProperties}
-                  className="env-identity-chip relative flex size-4 shrink-0 items-center justify-center rounded-[5px] text-[10px] font-semibold"
+                  className="env-identity-chip relative flex size-[18px] shrink-0 items-center justify-center rounded-[5px] text-[length:var(--font-size-micro)] font-semibold"
                 >
                   {identity.initial}
                   <StatusDot
@@ -343,10 +383,11 @@ export function AppTitlebar({
             data-slot="control-pill"
             data-owner={agentOwner}
             className={cn(
-              'mr-1 flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs',
-              agentOwner === 'agent' && 'border-[var(--info)]/45 bg-[var(--info)]/10',
-              agentOwner === 'human' && 'border-[var(--success)]/45 bg-[var(--success)]/10',
-              agentOwner === 'none' && 'border-border bg-background/80',
+              'mr-1 flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none',
+              agentOwner === 'agent' && 'border-[var(--info)]/55 bg-[var(--info)]/14 [box-shadow:var(--shadow-raised)]',
+              agentOwner === 'human' &&
+                'border-[var(--success)]/50 bg-[var(--success)]/12 [box-shadow:var(--shadow-raised)]',
+              agentOwner === 'none' && 'border-border-heavy bg-surface-elevated/90 [box-shadow:var(--shadow-raised)]',
             )}
           >
             <StatusDot

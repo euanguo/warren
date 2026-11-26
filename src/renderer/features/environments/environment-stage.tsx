@@ -559,7 +559,7 @@ export function EnvironmentStage({
       {exclusivityNotice && running && (
         <output
           data-slot="panel-exclusivity-bar"
-          className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-under px-3 text-xs text-foreground"
+          className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-under px-3 text-xs text-foreground animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none"
         >
           <div className="flex min-w-0 items-center gap-2">
             <Icon name="Info" className="size-3.5 shrink-0 text-[var(--info)]" />
@@ -675,7 +675,7 @@ export function EnvironmentStage({
                 {showTargetUrl && (
                   <div
                     data-slot="target-url-preview"
-                    className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[65%] truncate rounded-[var(--radius-sm)] border border-border/60 bg-popover/90 px-2 py-0.5 font-mono text-[11px] text-popover-foreground shadow-sm"
+                    className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 max-w-[65%] truncate rounded-[var(--radius-sm)] border border-border-heavy bg-popover/95 px-2 py-0.5 font-mono text-[length:var(--font-size-micro)] text-popover-foreground [box-shadow:var(--elevation-popover)] animate-in fade-in-0 duration-120 motion-reduce:animate-none"
                   >
                     {hoverTarget.url}
                   </div>
