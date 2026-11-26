@@ -32,6 +32,7 @@
 | **产品架构（插件 / 叠层 / 安装入口）** | `PRODUCT-ARCHITECTURE-2026-10-17.md`（含「前端组件为什么盖不住页面」；§6 是已实施部分） |
 | **外壳路由 + 插件 CLI + 一键安装** | `SHELL-PLUGIN-PLAN-2026-10-17.md`（rail 当路由、环境列表只属于环境页、`plugin commands` / `plugin create`、发布链路缺口） |
 | **Warren 优化 + Whistle 预设模板** | `WARREN-OPTIMIZATION-WHISTLE-PRESETS-PLAN-2026-10-19.md`（Lease / 截图 / 网络记录 / 浏览器动作 + Whistle 测试、预发布、本地、CDN、Mock 预设施工图） |
+| **Agent CLI & Browser Ops 深度调研与 v3 施工计划** | `AGENT-CLI-AND-BROWSER-OPS-DEEP-RESEARCH.md`（11 个开源生态横向源码剖析、34 项缺口）、`CLI-AND-BROWSER-OPS-V3-PLAN.md`（P0→P2 完整增强施工图与验收门禁） |
 
 ## 历史 / 只作参考
 

@@ -18,7 +18,7 @@ test('help 覆盖 SUBS 里每一个子命令', () => {
   for (const [group, list] of Object.entries(SUBS)) {
     // help 里可能写成 `warren env start|stop|remove|select`，所以按 token 切
     const listed = new Set<string>();
-    for (const m of help.matchAll(new RegExp(`warren ${group} ([a-z|-]+)`, 'g'))) {
+    for (const m of help.matchAll(new RegExp(`warren ${group} ([a-z0-9|-]+)`, 'g'))) {
       for (const s of m[1].split('|')) listed.add(s);
     }
     for (const sub of list) if (!listed.has(sub)) missing.push(`${group} ${sub}`);

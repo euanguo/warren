@@ -6,8 +6,9 @@ import type { EnvironmentManager } from './environments';
 import type { PluginHost } from './plugins/host';
 import type { Store } from './store';
 import type { VaultStore } from './vault/store';
-import type { LeaseDenialReason, RpcRequest, RpcResponse } from '../shared/types';
+import type { LeaseDenialReason, RpcErrorDetails, RpcRequest, RpcResponse } from '../shared/types';
 import { dispatchRpc, RpcError, type DispatchDeps } from './rpc-dispatch.ts';
+import { resolveErrorDetails } from './browser/ops/remedy.ts';
 import { warrenPaths } from './paths.ts';
 
 // 运行时文件也归数据根管（以前是 `~/.warren` 根下）。见 src/main/paths.ts。
@@ -86,7 +87,14 @@ export class RpcServer {
       const result = await dispatchRpc(this.#dispatchDeps, request.method, request.params ?? {});
       return { id: request.id, ok: true, result };
     } catch (error) {
-      const err = error as Error & { code?: string; reason?: LeaseDenialReason; expiredAt?: number };
+      const err = error as Error & {
+        code?: string;
+        reason?: LeaseDenialReason;
+        expiredAt?: number;
+        details?: RpcErrorDetails;
+      };
+      const envId = typeof request.params?.id === 'string' ? request.params.id : undefined;
+      const details = resolveErrorDetails(err, { envId, code: err.code ?? 'INTERNAL', reason: err.reason });
       return {
         id: request.id,
         ok: false,
@@ -94,13 +102,9 @@ export class RpcServer {
           code: err.code ?? 'INTERNAL',
           message: err.message,
           retryable: err.code === 'ENV_BUSY',
-          /*
-           * lease 类错误额外带 `reason`（expired / never_leased / superseded / user_takeover /
-           * wrong_space）与 `expiredAt`：CLI 靠它告诉 agent「是该重取还是等人交还」。
-           * 其它错误不带这两个字段，形状不变。
-           */
           ...(err.reason ? { reason: err.reason } : {}),
           ...(err.expiredAt === undefined ? {} : { expiredAt: err.expiredAt }),
+          ...(details ? { details } : {}),
         },
       };
     }

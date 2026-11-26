@@ -12,6 +12,7 @@
  */
 import { executeBatch, hasWriteSteps, parseBatchLines, type BatchStep } from './browser/ops/batch.ts';
 import { diffScreenshots, diffSnapshots, getLastSnapshot, rememberSnapshot } from './browser/ops/diff.ts';
+import { executeSavedFlow, extractFlowCandidates, normalizeFlowName, sanitizeFlowSpec } from './browser/ops/flow.ts';
 import { targetFromBy, type InspectProp, type InspectState } from './browser/ops/inspector.ts';
 import { readPage } from './browser/ops/reader.ts';
 import { formatCompactSnapshot } from './browser/ops/snapshot-compact.ts';
@@ -25,7 +26,16 @@ import type { PluginHost } from './plugins/host';
 import type { Permission } from './plugins/package.ts';
 import type { Store } from './store';
 import type { VaultStore } from './vault/store';
-import type { BrowserShortcut, ClickOptions, FetchOptions, NavigateOptions, SpaceId, TabRef } from '../shared/types';
+import type {
+  BrowserShortcut,
+  ClickOptions,
+  DragOptions,
+  FetchOptions,
+  NavigateOptions,
+  SavedFlowSpec,
+  SpaceId,
+  TabRef,
+} from '../shared/types';
 
 export class RpcError extends Error {
   code: string;
@@ -162,7 +172,7 @@ export async function dispatchRpc(
     timeoutMs: typeof p.timeoutMs === 'number' ? p.timeoutMs : undefined,
     waitUntil: asWaitUntil(p.waitUntil),
   });
-  const clickOptions = (p: Record<string, unknown>): ClickOptions => ({
+  const clickOptions = (p: Record<string, unknown>): DragOptions => ({
     button: asButton(p.button),
     clickCount: typeof p.clickCount === 'number' ? p.clickCount : undefined,
     delay: typeof p.delay === 'number' ? p.delay : undefined,
@@ -172,6 +182,11 @@ export async function dispatchRpc(
     steps: typeof p.steps === 'number' ? p.steps : undefined,
     noWaitAfter: Boolean(p.noWaitAfter),
     navigationTimeoutMs: typeof p.navigationTimeoutMs === 'number' ? p.navigationTimeoutMs : undefined,
+    ...(p.humanize !== undefined ? { humanize: Boolean(p.humanize) } : {}),
+    ...(p.newTab ? { newTab: true } : {}),
+    ...(p.placement === 'before' || p.placement === 'after' || p.placement === 'center'
+      ? { placement: p.placement }
+      : {}),
   });
   const fetchOptions = (p: Record<string, unknown>): FetchOptions => ({
     method: typeof p.method === 'string' ? p.method : undefined,
@@ -211,6 +226,13 @@ export async function dispatchRpc(
       // 视图被界面让开 / 尺寸为 0 时输入会被丢掉（表现为挂到 RPC 超时），先拒绝
       deps.manager.assertInputOnScreen(id, space);
       deps.manager.assertActiveTab(id, optionalTab, space);
+      if (params.autoDialog === 'accept') {
+        await controller.acceptDialog().catch(() => {});
+      } else if (params.autoDialog === 'dismiss') {
+        await controller.dismissDialog().catch(() => {});
+      } else if (typeof controller.handleAutoDialogIfNeeded === 'function') {
+        await controller.handleAutoDialogIfNeeded();
+      }
       controller.assertNoDialog();
       // 页面焦点用 CDP 仿真，不激活 Warren 窗口；后台脚本不能抢用户前台。
       await deps.manager.focusForInput(id, space);
@@ -732,16 +754,33 @@ export async function dispatchRpc(
     case 'browser.drag':
       return inputCall('drag', params.source as never, params.target as never, clickOptions(params));
 
+    case 'browser.drop':
+      return inputCall('dropFiles', params.target as never, params.paths as never, { timeoutMs: num('timeoutMs') });
+
     case 'browser.fill':
       return inputCall('fill', params.target as never, str('value'), {
         clearFirst: params.clearFirst === undefined ? undefined : Boolean(params.clearFirst),
         timeoutMs: num('timeoutMs'),
+        submit: Boolean(params.submit),
       });
 
     case 'browser.selectOption':
       return inputCall('selectOption', params.target as never, params.value as never, {
         timeoutMs: num('timeoutMs'),
+        by:
+          params.by === 'value' || params.by === 'label' || params.by === 'index' || params.by === 'auto'
+            ? params.by
+            : undefined,
       });
+
+    case 'browser.check':
+      return inputCall('check', params.target as never, { timeoutMs: num('timeoutMs') });
+
+    case 'browser.uncheck':
+      return inputCall('uncheck', params.target as never, { timeoutMs: num('timeoutMs') });
+
+    case 'browser.scrollIntoView':
+      return inputCall('scrollIntoView', params.target as never);
 
     case 'browser.focus':
       return inputCall('focus', params.target as never, { timeoutMs: num('timeoutMs') });
@@ -763,6 +802,48 @@ export async function dispatchRpc(
 
     case 'browser.dismissDialog':
       return dialogCall('dismissDialog');
+
+    case 'browser.dialogPolicy':
+      return dialogCall(
+        'setDialogPolicy',
+        params.policy === 'accept' || params.policy === 'dismiss' ? params.policy : 'none',
+      );
+
+    case 'browser.set':
+      return writeCall('applySetting', params.setting as never);
+
+    case 'browser.frame.select':
+      return writeCall('selectFrame', str('target'));
+
+    case 'browser.webmcp.call':
+      return writeCall(
+        'callWebMcp',
+        str('tool'),
+        (params.args && typeof params.args === 'object' ? params.args : {}) as Record<string, unknown>,
+      );
+
+    case 'browser.pdf':
+      return writeCall('printPdf', {
+        path: str('path'),
+        landscape: Boolean(params.landscape),
+        printBackground: params.printBackground !== false,
+        scale: num('scale'),
+      });
+
+    case 'browser.diffUrls': {
+      const id = str('id');
+      deps.manager.assertWritable(id, optionalLease, space);
+      const urlA = str('a');
+      const urlB = str('b');
+      const c = deps.manager.controllerFor(id, optionalTab, space);
+      await c.navigate(urlA);
+      const nodesA = await c.snapshot({ interactiveOnly: Boolean(params.interactiveOnly) });
+      const snapA = { url: c.currentUrl(), title: await c.title(), nodes: nodesA };
+      await c.navigate(urlB);
+      const nodesB = await c.snapshot({ interactiveOnly: Boolean(params.interactiveOnly) });
+      const snapB = { url: c.currentUrl(), title: await c.title(), nodes: nodesB };
+      return diffSnapshots(snapA, snapB);
+    }
 
     case 'browser.downloadSaveAs':
       return writeCall('downloadSaveAs', str('downloadId'), str('path'));
@@ -828,7 +909,6 @@ export async function dispatchRpc(
     case 'browser.snapshot': {
       const id = str('id');
       const controller = deps.manager.controllerFor(id, optionalTab, space);
-      // 只有这条路径分配 `@N`：ref 表是 agent 的会话状态，别的读快照调用不许动它
       const nodes = await controller.snapshotWithRefs({
         scope: params.scope as never,
         root: typeof params.root === 'string' ? params.root : undefined,
@@ -838,24 +918,40 @@ export async function dispatchRpc(
         interactiveOnly: Boolean(params.interactiveOnly),
         roles: Array.isArray(params.roles) ? (params.roles as string[]) : undefined,
         selector: typeof params.selector === 'string' ? params.selector : undefined,
+        urls: Boolean(params.urls),
+        includeCursor: params.includeCursor === undefined ? undefined : Boolean(params.includeCursor),
+        boxes: Boolean(params.boxes),
+        maxDepth: num('maxDepth'),
+        maxTokens: num('maxTokens'),
+        filter: typeof params.filter === 'string' ? params.filter : undefined,
+        frame: typeof params.frame === 'string' ? params.frame : undefined,
       });
       const url = controller.currentUrl();
       const title = await controller.title();
       const siteNotes = deps.store.matchSiteNotesForUrl?.(url) ?? [];
+      const webmcp =
+        params.compact && typeof controller.listWebMcp === 'function'
+          ? await controller.listWebMcp().catch(() => null)
+          : null;
       rememberSnapshot(`${id}:${space}`, { url, title, nodes });
       if (params.compact) {
         return {
           url,
           title,
           ...(siteNotes.length > 0 ? { siteNotes } : {}),
+          ...(webmcp?.tools?.length ? { webmcpTools: webmcp.tools } : {}),
           compact: formatCompactSnapshot({
             url,
             title,
             nodes,
             siteNotes,
+            webmcpTools: webmcp?.tools,
             interactiveOnly: Boolean(params.interactiveOnly),
             maxDepth: num('maxDepth'),
             maxNodes: num('limit'),
+            maxTokens: num('maxTokens'),
+            urls: Boolean(params.urls),
+            filter: typeof params.filter === 'string' ? params.filter : undefined,
           }),
           nodes,
         };
@@ -872,7 +968,11 @@ export async function dispatchRpc(
         data: Boolean(params.data),
         links: params.links as boolean | string | undefined,
         scroll: Boolean(params.scroll),
+        match: typeof params.match === 'string' ? params.match : undefined,
         maxScrolls: num('maxScrolls'),
+        outline: Boolean(params.outline),
+        filter: typeof params.filter === 'string' ? params.filter : undefined,
+        llms: params.llms === 'index' || params.llms === 'full' ? params.llms : undefined,
         siteNotes,
       });
     }
@@ -895,7 +995,10 @@ export async function dispatchRpc(
 
     case 'browser.diff': {
       if (params.kind === 'screenshot') {
-        return diffScreenshots(str('a'), str('b'));
+        return diffScreenshots(str('a'), str('b'), {
+          threshold: num('threshold'),
+          outputPath: typeof params.outputPath === 'string' ? params.outputPath : undefined,
+        });
       }
       const id = str('id');
       const scopeKey = `${id}:${space}`;
@@ -920,7 +1023,14 @@ export async function dispatchRpc(
       if (action === 'visible' || action === 'enabled' || action === 'checked') {
         return { ok: await controller().checkState(action as InspectState, target) };
       }
-      if (action === 'click' || action === 'dblclick' || action === 'hover' || action === 'focus') {
+      if (
+        action === 'click' ||
+        action === 'dblclick' ||
+        action === 'hover' ||
+        action === 'focus' ||
+        action === 'check' ||
+        action === 'uncheck'
+      ) {
         return inputCall(action, target);
       }
       if (action === 'fill') return inputCall('fill', target, str('value'));
@@ -942,15 +1052,23 @@ export async function dispatchRpc(
       return executeBatch({
         steps,
         bail: Boolean(params.bail),
+        noChanges: Boolean(params.noChanges),
         controller: c,
         store: deps.store,
         networkEntries: () => deps.manager.networkEntries(id),
+        networkEntriesSince:
+          typeof deps.manager.networkEntriesSince === 'function'
+            ? (afterId) => deps.manager.networkEntriesSince(id, afterId)
+            : undefined,
         prepareInput: async <T>(fn: () => Promise<T>): Promise<T> => {
           const temporary = deps.manager.ensureOperable(id, space);
           let emulatedViewport = false;
           try {
             deps.manager.assertInputOnScreen(id, space);
             deps.manager.assertActiveTab(id, optionalTab, space);
+            if (params.autoDialog === 'accept') await c.acceptDialog().catch(() => {});
+            else if (params.autoDialog === 'dismiss') await c.dismissDialog().catch(() => {});
+            else if (typeof c.handleAutoDialogIfNeeded === 'function') await c.handleAutoDialogIfNeeded();
             c.assertNoDialog();
             await deps.manager.focusForInput(id, space);
             if (temporary) emulatedViewport = await deps.manager.prepareBackgroundInput(id, space);
@@ -960,6 +1078,67 @@ export async function dispatchRpc(
             if (temporary) deps.manager.detachOperable(id, space);
           }
         },
+      });
+    }
+
+    case 'browser.frame.list':
+      return deps.manager.controllerFor(str('id'), optionalTab, space).listFrames();
+
+    case 'browser.webmcp.list':
+      return deps.manager.controllerFor(str('id'), optionalTab, space).listWebMcp();
+
+    case 'browser.vitals':
+      return deps.manager.controllerFor(str('id'), optionalTab, space).vitals();
+
+    case 'browser.a11y':
+      return deps.manager.controllerFor(str('id'), optionalTab, space).a11y();
+
+    case 'browser.react':
+      return deps.manager.controllerFor(str('id'), optionalTab, space).reactTree({ maxNodes: num('maxNodes') });
+
+    // ── 只读参数化 Saved Flows ──────────────────────────────────
+    case 'flow.steps':
+      return extractFlowCandidates(deps.manager.networkEntries(str('id')));
+
+    case 'flow.list':
+      return deps.store.listSavedFlows();
+
+    case 'flow.show': {
+      const flow = deps.store.getSavedFlow(normalizeFlowName(str('name')));
+      if (!flow) throw new RpcError('NOT_FOUND', `未找到已保存的 flow：${str('name')}`);
+      return flow;
+    }
+
+    case 'flow.save': {
+      const name = normalizeFlowName(str('name'));
+      const rawSpec = (params.spec && typeof params.spec === 'object' ? params.spec : params) as Partial<SavedFlowSpec>;
+      const { site, spec } = sanitizeFlowSpec(rawSpec);
+      return deps.store.saveFlow(name, site, spec, typeof params.updatedBy === 'string' ? params.updatedBy : 'agent');
+    }
+
+    case 'flow.rm':
+      return { removed: deps.store.removeSavedFlow(normalizeFlowName(str('name'))) };
+
+    case 'flow.run': {
+      const id = str('id');
+      const name = normalizeFlowName(str('name'));
+      const record = deps.store.getSavedFlow(name);
+      if (!record) throw new RpcError('NOT_FOUND', `未找到已保存的 flow：${name}`);
+      const c = deps.manager.controllerFor(id, optionalTab, space);
+      const runParams =
+        params.params && typeof params.params === 'object' && !Array.isArray(params.params)
+          ? Object.fromEntries(Object.entries(params.params as Record<string, unknown>).map(([k, v]) => [k, String(v)]))
+          : undefined;
+      const where =
+        params.where && typeof params.where === 'object' && !Array.isArray(params.where)
+          ? Object.fromEntries(Object.entries(params.where as Record<string, unknown>).map(([k, v]) => [k, String(v)]))
+          : undefined;
+      const fields = Array.isArray(params.fields) ? (params.fields as unknown[]).map(String) : undefined;
+      return executeSavedFlow(record, (url, opts) => c.fetch(url, opts), {
+        params: runParams,
+        fields,
+        where,
+        limit: num('limit'),
       });
     }
 
@@ -1105,6 +1284,7 @@ export async function dispatchRpc(
           clip: params.clip as never,
           path: typeof params.path === 'string' ? params.path : undefined,
           encoding: params.encoding === 'base64' ? 'base64' : undefined,
+          annotate: Boolean(params.annotate),
         });
       } finally {
         if (temporary) deps.manager.detachOperable(id, space);

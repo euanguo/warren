@@ -62,16 +62,18 @@ VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`
 
 `page` 是 Playwright 形状的子集，不是完整 Playwright：
 
-- 导航与等待：`goto` `reload` `waitFor` `waitForURL` `waitForSelector` `waitForFunction`
+- 导航与等待：`goto` `reload` `goBack` `goForward` `waitFor` `waitForURL` `waitForSelector` `waitForFunction`
   `waitForLoadState` `waitForTimeout` `waitForEvent`
-- 动作：`click` `dblclick` `hover` `dragAndDrop` `fill` `selectOption` `focus` `press`
-  `setInputFiles` `waitForFileChooser`
-- 观察：`snapshot` `screenshot` `info` `url` `title` `console` `network` `events` `highlight`
-- 弹框与下载：`acceptDialog` `dismissDialog` `downloadSaveAs` `downloadCancel` `downloadStatus`
+- 动作：`click` `dblclick` `hover` `dragAndDrop` `dropFiles` `fill` `selectOption` `check` `uncheck`
+  `scrollIntoView` `scroll` `focus` `press` `setInputFiles` `waitForFileChooser`
+- 观察与诊断：`snapshot` `read` `get` `is` `diff` `screenshot` `info` `url` `title` `console` `network`
+  `events` `highlight` `vitals` `a11y` `react` `webmcpList` `webmcpCall` `pdf`
+- 仿真与 Frame：`set` `frames` `selectFrame`
+- 弹框与下载：`acceptDialog` `dismissDialog` `setDialogPolicy` `downloadSaveAs` `downloadCancel` `downloadStatus`
 - 定位器：`locator` `getByRole` `getByText` `getByLabel`
 - 逃生舱：`evaluate` `fetch` `cdp` `clearDataForOrigin`
 - 坐标与键盘：`mouse` `keyboard`
-- Agent Space 标签：`tabs` `newTab` `selectTab` `closeTab` `reopenTab`
+- 标签、笔记与只读 Flow：`tabs` `newTab` `selectTab` `closeTab` `reopenTab` `notesGet` `notesAppend` `runFlow`
 
 没有 `context()` / `expect()` / `route()` / `setViewportSize()`。
 
@@ -88,19 +90,34 @@ VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`
 常用高效命令：
 
 ```bash
-warren browser read <env> --links --data          # 抽取干净正文、内嵌 JSON 与链接
+warren browser snapshot <env> -i -u --filter="登录"   # 缩进交互树 + 链接 URL + 祖先保留过滤
+warren browser click <env> @1                         # 直接原子点击（支持 --new-tab / --humanize / --auto-dialog=accept）
+warren browser fill <env> @2 "alice" --submit         # 现代 SPA 智能填表并提交
+warren browser check <env> @3                         # 幂等勾选（不误反选；radio 拒绝 uncheck）
+warren browser select <env> @4 "Pro" --by=label       # 原生 <select> + ARIA combobox/listbox
+warren browser read <env> --outline --links --data    # 实时 Shadow DOM 正文、大纲、内嵌 JSON 与链接
 warren browser find <env> role button click --name=登录
 warren browser get <env> title
 warren browser is <env> visible @1
-warren browser diff <env> snapshot
+warren browser diff <env> snapshot                    # 去 ref 行级统一 Diff
+warren browser screenshot <env> --annotate            # 带临时 @N 标注框的截图
+warren browser set <env> viewport 1280 800            # 设备/视口/暗色/地理/离线/时区仿真（reset 复位）
+warren browser vitals <env>                           # Core Web Vitals 性能指标
+warren browser a11y <env>                             # 结构化无障碍审计
+warren browser frame <env> list                       # 列出主文档与 OOPIF iframe
+warren browser webmcp <env> list                      # 探测页面 WebMCP 工具（untrusted）
+warren flow steps <env>                               # 从遥测抽取只读 GET API 候选
+warren flow list                                      # 列出已保存的只读参数化 Flow
 warren notes set example.com "后台菜单需要 hover 展开"
 warren notes get example.com
-warren methods                                    # 实时反射全部 RPC 方法目录
-warren --skill                                    # 打印内置最新 SKILL.md
-warren skills status                              # 检查并校验本地 Skill SHA-256
+warren methods                                        # 实时反射全部 RPC 方法目录
+warren --skill                                        # 打印内置最新 SKILL.md
+warren skills status                                  # 检查并校验本地 Skill SHA-256
 ```
 
-多步常规探索可用 `warren batch <env> --bail` 一次下发并在结束后直接拿到 Delta Receipt（URL/标题变化、新增网络请求摘要与增量交互节点）：
+安全输出控制：`snapshot` / `read` 默认启用终端转义净化与 `--max-output=12000` 裁剪（超限自动落盘到 `~/.warren/tmp/`，加 `--full` 输出全文）；处理不可信网页内容时可加 `--content-boundaries` 开启随机 nonce IDPI 边界隔离。
+
+多步常规探索可用 `warren batch <env> --bail` 一次下发并在事件驱动稳定后拿到自带 `@N` 的 Delta Receipt（URL/标题变化、按游标统计的新增网络请求摘要与增量交互节点）：
 
 ```bash
 warren batch <env> --bail <<'EOF'

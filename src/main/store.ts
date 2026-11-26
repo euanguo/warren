@@ -946,6 +946,75 @@ export class Store {
     return Number(result.changes ?? 0) > 0;
   }
 
+  // ---------------------------------------------------------------- 只读 Saved Flows
+
+  getSavedFlow(name: string): import('../shared/types.ts').SavedFlowRecord | undefined {
+    const key = name.trim().toLowerCase();
+    const row = this.#database
+      .prepare('SELECT name, site, spec_json, updated_by, updated_at FROM saved_flows WHERE name = ?')
+      .get(key) as Row | undefined;
+    if (!row) return undefined;
+    try {
+      return {
+        name: String(row.name),
+        site: String(row.site),
+        spec: JSON.parse(String(row.spec_json)),
+        updatedBy: String(row.updated_by ?? 'agent'),
+        updatedAt: String(row.updated_at),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  listSavedFlows(): import('../shared/types.ts').SavedFlowRecord[] {
+    const rows = this.#database
+      .prepare('SELECT name, site, spec_json, updated_by, updated_at FROM saved_flows ORDER BY updated_at DESC')
+      .all() as Row[];
+    const out: import('../shared/types.ts').SavedFlowRecord[] = [];
+    for (const row of rows) {
+      try {
+        out.push({
+          name: String(row.name),
+          site: String(row.site),
+          spec: JSON.parse(String(row.spec_json)),
+          updatedBy: String(row.updated_by ?? 'agent'),
+          updatedAt: String(row.updated_at),
+        });
+      } catch {
+        // 跳过损坏行
+      }
+    }
+    return out;
+  }
+
+  saveFlow(
+    name: string,
+    site: string,
+    spec: import('../shared/types.ts').SavedFlowSpec,
+    updatedBy = 'agent',
+  ): import('../shared/types.ts').SavedFlowRecord {
+    const key = name.trim().toLowerCase();
+    const updatedAt = new Date().toISOString();
+    this.#database
+      .prepare(
+        `INSERT INTO saved_flows (name, site, spec_json, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET
+           site = excluded.site,
+           spec_json = excluded.spec_json,
+           updated_by = excluded.updated_by,
+           updated_at = excluded.updated_at`,
+      )
+      .run(key, site, JSON.stringify(spec), updatedBy, updatedAt);
+    return { name: key, site, spec, updatedBy, updatedAt };
+  }
+
+  removeSavedFlow(name: string): boolean {
+    const key = name.trim().toLowerCase();
+    const result = this.#database.prepare('DELETE FROM saved_flows WHERE name = ?').run(key);
+    return Number(result.changes ?? 0) > 0;
+  }
+
   #pruneEvents(): void {
     this.#database
       .prepare(

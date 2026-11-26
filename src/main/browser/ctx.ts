@@ -1,5 +1,5 @@
 /**
- * 页面级共享上下文：拆开的模块（snapshot / waits / actions / escape / keymouse）
+ * 页面级共享上下文：拆开的模块（snapshot / waits / actions / escape / keymouse / ops）
  * 都只依赖这个接口，不依赖 controller 类本身，避免模块之间互相 import。
  */
 import type { WebContents } from 'electron';
@@ -61,6 +61,12 @@ export interface PageContext {
   pending: PendingSink;
   tabIndex: () => number;
   lastActivityAt: () => number;
+  /** 当前 tab 的在途非流式请求数（用于精确 networkidle 与 smartSettle）。 */
+  inFlightCount?: () => number;
+  /** 当前 tab 最近一次主文档导航失败错误（用于诊断 `chrome-error://` 页）。 */
+  lastNavigationError?: () => { url: string; error: string; at: string } | null;
+  /** 当前限定的活动 frameId（空表示全部/主文档）。 */
+  activeFrameId?: () => string | undefined;
   record: (type: string, message: string) => void;
   /** 可选：上报 AI 动作在主 frame 视口内的坐标与控件框，供透明遮罩渲染轨迹动画（绝不携带输入明文）。 */
   onVisualAction?: (action: VisualActionEvent) => void;
@@ -70,5 +76,9 @@ export interface AxFrame {
   frameId: string;
   /** 跨源 frame 才有：它自己的 CDP 子会话 id。主 frame 与同源子 frame 都是 `undefined`（都在主会话里）。 */
   sessionId?: string;
+  /** 文档加载代号，用于按 frame 精准判定 ref 是否过期。 */
+  loaderId?: string;
+  url?: string;
+  name?: string;
   nodes: Array<Record<string, unknown>>;
 }

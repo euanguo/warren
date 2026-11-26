@@ -53,6 +53,15 @@ export interface RpcRequest {
  */
 export type LeaseDenialReason = 'never_leased' | 'expired' | 'superseded' | 'user_takeover' | 'wrong_space';
 
+export interface RpcErrorDetails {
+  /** 给人类或 Agent 看的简明纠错提示。 */
+  hint?: string;
+  /** 单条合法可执行的 `warren ...` 自愈命令。 */
+  remedy?: string;
+  /** 结构化上下文（如 `availableOptions`、`blocker`、`truncation` 等，严禁包含凭据明文）。 */
+  data?: Record<string, unknown>;
+}
+
 export interface RpcResponse {
   id: string;
   ok: boolean;
@@ -65,6 +74,8 @@ export interface RpcResponse {
     reason?: LeaseDenialReason;
     /** 只有 `reason === 'expired'` 带：过期时刻（epoch ms）。 */
     expiredAt?: number;
+    /** 机器可读的自愈指引与结构化诊断详情。 */
+    details?: RpcErrorDetails;
   };
 }
 

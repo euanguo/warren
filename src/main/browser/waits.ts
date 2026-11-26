@@ -353,13 +353,131 @@ export async function readyState(ctx: PageContext): Promise<string> {
   }
 }
 
-/** networkidle：该 tab 最近 idleMs 没有新的网络活动。 */
+/** networkidle：该 tab 在途非流式请求为 0 且最近 idleMs 没有新的网络活动。 */
 async function awaitIdle(ctx: PageContext, timeoutMs: number, idleMs = 500): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
+    const inFlight = ctx.inFlightCount ? ctx.inFlightCount() : 0;
     const since = Date.now() - ctx.lastActivityAt();
-    if (since >= idleMs) return;
+    if (inFlight === 0 && since >= idleMs) return;
     if (Date.now() > deadline) return;
-    await new Promise((r) => setTimeout(r, Math.min(150, idleMs)));
+    await new Promise((r) => setTimeout(r, Math.min(100, idleMs)));
   }
+}
+
+/**
+ * 事件驱动页面稳定等待（`smartSettle`，对标 Chrome DevTools MCP + Ardia）：
+ * 1. 若页面正在导航，先等 `did-stop-loading` 或 `readyState !== 'loading'`；
+ * 2. 等待在途非长轮询请求清零（上限受 `maxWaitMs` 约束）；
+ * 3. 在隔离世界挂短暂 `MutationObserver`（自动过滤 `oldValue === newValue` 噪声、
+ *    200ms 持续样式动画循环，并递归观察同源 iframe），DOM 安静 `quietMs` 即返回；
+ * 4. 严控总上限（默认 3000ms），绝不因动画/轮询无限阻塞。
+ */
+export async function smartSettle(
+  ctx: PageContext,
+  opts: { maxWaitMs?: number; quietMs?: number } = {},
+): Promise<{ settledMs: number; inFlightRemaining: number }> {
+  const started = Date.now();
+  const maxWaitMs = Math.max(100, Math.min(8000, opts.maxWaitMs ?? 3000));
+  const quietMs = Math.max(50, Math.min(1000, opts.quietMs ?? 180));
+  const deadline = started + maxWaitMs;
+
+  // 1) 若正在加载主文档，等一次加载收敛
+  if (ctx.wc.isLoading()) {
+    await awaitLoad(ctx, 'domcontentloaded', Math.max(200, deadline - Date.now())).catch(() => {});
+  }
+
+  // 2) 短暂等待在途请求清零（最多占总预算一半）
+  const netDeadline = Math.min(deadline, started + Math.floor(maxWaitMs * 0.6));
+  while (Date.now() < netDeadline) {
+    const inFlight = ctx.inFlightCount ? ctx.inFlightCount() : 0;
+    if (inFlight === 0) break;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+
+  // 3) DOM Mutation 安静窗口检测（隔离世界，不污染页面）
+  const remaining = Math.max(0, deadline - Date.now());
+  if (remaining >= quietMs && !ctx.wc.isDestroyed()) {
+    try {
+      const tree = await ctx.send<{ frameTree?: { frame?: { id?: string } } }>('Page.getFrameTree');
+      const fid = tree?.frameTree?.frame?.id;
+      if (fid) {
+        const world = await ctx.send<{ executionContextId?: number }>('Page.createIsolatedWorld', {
+          frameId: fid,
+          worldName: 'warren-settle',
+        });
+        if (world?.executionContextId) {
+          await ctx.send('Runtime.evaluate', {
+            contextId: world.executionContextId,
+            returnByValue: true,
+            awaitPromise: true,
+            expression: `new Promise((resolve) => {
+              const quietMs = ${quietMs};
+              const capMs = ${Math.min(remaining, 1500)};
+              const startedAt = Date.now();
+              let timer = null;
+              const observers = [];
+              const finish = () => {
+                clearTimeout(timer);
+                clearTimeout(hardTimer);
+                for (const ob of observers) { try { ob.disconnect(); } catch {} }
+                resolve(true);
+              };
+              const bump = () => {
+                clearTimeout(timer);
+                timer = setTimeout(finish, quietMs);
+              };
+              const isMeaningful = (records) => {
+                const elapsed = Date.now() - startedAt;
+                for (const m of records) {
+                  if (m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0)) return true;
+                  if (m.type === 'characterData' && m.oldValue !== m.target.nodeValue) return true;
+                  if (m.type === 'attributes') {
+                    const attr = m.attributeName;
+                    // 超过 200ms 仍在频繁改 style/class 通常是骨架屏或 CSS 动画循环，忽略
+                    if ((attr === 'style' || attr === 'class') && elapsed > 200) continue;
+                    const cur = m.target instanceof Element ? m.target.getAttribute(attr || '') : null;
+                    if (cur !== m.oldValue) return true;
+                  }
+                }
+                return false;
+              };
+              const attach = (doc) => {
+                if (!doc || !doc.documentElement) return;
+                const ob = new MutationObserver((records) => {
+                  if (isMeaningful(records)) bump();
+                });
+                try {
+                  ob.observe(doc.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeOldValue: true,
+                    characterData: true,
+                    characterDataOldValue: true,
+                  });
+                  observers.push(ob);
+                } catch {}
+                for (const frame of doc.querySelectorAll('iframe')) {
+                  try {
+                    if (frame.contentDocument) attach(frame.contentDocument);
+                  } catch {}
+                }
+              };
+              attach(document);
+              const hardTimer = setTimeout(finish, capMs);
+              bump();
+            })`,
+          });
+        }
+      }
+    } catch {
+      // 隔离世界创建失败（如页面刚导航）直接跳过
+    }
+  }
+
+  return {
+    settledMs: Date.now() - started,
+    inFlightRemaining: ctx.inFlightCount ? ctx.inFlightCount() : 0,
+  };
 }

@@ -231,12 +231,24 @@ export class EnvSessionFactory {
     return this.#telemetry.lastActivityAt(tabId);
   }
 
+  inFlightCount(tabId: string): number {
+    return this.#telemetry.inFlightCount(tabId);
+  }
+
+  lastNavigationError(tabId: string) {
+    return this.#telemetry.lastNavigationError(tabId);
+  }
+
   consoleEntries(id: string): ConsoleEntry[] {
     return this.#telemetry.consoleEntries(id);
   }
 
   networkEntries(id: string): NetworkEntry[] {
     return this.#telemetry.networkEntries(id);
+  }
+
+  networkEntriesSince(id: string, afterId: number, limit?: number): NetworkEntry[] {
+    return this.#telemetry.networkEntriesSince(id, afterId, limit);
   }
 
   // ── 扩展 ────────────────────────────────────────────────────────────

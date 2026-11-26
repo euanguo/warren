@@ -59,6 +59,8 @@ export interface ViewCoordinatorDeps {
   attachTabTelemetry: (envId: string, tabId: string, wc: Electron.WebContents) => void;
   detachTabTelemetry: (tabId: string) => void;
   lastActivityAt: (tabId: string) => number;
+  inFlightCount?: (tabId: string) => number;
+  lastNavigationError?: (tabId: string) => { url: string; error: string; at: string } | null;
   syncShield: (id: string, options?: { createIfMissing?: boolean }) => void;
   detachShieldOnly: (id: string) => void;
   repositionShield: (id: string, bounds: ViewportRect) => void;
@@ -232,6 +234,8 @@ export class EnvViewCoordinator {
               .findIndex((tab) => tab.id === tabId) ?? -1,
           pending: pending.sinkFor(wc),
           lastActivityAt: () => this.#deps.lastActivityAt(tabId),
+          inFlightCount: () => this.#deps.inFlightCount?.(tabId) ?? 0,
+          lastNavigationError: () => this.#deps.lastNavigationError?.(tabId) ?? null,
           downloadById: (downloadId) => pending.downloadById(downloadId),
           record: (type, message) => {
             this.#deps.store.record(makeEvent(type, message, 'agent', id));

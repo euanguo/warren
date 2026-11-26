@@ -1,5 +1,5 @@
 import type { NetworkEntry, SiteNote, SnapshotResult, TargetInput } from '../../../shared/types.ts';
-import type { InspectProp, InspectState } from './inspector.ts';
+import { targetFromBy, type InspectProp, type InspectState } from './inspector.ts';
 import { diffSnapshots, type SnapshotDiffResult } from './diff.ts';
 import { readPage } from './reader.ts';
 import { formatCompactSnapshot } from './snapshot-compact.ts';
@@ -7,13 +7,35 @@ import { formatCompactSnapshot } from './snapshot-compact.ts';
 export type BatchStep =
   | { cmd: 'goto' | 'open'; url: string }
   | { cmd: 'back' | 'forward' | 'reload' }
-  | { cmd: 'click' | 'dblclick' | 'hover' | 'focus'; target: TargetInput }
-  | { cmd: 'fill' | 'type'; target: TargetInput; value: string }
+  | { cmd: 'click' | 'dblclick' | 'hover' | 'focus' | 'check' | 'uncheck' | 'scrollintoview'; target: TargetInput }
+  | { cmd: 'fill' | 'type'; target: TargetInput; value: string; submit?: boolean }
   | { cmd: 'press'; target?: TargetInput; key: string }
   | { cmd: 'select'; target: TargetInput; value: string }
-  | { cmd: 'wait'; ms: number }
-  | { cmd: 'snapshot'; interactive?: boolean }
-  | { cmd: 'read'; selector?: string; data?: boolean; links?: boolean | string; scroll?: boolean }
+  | { cmd: 'scroll'; direction?: 'up' | 'down' | 'left' | 'right'; amount?: number; target?: TargetInput }
+  | {
+      cmd: 'wait';
+      ms?: number;
+      selector?: string;
+      text?: string;
+      url?: string;
+      loadState?: 'load' | 'domcontentloaded' | 'networkidle';
+    }
+  | { cmd: 'dialog'; action: 'accept' | 'dismiss'; prompt?: string }
+  | { cmd: 'upload'; target: TargetInput; files: string[] }
+  | { cmd: 'find'; by: string; spec: string; action: string; value?: string; name?: string; attr?: string }
+  | { cmd: 'frame'; target: string }
+  | { cmd: 'eval'; expr: string }
+  | { cmd: 'screenshot'; path?: string; fullPage?: boolean; annotate?: boolean }
+  | { cmd: 'snapshot'; interactive?: boolean; urls?: boolean; filter?: string; maxDepth?: number }
+  | {
+      cmd: 'read';
+      selector?: string;
+      data?: boolean;
+      links?: boolean | string;
+      scroll?: boolean;
+      outline?: boolean;
+      filter?: string;
+    }
   | { cmd: 'get'; prop: InspectProp; target?: TargetInput; attr?: string }
   | { cmd: 'is'; state: InspectState; target: TargetInput }
   | { cmd: 'note'; action: 'get' | 'set' | 'append'; site: string; text?: string };
@@ -23,7 +45,7 @@ export interface BatchStepResult {
   cmd: string;
   ok: boolean;
   result?: unknown;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; details?: unknown };
 }
 
 export interface BatchDeltaReceipt {
@@ -47,12 +69,33 @@ export interface BatchClient {
   dblclick(target: TargetInput): Promise<unknown>;
   hover(target: TargetInput): Promise<unknown>;
   focus(target: TargetInput): Promise<unknown>;
-  fill(target: TargetInput, value: string): Promise<unknown>;
+  fill(target: TargetInput, value: string, opts?: { submit?: boolean }): Promise<unknown>;
   selectOption(target: TargetInput, value: string): Promise<unknown>;
   press(target: string | TargetInput, chord?: string): Promise<unknown>;
+  check?(target: TargetInput): Promise<unknown>;
+  uncheck?(target: TargetInput): Promise<unknown>;
+  setInputFiles?(target: TargetInput, files: string | string[]): Promise<unknown>;
+  acceptDialog?(prompt?: string): Promise<unknown>;
+  dismissDialog?(): Promise<unknown>;
+  mouseWheel?(deltaX: number, deltaY: number): Promise<unknown>;
+  scrollIntoView?(target: TargetInput): Promise<unknown>;
+  selectFrame?(ref: string): Promise<unknown>;
+  screenshot?(opts?: { path?: string; fullPage?: boolean; annotate?: boolean }): Promise<unknown>;
+  waitFor?(predicate: {
+    text?: string;
+    selector?: string;
+    url?: string;
+    loadState?: 'load' | 'domcontentloaded' | 'networkidle';
+  }): Promise<void>;
+  waitForLoadState?(state: 'load' | 'domcontentloaded' | 'networkidle', opts?: { timeoutMs?: number }): Promise<void>;
+  smartSettle?(opts?: { maxWaitMs?: number; quietMs?: number }): Promise<unknown>;
   waitForTimeout(ms: number): Promise<void>;
-  snapshot(opts?: { interactiveOnly?: boolean }): Promise<SnapshotResult['nodes']>;
-  snapshotWithRefs(opts?: { interactiveOnly?: boolean }): Promise<SnapshotResult['nodes']>;
+  snapshot(opts?: { interactiveOnly?: boolean; urls?: boolean; maxDepth?: number }): Promise<SnapshotResult['nodes']>;
+  snapshotWithRefs(opts?: {
+    interactiveOnly?: boolean;
+    urls?: boolean;
+    maxDepth?: number;
+  }): Promise<SnapshotResult['nodes']>;
   events(): Promise<unknown[]>;
   evaluate(fn: string, arg?: unknown): Promise<unknown>;
   getProp(prop: InspectProp, target?: TargetInput, attr?: string): Promise<unknown>;
@@ -80,7 +123,17 @@ const WRITE_VERBS = new Set([
   'type',
   'press',
   'select',
+  'check',
+  'uncheck',
+  'scroll',
+  'scrollintoview',
+  'dialog',
+  'upload',
+  'eval',
+  'frame',
 ]);
+
+const READ_FIND_ACTIONS = new Set(['text', 'html', 'value', 'attr', 'box', 'visible', 'enabled', 'checked']);
 
 /** 拆分单行 shell 风格参数（支持双引号、单引号与反斜杠转义）。 */
 function tokenizeLine(line: string): string[] {
@@ -147,16 +200,22 @@ export function parseBatchLines(text: string): BatchStep[] {
       case 'dblclick':
       case 'hover':
       case 'focus':
+      case 'check':
+      case 'uncheck':
+      case 'scrollintoview':
         if (!rest[0]) throw Object.assign(new Error(`${cmd} 缺少 target`), { code: 'BAD_REQUEST' });
         steps.push({ cmd, target: rest[0] });
         break;
       case 'fill':
-      case 'type':
-        if (!rest[0] || rest[1] === undefined) {
+      case 'type': {
+        const submit = rest.includes('--submit');
+        const pos = rest.filter((t) => t !== '--submit');
+        if (!pos[0] || pos[1] === undefined) {
           throw Object.assign(new Error(`${cmd} 需要 target 与 value`), { code: 'BAD_REQUEST' });
         }
-        steps.push({ cmd, target: rest[0], value: rest[1] });
+        steps.push({ cmd, target: pos[0], value: pos[1], ...(submit ? { submit: true } : {}) });
         break;
+      }
       case 'press':
         if (rest.length >= 2) steps.push({ cmd, target: rest[0], key: rest[1]! });
         else if (rest[0]) steps.push({ cmd, key: rest[0] });
@@ -168,12 +227,91 @@ export function parseBatchLines(text: string): BatchStep[] {
         }
         steps.push({ cmd, target: rest[0], value: rest[1] });
         break;
-      case 'wait':
-        steps.push({ cmd, ms: Math.max(0, Number(rest[0] ?? 200)) });
+      case 'scroll': {
+        const dir = (rest[0] ?? 'down').toLowerCase();
+        const isDir = dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right';
+        const amount = Number(isDir ? (rest[1] ?? 500) : (rest[0] ?? 500));
+        steps.push({
+          cmd,
+          direction: isDir ? dir : 'down',
+          amount: Number.isFinite(amount) ? amount : 500,
+        });
         break;
-      case 'snapshot':
-        steps.push({ cmd, interactive: rest.includes('-i') || rest.includes('--interactive') });
+      }
+      case 'wait': {
+        const first = rest[0];
+        if (!first) {
+          steps.push({ cmd, ms: 200 });
+        } else if (/^\d+$/.test(first)) {
+          steps.push({ cmd, ms: Math.max(0, Number(first)) });
+        } else if (first === '--text' && rest[1]) {
+          steps.push({ cmd, text: rest[1] });
+        } else if (first === '--url' && rest[1]) {
+          steps.push({ cmd, url: rest[1] });
+        } else if (first === '--load' || first === 'load' || first === 'domcontentloaded' || first === 'networkidle') {
+          const state = first === '--load' ? (rest[1] ?? 'load') : first;
+          steps.push({ cmd, loadState: state as 'load' | 'domcontentloaded' | 'networkidle' });
+        } else {
+          steps.push({ cmd, selector: first });
+        }
         break;
+      }
+      case 'dialog': {
+        const action = (rest[0] ?? 'accept').toLowerCase();
+        if (action !== 'accept' && action !== 'dismiss') {
+          throw Object.assign(new Error('dialog 仅支持 accept | dismiss'), { code: 'BAD_REQUEST' });
+        }
+        steps.push({ cmd, action, prompt: rest[1] });
+        break;
+      }
+      case 'upload': {
+        if (!rest[0] || rest.length < 2) {
+          throw Object.assign(new Error('upload 需要 target 与至少一个文件路径'), { code: 'BAD_REQUEST' });
+        }
+        steps.push({ cmd, target: rest[0], files: rest.slice(1) });
+        break;
+      }
+      case 'find': {
+        if (!rest[0] || !rest[1] || !rest[2]) {
+          throw Object.assign(new Error('find 需要 <by> <spec> <action> [value]'), { code: 'BAD_REQUEST' });
+        }
+        steps.push({ cmd, by: rest[0], spec: rest[1], action: rest[2], value: rest[3] });
+        break;
+      }
+      case 'frame': {
+        if (!rest[0]) throw Object.assign(new Error('frame 需要 main 或 frameId/序号'), { code: 'BAD_REQUEST' });
+        steps.push({ cmd, target: rest[0] });
+        break;
+      }
+      case 'eval': {
+        const expr = rest.join(' ');
+        if (!expr) throw Object.assign(new Error('eval 需要表达式'), { code: 'BAD_REQUEST' });
+        steps.push({ cmd, expr });
+        break;
+      }
+      case 'screenshot': {
+        const fullPage = rest.includes('--full-page');
+        const annotate = rest.includes('--annotate');
+        const outPath = rest.find((t) => !t.startsWith('-'));
+        steps.push({
+          cmd,
+          ...(outPath ? { path: outPath } : {}),
+          ...(fullPage ? { fullPage: true } : {}),
+          ...(annotate ? { annotate: true } : {}),
+        });
+        break;
+      }
+      case 'snapshot': {
+        const filterIdx = rest.indexOf('--filter');
+        const filter = filterIdx >= 0 ? rest[filterIdx + 1] : undefined;
+        steps.push({
+          cmd,
+          interactive: rest.includes('-i') || rest.includes('--interactive'),
+          urls: rest.includes('-u') || rest.includes('--urls'),
+          ...(filter ? { filter } : {}),
+        });
+        break;
+      }
       case 'read':
         steps.push({
           cmd,
@@ -181,6 +319,7 @@ export function parseBatchLines(text: string): BatchStep[] {
           data: rest.includes('--data'),
           links: rest.includes('--links'),
           scroll: rest.includes('--scroll'),
+          outline: rest.includes('--outline'),
         });
         break;
       case 'get':
@@ -207,12 +346,28 @@ export function parseBatchLines(text: string): BatchStep[] {
 }
 
 export function hasWriteSteps(steps: BatchStep[]): boolean {
-  return steps.some((step) => WRITE_VERBS.has(step.cmd));
+  return steps.some((step) => {
+    if (step.cmd === 'find') return !READ_FIND_ACTIONS.has(step.action);
+    return WRITE_VERBS.has(step.cmd);
+  });
 }
 
-function summarizeNetworkDelta(before: NetworkEntry[], after: NetworkEntry[]): string[] {
-  const start = Math.min(before.length, after.length);
-  const added = after.slice(start);
+/**
+ * 计算本次批处理期间新增的网络请求摘要：
+ * 优先按单调自增 SQLite `id > beforeLastId` 截取，彻底修复 300 条上限满后 `slice(300)` 恒空 bug；
+ * 老测试桩不带 `id` 时安全回退到长度差值。
+ */
+export function summarizeNetworkDelta(before: NetworkEntry[], after: NetworkEntry[]): string[] {
+  let added: NetworkEntry[];
+  const lastBeforeId = before.length > 0 ? before[before.length - 1]!.id : undefined;
+  const hasIds = after.some((e) => typeof e.id === 'number');
+  if (hasIds) {
+    const cursor = typeof lastBeforeId === 'number' ? lastBeforeId : 0;
+    added = after.filter((e) => typeof e.id === 'number' && e.id > cursor);
+  } else {
+    const start = Math.min(before.length, after.length);
+    added = after.slice(start);
+  }
   return added.slice(-20).map((entry) => {
     let shortUrl = entry.url;
     try {
@@ -221,29 +376,37 @@ function summarizeNetworkDelta(before: NetworkEntry[], after: NetworkEntry[]): s
     } catch {
       // 保留原始串
     }
-    return `${entry.method} ${shortUrl} -> ${entry.status || 'ERR'}`;
+    return `${entry.method} ${shortUrl} -> ${entry.status || (entry.error ?? 'ERR')}`;
   });
 }
 
 /**
  * 批量顺序执行多个浏览器/笔记步骤；支持 `--bail` 遇错立即中止，
- * 并在短稳定窗口后返回带 URL/标题变化、弹窗、网络请求摘要与交互节点增删的 Delta Receipt。
+ * 使用事件驱动 `smartSettle` 收敛后以 `snapshotWithRefs` 产出自带 `@N` 的 Delta Receipt。
  */
 export async function executeBatch(options: {
   steps: BatchStep[];
   bail?: boolean;
+  noChanges?: boolean;
   controller: BatchClient;
   store?: BatchNoteStore;
   networkEntries?: () => NetworkEntry[];
+  networkEntriesSince?: (afterId: number) => NetworkEntry[];
   prepareInput?: <T>(fn: () => Promise<T>) => Promise<T>;
   settleMs?: number;
 }): Promise<{ ok: boolean; abortedAt?: number; results: BatchStepResult[]; delta: BatchDeltaReceipt }> {
   const bail = Boolean(options.bail);
   const runInput = options.prepareInput ?? ((fn) => fn());
   const netBefore = options.networkEntries ? options.networkEntries() : [];
+  const beforeLastNetId =
+    netBefore.length > 0 && typeof netBefore[netBefore.length - 1]!.id === 'number'
+      ? netBefore[netBefore.length - 1]!.id!
+      : 0;
   const beforeUrl = options.controller.currentUrl();
   const beforeTitle = await options.controller.title().catch(() => '');
-  const beforeNodes = await options.controller.snapshot({ interactiveOnly: true }).catch(() => []);
+  const beforeNodes = options.noChanges
+    ? []
+    : await options.controller.snapshot({ interactiveOnly: true }).catch(() => []);
   const beforeSnap: SnapshotResult = { url: beforeUrl, title: beforeTitle, nodes: beforeNodes };
 
   const results: BatchStepResult[] = [];
@@ -261,10 +424,16 @@ export async function executeBatch(options: {
           break;
         case 'back':
           options.controller.goBack();
+          if (options.controller.waitForLoadState) {
+            await options.controller.waitForLoadState('domcontentloaded', { timeoutMs: 3000 }).catch(() => {});
+          }
           out = { url: options.controller.currentUrl() };
           break;
         case 'forward':
           options.controller.goForward();
+          if (options.controller.waitForLoadState) {
+            await options.controller.waitForLoadState('domcontentloaded', { timeoutMs: 3000 }).catch(() => {});
+          }
           out = { url: options.controller.currentUrl() };
           break;
         case 'reload':
@@ -282,9 +451,39 @@ export async function executeBatch(options: {
         case 'focus':
           out = await runInput(() => options.controller.focus(step.target));
           break;
+        case 'check':
+          if (!options.controller.check) throw Object.assign(new Error('check 不可用'), { code: 'INTERNAL' });
+          out = await runInput(() => options.controller.check!(step.target));
+          break;
+        case 'uncheck':
+          if (!options.controller.uncheck) throw Object.assign(new Error('uncheck 不可用'), { code: 'INTERNAL' });
+          out = await runInput(() => options.controller.uncheck!(step.target));
+          break;
+        case 'scrollintoview':
+          if (options.controller.scrollIntoView) {
+            out = await runInput(() => options.controller.scrollIntoView!(step.target));
+          } else {
+            out = await runInput(() => options.controller.hover(step.target));
+          }
+          break;
+        case 'scroll': {
+          const amt = step.amount ?? 500;
+          const dx = step.direction === 'left' ? -amt : step.direction === 'right' ? amt : 0;
+          const dy = step.direction === 'up' ? -amt : step.direction === 'down' || !step.direction ? amt : 0;
+          if (options.controller.mouseWheel) {
+            out = await runInput(() => options.controller.mouseWheel!(dx, dy));
+          } else {
+            out = await options.controller.evaluate(
+              `() => { window.scrollBy(${dx}, ${dy}); return { x: window.scrollX, y: window.scrollY }; }`,
+            );
+          }
+          break;
+        }
         case 'fill':
         case 'type':
-          out = await runInput(() => options.controller.fill(step.target, step.value));
+          out = await runInput(() =>
+            options.controller.fill(step.target, step.value, step.submit ? { submit: true } : undefined),
+          );
           break;
         case 'press':
           out = await runInput(() =>
@@ -297,16 +496,98 @@ export async function executeBatch(options: {
           out = await runInput(() => options.controller.selectOption(step.target, step.value));
           break;
         case 'wait':
-          await options.controller.waitForTimeout(step.ms);
-          out = { waitedMs: step.ms };
+          if (step.ms !== undefined) {
+            await options.controller.waitForTimeout(step.ms);
+            out = { waitedMs: step.ms };
+          } else if (options.controller.waitFor) {
+            await options.controller.waitFor({
+              ...(step.selector ? { selector: step.selector } : {}),
+              ...(step.text ? { text: step.text } : {}),
+              ...(step.url ? { url: step.url } : {}),
+              ...(step.loadState ? { loadState: step.loadState } : {}),
+            });
+            out = { ok: true };
+          } else {
+            out = { ok: true };
+          }
+          break;
+        case 'dialog':
+          if (step.action === 'accept' && options.controller.acceptDialog) {
+            out = await options.controller.acceptDialog(step.prompt);
+          } else if (step.action === 'dismiss' && options.controller.dismissDialog) {
+            out = await options.controller.dismissDialog();
+          } else {
+            throw Object.assign(new Error('dialog 控制不可用'), { code: 'INTERNAL' });
+          }
+          break;
+        case 'upload':
+          if (!options.controller.setInputFiles) throw Object.assign(new Error('upload 不可用'), { code: 'INTERNAL' });
+          out = await runInput(() => options.controller.setInputFiles!(step.target, step.files));
+          break;
+        case 'find': {
+          const target = targetFromBy(step.by, step.spec, step.name);
+          if (
+            step.action === 'text' ||
+            step.action === 'html' ||
+            step.action === 'value' ||
+            step.action === 'attr' ||
+            step.action === 'box'
+          ) {
+            out = await options.controller.getProp(step.action as InspectProp, target, step.attr ?? step.value);
+          } else if (step.action === 'visible' || step.action === 'enabled' || step.action === 'checked') {
+            out = { ok: await options.controller.checkState(step.action as InspectState, target) };
+          } else if (step.action === 'click') out = await runInput(() => options.controller.click(target));
+          else if (step.action === 'dblclick') out = await runInput(() => options.controller.dblclick(target));
+          else if (step.action === 'hover') out = await runInput(() => options.controller.hover(target));
+          else if (step.action === 'focus') out = await runInput(() => options.controller.focus(target));
+          else if (step.action === 'fill')
+            out = await runInput(() => options.controller.fill(target, step.value ?? ''));
+          else if (step.action === 'press')
+            out = await runInput(() => options.controller.press(target, step.value ?? 'Enter'));
+          else if (step.action === 'select')
+            out = await runInput(() => options.controller.selectOption(target, step.value ?? ''));
+          else if (step.action === 'check' && options.controller.check)
+            out = await runInput(() => options.controller.check!(target));
+          else if (step.action === 'uncheck' && options.controller.uncheck)
+            out = await runInput(() => options.controller.uncheck!(target));
+          else throw Object.assign(new Error(`未知 find 动作：${step.action}`), { code: 'BAD_REQUEST' });
+          break;
+        }
+        case 'frame':
+          if (!options.controller.selectFrame) throw Object.assign(new Error('frame 切换不可用'), { code: 'INTERNAL' });
+          out = await options.controller.selectFrame(step.target);
+          break;
+        case 'eval':
+          out = await options.controller.evaluate(`() => (${step.expr})`);
+          break;
+        case 'screenshot':
+          if (!options.controller.screenshot) throw Object.assign(new Error('screenshot 不可用'), { code: 'INTERNAL' });
+          out = await options.controller.screenshot({
+            path: step.path,
+            fullPage: step.fullPage,
+            annotate: step.annotate,
+          });
           break;
         case 'snapshot': {
-          const nodes = await options.controller.snapshotWithRefs({ interactiveOnly: step.interactive });
+          const nodes = await options.controller.snapshotWithRefs({
+            interactiveOnly: step.interactive,
+            urls: step.urls,
+            maxDepth: step.maxDepth,
+          });
           const url = options.controller.currentUrl();
           const title = await options.controller.title();
           const siteNotes = options.store?.matchSiteNotesForUrl(url);
           out = step.interactive
-            ? formatCompactSnapshot({ url, title, nodes, siteNotes, interactiveOnly: true })
+            ? formatCompactSnapshot({
+                url,
+                title,
+                nodes,
+                siteNotes,
+                interactiveOnly: true,
+                urls: step.urls,
+                filter: step.filter,
+                maxDepth: step.maxDepth,
+              })
             : { url, title, nodes };
           break;
         }
@@ -317,6 +598,8 @@ export async function executeBatch(options: {
             data: step.data,
             links: step.links,
             scroll: step.scroll,
+            outline: step.outline,
+            filter: step.filter,
             siteNotes: options.store?.matchSiteNotesForUrl(url),
           });
           break;
@@ -337,12 +620,16 @@ export async function executeBatch(options: {
       results.push({ step: i + 1, cmd: step.cmd, ok: true, result: out });
     } catch (error) {
       ok = false;
-      const errObj = error as { code?: string; message?: string };
+      const errObj = error as { code?: string; message?: string; details?: unknown };
       results.push({
         step: i + 1,
         cmd: step.cmd,
         ok: false,
-        error: { code: errObj.code ?? 'ERROR', message: errObj.message ?? String(error) },
+        error: {
+          code: errObj.code ?? 'ERROR',
+          message: errObj.message ?? String(error),
+          ...(errObj.details ? { details: errObj.details } : {}),
+        },
       });
       if (bail) {
         abortedAt = i + 1;
@@ -351,20 +638,35 @@ export async function executeBatch(options: {
     }
   }
 
-  const settleMs = options.settleMs ?? 150;
-  if (settleMs > 0) await new Promise((resolve) => setTimeout(resolve, settleMs));
+  // 事件驱动收敛（若单测传 settleMs === 0 则跳过等待）
+  if (options.settleMs !== 0) {
+    if (options.controller.smartSettle) {
+      await options.controller.smartSettle({ maxWaitMs: 3000, quietMs: options.settleMs ?? 180 }).catch(() => {});
+    } else {
+      const ms = options.settleMs ?? 150;
+      if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
+    }
+  }
 
   const afterUrl = options.controller.currentUrl();
   const afterTitle = await options.controller.title().catch(() => '');
-  const afterNodes = await options.controller.snapshot({ interactiveOnly: true }).catch(() => []);
+  // 关键升级：末尾调用 `snapshotWithRefs` 让 Delta Receipt 中新增交互元素自带可立刻消费的 `@N`！
+  const afterNodes = options.noChanges
+    ? []
+    : await options.controller.snapshotWithRefs({ interactiveOnly: true }).catch(() => []);
   const afterEvents = await options.controller.events().catch(() => []);
-  const netAfter = options.networkEntries ? options.networkEntries() : [];
+  const netDelta =
+    options.networkEntriesSince && beforeLastNetId > 0
+      ? summarizeNetworkDelta([], options.networkEntriesSince(beforeLastNetId))
+      : summarizeNetworkDelta(netBefore, options.networkEntries ? options.networkEntries() : []);
 
-  const interactiveDelta = diffSnapshots(beforeSnap, {
-    url: afterUrl,
-    title: afterTitle,
-    nodes: afterNodes,
-  });
+  const interactiveDelta = options.noChanges
+    ? diffSnapshots({ url: beforeUrl, title: beforeTitle, nodes: [] }, { url: afterUrl, title: afterTitle, nodes: [] })
+    : diffSnapshots(beforeSnap, {
+        url: afterUrl,
+        title: afterTitle,
+        nodes: afterNodes,
+      });
 
   return {
     ok,
@@ -376,7 +678,7 @@ export async function executeBatch(options: {
       url: afterUrl,
       title: afterTitle,
       events: afterEvents,
-      networkSummary: summarizeNetworkDelta(netBefore, netAfter),
+      networkSummary: netDelta,
       interactiveDelta,
     },
   };
