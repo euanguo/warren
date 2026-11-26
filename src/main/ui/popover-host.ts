@@ -1,6 +1,6 @@
 import { BrowserWindow, screen, type WebContents } from 'electron';
 import path from 'node:path';
-import { computePopoverBounds } from './popover-layout.ts';
+import { computePopoverBounds, shouldFocusPopover } from './popover-layout.ts';
 import type { PopoverActionEvent, PopoverOpenOptions } from '../../shared/types.ts';
 
 export interface PopoverHostOptions {
@@ -82,7 +82,8 @@ export class PopoverHost {
     const bounds = this.#calcBounds(options);
     slot.win.setBounds(bounds);
     slot.win.webContents.send('popover:state', { id: options.id, props: options.props ?? {} });
-    if (focusable) {
+    const shouldFocus = shouldFocusPopover(focusable, !this.#mainWindow.isDestroyed() && this.#mainWindow.isFocused());
+    if (shouldFocus) {
       slot.win.show();
       slot.win.focus();
       slot.win.webContents.focus();

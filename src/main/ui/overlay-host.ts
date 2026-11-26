@@ -82,7 +82,9 @@ export class OverlayHost {
     this.#layers.setVisible('overlay', true);
     this.#layers.restack();
     this.#view.webContents.send('overlay:state', request);
-    this.#view.webContents.focus();
+    if (!this.#window.isDestroyed() && this.#window.isFocused()) {
+      this.#view.webContents.focus();
+    }
     return new Promise<T | null>((resolve) => {
       this.#pendingResolve = (val) => resolve((val as T | undefined) ?? null);
     });

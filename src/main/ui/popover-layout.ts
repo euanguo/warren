@@ -78,3 +78,11 @@ function clamp(value: number, min: number, max: number): number {
   if (value > max) return max;
   return value;
 }
+
+/**
+ * 只有宿主主窗口本就在前台时，可聚焦型 Popover 才允许接管键盘焦点；
+ * 主窗口处于后台时绝不调用 show()/focus()，避免跨应用窃走用户当前窗口焦点。
+ */
+export function shouldFocusPopover(focusable: boolean, mainWindowFocused: boolean): boolean {
+  return focusable && mainWindowFocused;
+}

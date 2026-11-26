@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computePopoverBounds } from '../src/main/ui/popover-layout.ts';
+import { computePopoverBounds, shouldFocusPopover } from '../src/main/ui/popover-layout.ts';
 
 const WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
 const WINDOW = { x: 100, y: 100, width: 1000, height: 700 };
@@ -50,4 +50,11 @@ test('bottom-end 右对齐并支持超出主窗探入工作区', () => {
   });
   // anchorRight = 100 + 920 + 60 = 1080 -> x = 1080 - 280 = 800; y = 100 + 648 + 6 = 754; 754 + 120 = 874 <= 892
   assert.deepEqual(out, { x: 800, y: 754, width: 280, height: 120 });
+});
+
+test('shouldFocusPopover 仅当宿主主窗口本就在前台时允许聚焦子窗，避免跨应用抢焦点', () => {
+  assert.equal(shouldFocusPopover(true, true), true);
+  assert.equal(shouldFocusPopover(true, false), false);
+  assert.equal(shouldFocusPopover(false, true), false);
+  assert.equal(shouldFocusPopover(false, false), false);
 });

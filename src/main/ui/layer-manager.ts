@@ -69,9 +69,22 @@ export class WindowLayerManager {
 
   restack(): void {
     const contentView = this.#window.contentView;
+    const actual = contentView.children as WebContentsView[];
     const expected = this.#model.orderedViews();
-    if (this.#model.isInOrder(contentView.children as WebContentsView[])) {
+    if (this.#model.isInOrder(actual)) {
       return;
+    }
+    // 快路径：仅新挂入最底层 `'below'` 且其余上层视图已在正确顺序时，直接插在 index 0，
+    // 避免把正在显示的 `'page'` / `'devtools'` / `'overlay'` 摘下重挂导致画面闪烁与焦点抖动。
+    const belowView = this.#model.get('below').view;
+    if (belowView && expected[0] === belowView && !actual.includes(belowView) && this.#isLive(belowView)) {
+      const upper = expected.slice(1);
+      const relevantUpper = actual.filter((child) => upper.includes(child));
+      if (relevantUpper.length === upper.length && upper.every((view, index) => relevantUpper[index] === view)) {
+        contentView.addChildView(belowView, 0);
+        this.#syncSlotProps('below');
+        return;
+      }
     }
     for (const view of expected) {
       this.#safeRemove(view);

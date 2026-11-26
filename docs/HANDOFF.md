@@ -256,7 +256,8 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 - **Wave 1 — 原生多视图窗口栈与 Chrome 级页面能力**：
   - `WindowLayerManager` 固定 `below → page → devtools → shield → overlay` 五层 Z-Order 并统一应用 8px 圆角；
   - `OverlayHost`（预热透明置顶窗承载 `⌘K` 命令栏、创建与确认弹窗）与双池 `PopoverHost`（`omni-suggest` / `find-in-page`）不再藏页，实测 Popover 与 `⌘K` 打开时页面 `viewVisible === true` 且 `document.hidden === false`；
-  - `DevToolsHost` 通过 `setDevToolsWebContents` 实现原生 Chrome DevTools `right` / `bottom` / `detach` 三态停靠（`right`/`bottom` 复用 `dockView` 并留 6px 分栏缝隙，绕开 Electron 45 自定义宿主 `isDevToolsOpened()` 恒 `false` 的行为并在切换 `docked <-> detach` 时等待 `devtools-closed`），同步落地页内查找、按域缩放（`domain_prefs` 表）、视口预设、下载追踪、打印与另存为。
+  - `DevToolsHost` 通过 `setDevToolsWebContents` 实现原生 Chrome DevTools `right` / `bottom` / `detach` 三态停靠（`right`/`bottom` 复用 `dockView` 并留 6px 分栏缝隙，绕开 Electron 45 自定义宿主 `isDevToolsOpened()` 恒 `false` 的行为并在切换 `docked <-> detach` 时等待 `devtools-closed`），同步落地页内查找、按域缩放（`domain_prefs` 表）、视口预设、下载追踪、打印与另存为；
+  - **视口单源与零抢焦点守卫**：`TabManager` 始终从 `ViewCoordinator.pageBounds()` 读取单一视口真相并在渲染层上报真实视口前隐藏默认 `800×600` 视图，`setViewport()` 同步全部运行中环境的双 Space 与 `'below'` 槽位，`WindowLayerManager.restack()` 对 `'below'` 走 index 0 快路径不摘挂 `'page'`；`PopoverHost` / `OverlayHost` / `DevToolsHost` 仅在主窗口本就聚焦时聚焦/激活，`createWindow()` 支持 `WARREN_START_INACTIVE=1` / `WARREN_BACKGROUND=1` 静默启动不抢前台。
 - **Wave 2 — 核心域拆解与插件机制 2.0**：
   - `src/shared/types/*` 按域拆分为 6 个模块（`types.ts` 保持纯 re-export），`environments.ts` 拆为薄 Facade + `env/{session-factory,lifecycle,lease-coordinator,view-coordinator}.ts`；
   - **可强杀子进程边界**：`worker-process.ts` 统一封装 `utilityProcess.fork` / `child_process.fork`（`buildForkEnv` 清理 `undefined` 环境键避免 Electron 报错），`sandbox`（受限 `node:vm` 子进程）与 `host`（完整 Node 子进程）均具备独立崩溃/超时强杀边界，同时保持「非 OS 安全沙箱」定位不变；

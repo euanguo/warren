@@ -126,10 +126,17 @@ export function App() {
       });
     };
     report();
+    let raf2 = 0;
+    const raf1 = window.requestAnimationFrame(() => {
+      report();
+      raf2 = window.requestAnimationFrame(report);
+    });
     const observer = new ResizeObserver(report);
     observer.observe(node);
     window.addEventListener('resize', report);
     return () => {
+      window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
       observer.disconnect();
       window.removeEventListener('resize', report);
     };

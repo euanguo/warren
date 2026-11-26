@@ -83,6 +83,7 @@ export class EnvViewCoordinator {
   #layers: WindowLayerManager;
   #devtools: DevToolsHost;
   #viewport: ViewportRect = { x: 0, y: 0, width: 800, height: 600 };
+  #viewportReady = false;
   #backgroundBounds?: { x: number; y: number; width: number; height: number };
   #selected?: string;
   #viewVisible = true;
@@ -104,6 +105,7 @@ export class EnvViewCoordinator {
             nodeIntegration: false,
           },
         }),
+      () => !this.#window.isDestroyed() && this.#window.isFocused(),
     );
   }
 
@@ -124,6 +126,17 @@ export class EnvViewCoordinator {
   }
 
   pageBounds(): ViewportRect {
+    if (!this.#viewportReady) {
+      const [winW, winH] = this.#window.isDestroyed() ? [1440, 920] : this.#window.getContentSize();
+      const x = Math.min(318, Math.max(0, Math.floor(winW * 0.25)));
+      const y = Math.min(128, Math.max(0, Math.floor(winH * 0.15)));
+      return {
+        x,
+        y,
+        width: Math.max(200, winW - x - 6),
+        height: Math.max(160, winH - y - 6),
+      };
+    }
     return this.#devtools.computeSplitBounds().page;
   }
 
@@ -144,6 +157,8 @@ export class EnvViewCoordinator {
       space,
       window: this.#window,
       layers: this.#layers,
+      getViewport: () => this.pageBounds(),
+      isViewportReady: () => this.#viewportReady,
       session: ses,
       trustedCa,
       onChanged: () => {
@@ -356,10 +371,10 @@ export class EnvViewCoordinator {
     if (this.#selected === id) {
       this.#devtools.activateTab(spaces[space].activeId);
       const split = this.#devtools.computeSplitBounds();
-      spaces[space].attach();
-      spaces[space].setViewVisible(this.#viewVisible);
       spaces[space].setViewport(split.page);
-      this.#layers.setVisible('devtools', this.#viewVisible && this.#devtools.isOpen());
+      spaces[space].setViewVisible(this.#viewVisible);
+      spaces[space].attach();
+      this.#layers.setVisible('devtools', this.#viewVisible && this.#viewportReady && this.#devtools.isOpen());
       this.#deps.syncShield(id);
     }
     this.#deps.onChange();
@@ -389,11 +404,12 @@ export class EnvViewCoordinator {
       return;
     }
 
-    target.attach();
-    target.setViewVisible(this.#viewVisible);
     this.#devtools.activateTab(target.activeId);
-    target.setViewport(this.#devtools.computeSplitBounds().page);
-    this.#layers.setVisible('devtools', this.#viewVisible && this.#devtools.isOpen());
+    const split = this.#devtools.computeSplitBounds();
+    target.setViewport(split.page);
+    target.setViewVisible(this.#viewVisible);
+    target.attach();
+    this.#layers.setVisible('devtools', this.#viewVisible && this.#viewportReady && this.#devtools.isOpen());
 
     this.#deps.syncShield(id, { createIfMissing: true });
     this.#deps.onChange();
@@ -401,12 +417,23 @@ export class EnvViewCoordinator {
 
   setViewport(viewport: ViewportRect): void {
     if (viewport.width <= 0 || viewport.height <= 0) return;
+    this.#viewportReady = true;
     this.#viewport = viewport;
     this.#devtools.setViewport(viewport);
     const split = this.#devtools.computeSplitBounds();
+    // 同步全部运行中环境的双 Space 视口，确保后台/非激活 Space attachBelow 绝不回退到 0,0,800,600
+    for (const [, spaces] of this.#deps.allSpacesEntries()) {
+      for (const space of SPACE_IDS) {
+        spaces[space].setViewport(split.page);
+      }
+    }
+    if (this.#layers.slotView('below')) {
+      this.#layers.setBounds('below', split.page);
+    }
     if (this.#selected) {
-      this.#deps.getSpaceManager(this.#selected)?.setViewport(split.page);
+      this.#deps.getSpaceManager(this.#selected)?.setViewVisible(this.#viewVisible);
       this.#deps.repositionShield(this.#selected, split.page);
+      this.#layers.setVisible('devtools', this.#viewVisible && this.#devtools.isOpen());
     }
   }
 
@@ -424,13 +451,16 @@ export class EnvViewCoordinator {
       this.#deps.getSpaceManager(this.#selected)?.setViewVisible(visible);
       this.#deps.setShieldVisible(this.#selected, visible);
     }
-    this.#layers.setVisible('devtools', visible && this.#devtools.isOpen());
+    this.#layers.setVisible('devtools', visible && this.#viewportReady && this.#devtools.isOpen());
   }
 
   reapplySplitBounds(id: string): void {
     if (this.#selected !== id) return;
     const split = this.#devtools.computeSplitBounds();
     this.#deps.getSpaceManager(id)?.setViewport(split.page);
+    if (this.#layers.slotView('below')) {
+      this.#layers.setBounds('below', split.page);
+    }
     this.#deps.repositionShield(id, split.page);
   }
 

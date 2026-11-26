@@ -180,11 +180,14 @@ function resolveProxyCredential(host: string): { username: string; password: str
 }
 
 function createWindow(): BrowserWindow {
+  const startBackground = process.env.WARREN_BACKGROUND === '1';
+  const startInactive = startBackground || process.env.WARREN_START_INACTIVE === '1';
   const win = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 1024,
     minHeight: 640,
+    show: !startInactive,
     // 渲染层首帧之前的窗口底色。取外壳色，避免启动时闪一圈黑。
     backgroundColor: '#1c1c1c',
     titleBarStyle: 'hiddenInset',
@@ -198,6 +201,17 @@ function createWindow(): BrowserWindow {
       backgroundThrottling: false,
     },
   });
+
+  if (startInactive) {
+    win.once('ready-to-show', () => {
+      if (win.isDestroyed()) return;
+      if (startBackground) {
+        manager?.backgroundWindow();
+      } else {
+        win.showInactive();
+      }
+    });
+  }
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

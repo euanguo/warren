@@ -35,6 +35,7 @@ const CLOSE_SETTLE_TIMEOUT_MS = 500;
 export class DevToolsHost {
   #layers: WindowLayerManager;
   #createDockView: DockViewFactory;
+  #isHostFocused: () => boolean;
   #dockMode: DevToolsDockMode = 'right';
   #dockSize = DEFAULT_DOCK_SIZE;
   #entries = new Map<string, DockEntry>();
@@ -44,10 +45,16 @@ export class DevToolsHost {
   #viewport: ViewportRect = { x: 0, y: 0, width: 800, height: 600 };
   #onStateChanged: () => void;
 
-  constructor(layers: WindowLayerManager, onStateChanged: () => void, createDockView: DockViewFactory) {
+  constructor(
+    layers: WindowLayerManager,
+    onStateChanged: () => void,
+    createDockView: DockViewFactory,
+    isHostFocused: () => boolean = () => true,
+  ) {
     this.#layers = layers;
     this.#onStateChanged = onStateChanged;
     this.#createDockView = createDockView;
+    this.#isHostFocused = isHostFocused;
   }
 
   get dockMode(): DevToolsDockMode {
@@ -142,8 +149,11 @@ export class DevToolsHost {
     const existing = this.#entries.get(tabId);
     if (this.#isEntryOpen(existing) && existing) {
       if (existing.mode === mode) {
-        if (mode === 'detach') existing.targetWc.devToolsWebContents?.focus();
-        else this.activateTab(tabId);
+        if (mode === 'detach') {
+          if (this.#isHostFocused()) existing.targetWc.devToolsWebContents?.focus();
+        } else {
+          this.activateTab(tabId);
+        }
         return;
       }
       if (existing.mode !== 'detach' && mode !== 'detach' && existing.dockView) {
@@ -262,7 +272,7 @@ export class DevToolsHost {
       this.#entries.set(tabId, entry);
       targetWc.once('devtools-closed', onClosed);
       targetWc.once('destroyed', onTargetDestroyed);
-      targetWc.openDevTools({ mode: 'detach' });
+      targetWc.openDevTools({ mode: 'detach', activate: this.#isHostFocused() });
       this.#layers.setSlot('devtools', undefined);
       this.#layoutActive();
       this.#onStateChanged();
@@ -312,7 +322,7 @@ export class DevToolsHost {
     dockWc.once('destroyed', onDockDestroyed);
 
     targetWc.setDevToolsWebContents(dockWc);
-    targetWc.openDevTools({ mode: 'detach' });
+    targetWc.openDevTools({ mode: 'detach', activate: this.#isHostFocused() });
 
     if (this.#activeTabId === tabId) {
       this.#layers.setSlot('devtools', dockView, { visible: true });

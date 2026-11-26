@@ -12,6 +12,8 @@ class FakeWebContents extends EventEmitter {
   devToolsOpened = false;
   devToolsWebContents: FakeWebContents | null = null;
   openCount = 0;
+  openOptions: Array<{ mode?: string; activate?: boolean } | undefined> = [];
+  focusCount = 0;
   closeDevToolsCount = 0;
   closeCount = 0;
   inspected: Array<{ x: number; y: number }> = [];
@@ -31,8 +33,9 @@ class FakeWebContents extends EventEmitter {
     this.devToolsWebContents = wc;
   }
 
-  openDevTools(): void {
+  openDevTools(opts?: { mode?: string; activate?: boolean }): void {
     this.openCount += 1;
+    this.openOptions.push(opts);
     if (!this.#usesCustomHost) {
       this.devToolsOpened = true;
     }
@@ -57,7 +60,9 @@ class FakeWebContents extends EventEmitter {
     this.emit('destroyed');
   }
 
-  focus(): void {}
+  focus(): void {
+    this.focusCount += 1;
+  }
 
   inspectElement(x: number, y: number): void {
     this.inspected.push({ x, y });
@@ -180,4 +185,30 @@ test('DevToolsHost 在 docked <-> detach 切换时等待 devtools-closed 再打�
   // 模拟用户在 dockView 内关闭 DevTools（dockView 触发 destroyed）
   dockViews[1]!.webContents.close();
   assert.equal(host.isOpen('tab-1'), false);
+});
+
+test('DevToolsHost 在宿主主窗口失焦时传 activate=false 且不强行 focus，防止抢前台窗口', () => {
+  const layers = createFakeLayers();
+  let hostFocused = false;
+  const host = new DevToolsHost(
+    layers,
+    () => {},
+    () => new FakeDockView() as unknown as WebContentsView,
+    () => hostFocused,
+  );
+  const targetWc = new FakeWebContents();
+  host.openForTab('tab-bg', targetWc as unknown as WebContents, 'right');
+  assert.deepEqual(targetWc.openOptions[0], { mode: 'detach', activate: false });
+
+  const detachWc = new FakeWebContents();
+  const dtWc = new FakeWebContents();
+  detachWc.devToolsWebContents = dtWc;
+  host.openForTab('tab-detach', detachWc as unknown as WebContents, 'detach');
+  assert.deepEqual(detachWc.openOptions[0], { mode: 'detach', activate: false });
+  host.openForTab('tab-detach', detachWc as unknown as WebContents, 'detach');
+  assert.equal(dtWc.focusCount, 0, '失焦时重复打开 detach 不应窃走焦点');
+
+  hostFocused = true;
+  host.openForTab('tab-detach', detachWc as unknown as WebContents, 'detach');
+  assert.equal(dtWc.focusCount, 1, '主窗口本就在前台时允许聚焦已有 DevTools');
 });

@@ -171,7 +171,12 @@ export interface TabManagerOptions {
   envId: string;
   space: SpaceId;
   window: BrowserWindow;
+  /** 窗口原生层管理器 */
   layers?: WindowLayerManager;
+  /** 读取当前真实页面视口（单一真相源，避免新建或后台 Space 沿用 0,0,800,600 默认值） */
+  getViewport?: () => ViewportRect;
+  /** 渲染层是否已经上报过有效视口；未就绪前不把默认 800x600 视图画到左上角 */
+  isViewportReady?: () => boolean;
   session: Session;
   trustedCa?: X509Certificate;
   /** 状态变更通知（已节流）—— 渲染层刷新用 */
@@ -239,6 +244,9 @@ export class TabManager {
 
   constructor(options: TabManagerOptions) {
     this.#options = options;
+    if (options.getViewport) {
+      this.#viewport = options.getViewport();
+    }
   }
 
   get activeId(): string | undefined {
@@ -410,12 +418,14 @@ export class TabManager {
     if (!tab) return false;
     if (this.#attached === tab.view) return false; // 已经挂着了（就是被显示的那个）
     const view = tab.view;
+    const bounds = this.#effectiveViewport();
+    this.#viewport = bounds;
     if (this.#options.layers) {
-      this.#options.layers.setSlot('below', view, { visible: true, bounds: this.#viewport });
+      this.#options.layers.setSlot('below', view, { visible: true, bounds });
     } else {
       this.#options.window.contentView.addChildView(view, 0);
       view.setVisible(true);
-      view.setBounds(this.#viewport);
+      view.setBounds(bounds);
     }
     this.#below = view;
     return true;
@@ -441,9 +451,19 @@ export class TabManager {
   setViewport(bounds: ViewportRect): void {
     this.#viewport = bounds;
     const tab = this.active();
+    const visible = this.#viewVisible && this.#viewportReady();
     if (tab && this.#attached === tab.view) {
-      if (this.#options.layers) this.#options.layers.setBounds('page', bounds);
-      else tab.view.setBounds(bounds);
+      if (this.#options.layers) {
+        this.#options.layers.setBounds('page', bounds);
+        this.#options.layers.setVisible('page', visible);
+      } else {
+        tab.view.setBounds(bounds);
+        tab.view.setVisible(visible);
+      }
+    }
+    if (this.#below) {
+      if (this.#options.layers) this.#options.layers.setBounds('below', bounds);
+      else this.#below.setBounds(bounds);
     }
   }
 
@@ -454,13 +474,14 @@ export class TabManager {
   setViewVisible(visible: boolean): void {
     this.#viewVisible = visible;
     if (!this.#attached) return;
+    const effective = visible && this.#viewportReady();
     if (this.#options.layers) {
       if (this.#options.layers.slotView('page') === this.#attached) {
-        this.#options.layers.setVisible('page', visible);
+        this.#options.layers.setVisible('page', effective);
       }
       return;
     }
-    this.#attached.setVisible(visible);
+    this.#attached.setVisible(effective);
   }
 
   /**
@@ -474,11 +495,12 @@ export class TabManager {
     // 页面 window.close() 之后 view.webContents 会变 undefined（见 HANDOFF 坑 12）
     const wc = this.active()?.view.webContents;
     if (!wc || wc.isDestroyed()) return;
+    const hostFocused = !this.#options.window.isDestroyed() && this.#options.window.isFocused();
     if (wc.isDevToolsOpened()) {
-      wc.devToolsWebContents?.focus();
+      if (hostFocused) wc.devToolsWebContents?.focus();
       return;
     }
-    wc.openDevTools({ mode: 'detach' });
+    wc.openDevTools({ mode: 'detach', activate: hostFocused });
   }
 
   /** 把当前标签的视图放进窗口。切换环境时由 EnvironmentManager 调用。 */
@@ -701,6 +723,14 @@ export class TabManager {
     if (this.#closed.length > CLOSED_STACK_MAX) this.#closed.length = CLOSED_STACK_MAX;
   }
 
+  #effectiveViewport(): ViewportRect {
+    return this.#options.getViewport?.() ?? this.#viewport;
+  }
+
+  #viewportReady(): boolean {
+    return this.#options.isViewportReady ? this.#options.isViewportReady() : true;
+  }
+
   #showActive(): void {
     // 没显示在右侧区域就不要往窗口里加视图。
     // 否则后台环境的页面自己开标签时，新视图会盖到当前显示的页面上面。
@@ -709,11 +739,15 @@ export class TabManager {
     const tab = this.active();
     if (!tab) return;
 
+    const bounds = this.#effectiveViewport();
+    this.#viewport = bounds;
+    const visible = this.#viewVisible && this.#viewportReady();
+
     if (this.#options.layers) {
       this.#attached = tab.view;
       this.#options.layers.setSlot('page', tab.view, {
-        visible: this.#viewVisible,
-        bounds: this.#viewport,
+        visible,
+        bounds,
       });
       this.#options.onViewChanged();
       return;
@@ -725,8 +759,8 @@ export class TabManager {
       this.#attached = tab.view;
     }
     // 新挂上来的视图要跟上当前的让位状态，否则浮层还开着的时候切标签会露出页面
-    tab.view.setVisible(this.#viewVisible);
-    tab.view.setBounds(this.#viewport);
+    tab.view.setVisible(visible);
+    tab.view.setBounds(bounds);
     // 遮罩必须在所有页面视图之后 addChildView 才盖得住
     this.#options.onViewChanged();
   }
