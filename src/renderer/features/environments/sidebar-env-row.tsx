@@ -114,7 +114,7 @@ export function SidebarEnvRow({
               tone={env.error ? 'error' : statusTone(env.status)}
               className={cn(
                 'absolute -right-0.5 -bottom-0.5 size-2 ring-[1.5px]',
-                selected ? 'ring-[var(--surface-selected)]' : 'ring-sidebar',
+                selected ? 'ring-[var(--surface-selected-solid)]' : 'ring-sidebar',
               )}
             />
           </span>

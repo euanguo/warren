@@ -47,16 +47,54 @@ const actorText: Record<string, string> = {
 
 function formatEventSummary(message: string): string {
   const trimmed = message.trim();
-  const gotoMatch = trimmed.match(/^human\s+goto\s+(.+)$/i);
+  const gotoMatch = trimmed.match(/^human\s+goto\s+(\S+)(?:\s+on\s+\S+)?$/i);
   if (gotoMatch) return `访问 ${gotoMatch[1]}`;
-  if (trimmed.startsWith('设置更新')) {
+  if (trimmed.includes('设置更新')) {
     const themeMatch = trimmed.match(/"theme"\s*:\s*"(dark|light|system)"/);
     if (themeMatch) {
       const label = themeMatch[1] === 'dark' ? '深色' : themeMatch[1] === 'light' ? '浅色' : '跟随系统';
       return `切换外观主题为「${label}」`;
     }
+    const dockMatch = trimmed.match(/"devToolsDock"\s*:\s*"(right|bottom|detach)"/);
+    if (dockMatch) {
+      const dockLabel = dockMatch[1] === 'bottom' ? '底部停靠' : dockMatch[1] === 'detach' ? '独立窗口' : '右侧停靠';
+      return `切换 DevTools 为${dockLabel}`;
+    }
     return '更新应用设置';
   }
+  const humanAcquire = trimmed.match(/^human\s+acquired\s+(\S+)/i);
+  if (humanAcquire) return `人工接管环境 ${humanAcquire[1]}`;
+  const humanRelease = trimmed.match(/^human\s+released\s+(\S+)/i);
+  if (humanRelease) return `人工交还环境 ${humanRelease[1]}`;
+  const agentAcquire = trimmed.match(/^agent\s+acquired\s+(\S+)(?:\s+\(([^)]+)\))?/i);
+  if (agentAcquire) return `Agent 接管 ${agentAcquire[1]}${agentAcquire[2] ? `（${agentAcquire[2]}）` : ''}`;
+  const agentRelease = trimmed.match(/^agent\s+released\s+(\S+)/i);
+  if (agentRelease) return `Agent 释放 ${agentRelease[1]}`;
+  const envState = trimmed.match(/^environment\s+(\S+)\s+(started|stopped|created|removed|hibernated|woken)$/i);
+  if (envState) {
+    const verbMap: Record<string, string> = {
+      started: '已启动',
+      stopped: '已停止',
+      created: '已新建',
+      removed: '已删除',
+      hibernated: '已休眠',
+      woken: '已唤醒',
+    };
+    return `环境 ${envState[1]} ${verbMap[envState[2]!.toLowerCase()] ?? envState[2]}`;
+  }
+  const pluginState = trimmed.match(/^plugin\s+(\S+)\s+(enabled|disabled|reloaded|installed|uninstalled|updated)/i);
+  if (pluginState) {
+    const verbMap: Record<string, string> = {
+      enabled: '已启用',
+      disabled: '已停用',
+      reloaded: '已重载',
+      installed: '已安装',
+      uninstalled: '已卸载',
+      updated: '已更新',
+    };
+    return `插件 ${pluginState[1]} ${verbMap[pluginState[2]!.toLowerCase()] ?? pluginState[2]}`;
+  }
+  if (/^core\s+ready\s+on\s+pid\s+\d+/i.test(trimmed)) return '核心服务已就绪';
   if (trimmed.includes('confirm 层')) {
     return trimmed.replace(/（confirm 层[^）]*）/g, '（需在设置页授权）').replace(/confirm 层/g, '受控权限');
   }

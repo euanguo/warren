@@ -248,6 +248,27 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
+### 外壳微立体质感、身份微彩与交互减负改造（2026-11-26 / 27，分支 `feat/shell-layout-interaction`）
+
+施工图见 `docs/SHELL-VISUAL-INTERACTION-REFINEMENT-PLAN-2026-11-26.md`（同步最新 `main` 后分 5 个阶段完整落地并经 3 轮 16 态真机盲评自循环清零）：
+
+- **Phase 1 — 交互减负与死胡同修复（Module A）**：
+  - `src/renderer/lib/plugin-runtime.ts` 新增受控 `app.navigation.openPage(surfaceId)` / `openSettings(section)` 路由 API；Whistle 与账号管理伴随工作台空态均配直达 CTA 按钮，账号页与工作台同步补齐「前往加密 Vault」入口；
+  - 移除遮挡右上按钮的 DevTools 互斥 Toast，改用舞台上方 32px 内联 `<output data-slot="panel-exclusivity-bar">`（内置一键「改用底部停靠并行查看」与频次衰减逻辑）；全局 `<Toaster>` 移至 `top-center` 顶栏安全区并随 `useResolvedTheme()` 动态同步深/浅主题；
+  - 瘦身地址栏：砍掉易与 AI 撞车的 `✨` 图标，URL 拆层高亮 + 静息可见内嵌 `copy-url-button`（1.5s 绿勾就地反馈），低频项折叠进 `⋯` 菜单，右侧常驻精简为 `⋯` / `</>` / `◫` 三枚核心工具；顶栏命令栏触发器升级为 `[🔍 ⌘K]`，环境胶囊补齐 `ChevronDown` 与焦点环，全量图标按钮补齐 `aria-label` 与 `ActionTooltip`；
+  - 工作台抽屉标签栏新增悬浮渐隐溢出步进器 + 内置/插件竖向分隔线 + 分组「全部工作台面板」下拉菜单；事件流新增角色/关键词筛选条、点击展开原文与全中文化人类可读摘要；侧栏环境行统一 2 行高信噪比布局、常驻实心圆角方块 `Stop` 图标与运行状态对齐。
+- **Phase 2 — 精密微立体纵深与深/浅 AA 对比度重校准（Module B）**：
+  - 重建 `theme-tokens.css` 4 层微冷深炭阶梯（`#111317` under → `#15181e` drawer → `#181b21` surface → `#20242d` elevated，`#0e1015` recessed）与 3 层冷银白浅色阶梯（`#e9edf3` / `#f4f6fa` / `#ffffff`），拆分 `hover` 与 `selected`（另设不透明 `--surface-selected-solid` 消除状态点镂空环二次透明叠加），统一品牌靛蓝主色（`#5b8cff` / `#3b5bdb`），补齐真实多层阴影与顶沿高光；18/18 组深浅 WCAG 2.1 对比度校验全通过；
+  - 区分 `Button` `outline` 与 `secondary` 变体，修复 `Tabs`/`Switch` `border-0` 导致的键盘焦点隐形缺陷，消除全部 `text-[10px]`，并同步更新 `docs/ui-design-language.md`。
+- **Phase 3 — 身份与插件微彩系统（Module C）**：
+  - 新增 `src/renderer/lib/env-identity.ts`（FNV-1a + Murmur3 雪崩哈希映射 12 组预调谐色相）与 `src/renderer/lib/plugin-brand.ts`（Whistle 青 `192` / 账号琥珀 `36` 统一 `User` 图标以与 `Key` 加密 Vault 解耦 / 记忆紫 `274`），落地于侧栏行、环境胶囊、命令面板、全局导航、工作台标签与插件设置项；修正 `example-login` 错写图标名 `KeyRound` → `Key`，统一 `actorClass.human` 为语义绿；为停机舞台 `WarrenMark` 增加无硬边柔和光晕磨砂底座与完整默认页摘要胶囊。
+- **Phase 4 — 微交互手感与高辨识 AI 护盾（Module D）**：
+  - 取消按钮 `active:translate-y-0`、补全列表行 140ms 过渡与 `prefers-reduced-motion`；为 `SpaceSwitcher` 与 `global-nav` 实现基于 `useLayoutEffect` + `ResizeObserver` 的 200ms GPU 滑动指示器；
+  - 升级 `src/main/input-shield.ts` 至 `8px` 圆角、深/浅双色高对比靛蓝/青蓝光学环与顶部扫光、去重后的纯实时遥测右上角磨砂芯片（仅活跃态展示，自动左避让）、外扩防撞色目标锚框及避字右下角 AI 光标，并同步全原生 `WebContentsView` `8px` 圆角。
+- **Phase 5 — 栅栏背面清理与诚实真机闭环（Module E）**：
+  - 清除 Cookie 面板内部文档 `§9` 泄露，升级 `NetRulesPanel` 可复制 CLI 空态；统一账号/代理/记忆三个全局插件页为居中 `1040px` 版心与平衡空态卡；设置页正文居中 `max-w-3xl`、升级全宽 `ThemePreviewThumb` 迷你窗预览并修正 `WARREN_HOME` 信息层级；命令面板 `⌘K` 重构为带分组头、环境色标芯片、唯一行高亮、`<Kbd>` 快捷键与底部图例栏；
+  - **实测门禁与 3 轮 16 态真机闭环**：`npm run check` 全绿（`oxlint` 0 警告 / `prettier` 0 差异 / `tsc --noEmit` 0 错误 / **395/395 单测 PASS** / Vite 渲染层构建通过）；`node scripts/regress/ui.cjs` **21 PASS / 0 FAIL**；16 态窗口级真机截图经自动化像素 ROI 脚本 **16/16 PASS**，3 轮独立视觉盲评从基线 `~5.8/10` 提升至 **`9.3–9.7 / 10`（0 P0 / 0 P1）**，留档于 `docs/verification/shell-layout-interaction-2026-11-26/`。
+
 ### 外壳布局、交互重整与 AI 操作蒙层（2026-11-26，分支 `feat/shell-layout-interaction`）
 
 施工图见 `docs/SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md`（不改 `components/ui/` 组件与色板 Token，专注调准外壳结构、交互流转与 AI 蒙层动画）：

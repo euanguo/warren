@@ -749,7 +749,6 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           placeholder="搜索环境、操作、地址或设置…"
           className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
-        <Kbd>Esc</Kbd>
       </div>
       <div className="max-h-[304px] overflow-y-auto px-2 py-1.5">
         {filtered.length === 0 ? (
@@ -776,7 +775,9 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
                   className={cn(
                     menuItemInteractiveClass,
                     'flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-left',
-                    idx === clampedIndex && 'bg-surface-selected opacity-100',
+                    idx === clampedIndex
+                      ? 'bg-surface-selected opacity-100 hover:bg-surface-selected'
+                      : 'hover:bg-transparent',
                   )}
                 >
                   {item.envChip ? (
@@ -788,7 +789,10 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
                       {item.envChip.initial}
                       <StatusDot
                         tone={item.envChip.error ? 'error' : statusTone(item.envChip.status)}
-                        className="absolute -right-0.5 -bottom-0.5 size-1.5 ring-1 ring-surface-elevated"
+                        className={cn(
+                          'absolute -right-0.5 -bottom-0.5 size-1.5 ring-1',
+                          idx === clampedIndex ? 'ring-[var(--surface-selected-solid)]' : 'ring-surface-elevated',
+                        )}
                       />
                     </span>
                   ) : (
