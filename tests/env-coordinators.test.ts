@@ -35,6 +35,8 @@ function makeTabState(id: string, space: SpaceId, url: string, over: Partial<Tab
 
 function makeFakeShield(): ShieldLike & {
   label?: string;
+  mode?: 'agent' | 'idle';
+  actions: Array<{ kind: string; x: number; y: number }>;
   visible: boolean;
   showPill: boolean;
   bounds?: { x: number; y: number; width: number; height: number };
@@ -46,8 +48,15 @@ function makeFakeShield(): ShieldLike & {
     visible: true,
     showPill: true,
     destroyed: false,
+    actions: [],
     setCallerLabel(label?: string) {
       this.label = label;
+    },
+    setMode(mode: 'agent' | 'idle') {
+      this.mode = mode;
+    },
+    showAction(action: { kind: string; x: number; y: number }) {
+      this.actions.push({ kind: action.kind, x: action.x, y: action.y });
     },
     setVisible(visible: boolean) {
       this.visible = visible;
@@ -691,10 +700,27 @@ test('LeaseCoordinator：运行期调整租约时长与控制胶囊显隐', () =
   });
 
   coordinator.syncShield('alpha', { createIfMissing: true });
+  assert.equal(shield?.mode, 'idle');
+  // 空闲态不播 AI 动作轨迹
+  coordinator.showVisualAction('alpha', { kind: 'click', x: 120, y: 80 });
+  assert.equal(shield?.actions.length, 0);
+
   coordinator.setLeaseTtlMs(120_000);
   const lease = coordinator.acquire('alpha', 'agent', 'Codex', 'agent');
   assert.equal(lease.expiresAt, now + 120_000);
+  assert.equal(shield?.mode, 'agent');
   assert.equal(shield?.showPill, true);
+
+  // AI 持锁且可见时，动作坐标准确推给遮罩层
+  coordinator.showVisualAction('alpha', { kind: 'click', x: 160, y: 240, label: 'Submit' });
+  assert.deepEqual(shield?.actions, [{ kind: 'click', x: 160, y: 240 }]);
+
+  // 人工接管后立即切回 idle 并停止播报
+  coordinator.takeover('alpha', 'human', 'agent');
+  assert.equal(shield?.attached, false);
+  assert.equal(shield?.mode, 'idle');
+  coordinator.showVisualAction('alpha', { kind: 'click', x: 200, y: 300 });
+  assert.equal(shield?.actions.length, 1);
 
   coordinator.setShowControlPill(false);
   assert.equal(shield?.showPill, false);

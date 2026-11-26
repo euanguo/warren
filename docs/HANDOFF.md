@@ -248,6 +248,16 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
+### 外壳布局、交互重整与 AI 操作蒙层（2026-11-26，分支 `feat/shell-layout-interaction`）
+
+施工图见 `docs/SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md`（不改 `components/ui/` 组件与色板 Token，专注调准外壳结构、交互流转与 AI 蒙层动画）：
+
+- **Phase 1 — 两层浏览器壳与全局视图保活**：移除常驻 `AppRail`，将原 3 层顶栏压为 2 层（`--shell-top-row-height: 40px` + `--shell-address-row-height: 40px`）；Row 1 环境模式集成侧栏切换（`⌘B`）、当前环境胶囊（支持点击/右键原生环境菜单）、`我的 | Agent` Space 切换器、标签条、**仅在 `Agent` 空间出现的上下文控制权胶囊**、`⌘K` / 扩展全局页菜单 / 设置；进入全局设置或插件全屏页时 Row 1 切换为纯全局导航条（`← 返回环境` + `设置` / 各插件 `railPage`），底层侧栏与舞台常驻不卸载（`inert` 覆层隔离），切回零重建。
+- **Phase 2 — 地址栏分工、未启动 CTA 与紧凑侧栏**：合并侧栏搜索框与 `+` 新建按钮到单行；停机环境选中后舞台中央直接提供 `启动「<env>」`（支持 `Enter` 快捷键与双击环境行启动），地址栏支持停机态输入 URL 回车自动先启动后打开；地址栏右侧接入 `registry.popovers` 与随页工作台入口。
+- **Phase 3 — 右侧智能互斥与插件随行面板**：新增 `src/renderer/state/workbench-layout.ts`（`shouldExcludeRightPanels`），当 DevTools 为右侧停靠且舞台较窄（`< 1120px` 或网页剩余宽 `< 520px`）时与 Warren 工作台抽屉自动互斥，`bottom` / `detach` 模式自由并存；Whistle 与账号管理插件新增随页 `inspectorTab`（保留全屏 `railPage` 与明文安全警示 `data-slot="account-plaintext-warning"`）。
+- **Phase 4 — AI 透明蒙层与实时动作轨迹**：升级 `src/main/input-shield.ts` 与 `LeaseCoordinator`，区分 `owner === 'agent'`（四边呼吸光晕、顶部轻流光、中心 100% 通透）与 `owner === 'none'`（静默灰边无动画）；取消底部常驻黑药丸遮挡页面按钮，改为误点时于指针旁弹出 1.8s 轻提示；经 `PageContext.onVisualAction` 把 `actions.ts` / `keymouse.ts` 缩放换算后的视口坐标/控件框推给 `'shield'` 绘制阻尼虚拟光标、目标锚框与点击波纹（严禁携带输入明文）。
+- **Phase 5 — 回归探针与单测补齐**：更新 `scripts/regress/ui.cjs` 与 `scripts/regress/run-all.sh` 探针，新增 `tests/shell-layout-interaction.test.ts` 与 `LeaseCoordinator` 遮罩模式/轨迹播报单测。
+
 ### Warren 2.0 架构重构与实机验收（2026-11-26）
 
 完整设计蓝图见 `docs/WARREN-2.0-ARCHITECTURE-PLAN.md`，Wave 0–4 与 Phase 5 实机闭环已全部落地并通过 `npm run check`（`367/367 PASS`，`oxlint` / `prettier` / `tsc --noEmit` / `vite build` 全绿）及 8 张真机截图双轮视觉验收：

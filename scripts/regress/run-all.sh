@@ -67,11 +67,9 @@ for id in com.example.notes com.example.hosty com.warren.accounts; do
 done
 echo "cap + 示例插件就绪"
 
-# 5) 把界面切回「环境」页。后面的套件都假设侧栏和舞台在——而 rail 上点进插件页
-#    （代理 / 记忆）或设置页时，`sidebarVisible = !stageReplaced` 会把侧栏整个卸掉，
-#    于是 UI / n4 那些用例全变成 NO_TAB、0 行（实测踩过：手工点过插件页再跑，11 个假 FAIL）。
+# 5) 把界面切回「环境」页（若当前停在全局设置或插件全屏页，点 Row 1 返回按钮）。
 $W call debug.rendererEval \
-  '{"script":"document.querySelector(\"[data-slot=app-rail] button[aria-label=\\\"环境\\\"]\")?.click()"}' > /dev/null 2>&1
+  '{"script":"document.querySelector(\"[data-slot=settings-back]\")?.click()"}' > /dev/null 2>&1
 sleep 1
 
 echo "########## G0 静态门 ##########" | tee -a "$OUT"
