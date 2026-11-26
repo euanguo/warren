@@ -290,18 +290,102 @@ export interface NavigationState {
  * 「goto 但没给地址」这种非法组合。
  */
 export type NavigationAction =
-  { kind: 'back' } | { kind: 'forward' } | { kind: 'reload' } | { kind: 'goto'; url: string };
+  { kind: 'back' } | { kind: 'forward' } | { kind: 'reload' } | { kind: 'hardReload' } | { kind: 'goto'; url: string };
 
 /**
  * 应用自有的浏览器快捷键。
  *
- * `devtools` / `inspector` 来自页面 `before-input-event`（⌥⌘I / ⌥⌘J 不在应用菜单里，
- * 键事件能到页面的 webContents）；`selectTab` 同理（⌘1..9）。
- * 其余几个是**应用菜单的加速键**（⌘T / ⌘W / ⌘R / ⌘L）——macOS 上菜单加速键先于
- * 页面拿到按键，所以它们只能走菜单，不能靠 `before-input-event`。
+ * `devtools` / `inspector` / `find` / `zoom*` 等由主进程统一收集（页面 `before-input-event`
+ * 与应用菜单加速键双通道归一），渲染层与协调器只认 shortcut 本身。
  */
 export type BrowserShortcut =
-  'devtools' | 'inspector' | 'newTab' | 'closeTab' | 'reopenTab' | 'reload' | 'focusAddress' | { selectTab: number };
+  | 'devtools'
+  | 'inspector'
+  | 'newTab'
+  | 'closeTab'
+  | 'reopenTab'
+  | 'reload'
+  | 'hardReload'
+  | 'focusAddress'
+  | 'commandBar'
+  | 'find'
+  | 'findNext'
+  | 'findPrev'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
+  | 'print'
+  | 'savePage'
+  | { selectTab: number };
+
+export type DevToolsDockMode = 'right' | 'bottom' | 'detach';
+
+export type ViewportPresetId = 'auto' | 'desktop-1440' | 'laptop-1280' | 'mobile-390';
+
+export interface NativeMenuItem {
+  id?: string;
+  label?: string;
+  type?: 'normal' | 'separator' | 'checkbox' | 'submenu';
+  enabled?: boolean;
+  checked?: boolean;
+  accelerator?: string;
+  submenu?: NativeMenuItem[];
+}
+
+export type OverlayRequest =
+  | { kind: 'create-env'; initialGroupId?: string }
+  | { kind: 'edit-env'; environment: Environment }
+  | { kind: 'create-group' }
+  | { kind: 'rename'; title: string; label: string; initialValue: string }
+  | { kind: 'confirm'; title: string; description: string; confirmLabel?: string; destructive?: boolean }
+  | { kind: 'command-bar'; initialQuery?: string };
+
+export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-end' | 'top-start';
+
+export interface PopoverOpenOptions {
+  id: string;
+  anchorRect: ViewportRect;
+  size: { width: number; height: number };
+  placement?: PopoverPlacement;
+  /** 地址栏联想设为 false，避免抢走输入框键盘焦点；⌘F 查找条设为 true 接收打字。 */
+  focusable?: boolean;
+  beyondWindow?: boolean;
+  props?: Record<string, unknown>;
+}
+
+export interface PopoverActionEvent {
+  id: string;
+  action: string;
+  payload?: unknown;
+}
+
+export interface FindInPageResult {
+  envId: string;
+  requestId: number;
+  activeMatchOrdinal: number;
+  matches: number;
+  finalUpdate: boolean;
+}
+
+export interface DownloadItemInfo {
+  downloadId: string;
+  envId: string;
+  filename: string;
+  url: string;
+  savePath: string;
+  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted';
+  receivedBytes: number;
+  totalBytes: number;
+  startedAt: string;
+}
+
+export interface DomainPref {
+  envId: string;
+  origin: string;
+  zoomFactor: number;
+  viewportPreset?: ViewportPresetId;
+  updatedAt: string;
+}
 
 // ---------------------------------------------------------------------------
 // 浏览器能力（Ego / Playwright 对标，全量一次落地）
@@ -708,7 +792,7 @@ export interface EnvApi {
    */
   readonly platform: NodeJS.Platform;
   list(): Promise<Environment[]>;
-  create(input: { id: string; proxy?: string; startUrl?: string }): Promise<Environment>;
+  create(input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }): Promise<Environment>;
   start(id: string): Promise<Environment>;
   stop(id: string): Promise<void>;
   remove(id: string): Promise<void>;
@@ -752,8 +836,41 @@ export interface EnvApi {
   humanNavigate(id: string, space: SpaceId, action: NavigationAction): Promise<NavigationState>;
   /** 所有环境共用的地址历史联想。空 query 返回最近访问。 */
   historySuggest(query: string, limit?: number): Promise<UrlHistoryEntry[]>;
-  /** 打开该环境当前标签的 Chrome DevTools（独立窗口——WebContentsView 停靠不了）。 */
-  openDevTools(id: string, space: SpaceId): Promise<void>;
+  /** 打开或切换该环境当前标签的 Chrome DevTools（支持停靠或独立窗）。 */
+  openDevTools(id: string, space: SpaceId, dock?: DevToolsDockMode): Promise<void>;
+  closeDevTools(id: string, space: SpaceId): Promise<void>;
+  setDevToolsDock(dock: DevToolsDockMode, size?: number): Promise<void>;
+  getDevToolsState(): Promise<{ open: boolean; dock: DevToolsDockMode; size: number }>;
+  findInPage(
+    id: string,
+    space: SpaceId,
+    text: string,
+    options?: { forward?: boolean; findNext?: boolean },
+  ): Promise<void>;
+  stopFindInPage(id: string, space: SpaceId): Promise<void>;
+  onFindResult(callback: (result: FindInPageResult) => void): () => void;
+  setZoom(id: string, space: SpaceId, mode: 'in' | 'out' | 'reset' | number): Promise<{ factor: number }>;
+  getZoom(id: string, space: SpaceId): Promise<{ factor: number }>;
+  setViewportPreset(id: string, space: SpaceId, preset: ViewportPresetId): Promise<{ preset: ViewportPresetId }>;
+  getViewportPreset(id: string, space: SpaceId): Promise<{ preset: ViewportPresetId }>;
+  onTargetUrl(callback: (payload: { envId: string; url: string }) => void): () => void;
+  downloads(id?: string): Promise<DownloadItemInfo[]>;
+  revealDownload(downloadId: string): Promise<void>;
+  printPage(id: string, space: SpaceId): Promise<void>;
+  savePage(id: string, space: SpaceId): Promise<{ saved: boolean; path?: string }>;
+  popupMenu(items: NativeMenuItem[], position?: { x: number; y: number }): Promise<string | null>;
+  openOverlay<T = unknown>(request: OverlayRequest): Promise<T | null>;
+  getOverlayState(): Promise<OverlayRequest | null>;
+  resolveOverlay(result: unknown): Promise<void>;
+  onOverlayState(callback: (request: OverlayRequest | null) => void): () => void;
+  openPopover(options: PopoverOpenOptions): Promise<void>;
+  updatePopover(id: string, options: Partial<PopoverOpenOptions>): Promise<void>;
+  closePopover(id?: string): Promise<void>;
+  getPopoverState(): Promise<{ id: string; props: Record<string, unknown> } | null>;
+  dispatchPopoverAction(event: PopoverActionEvent): Promise<void>;
+  onPopoverState(callback: (payload: { id: string; props: Record<string, unknown> } | null) => void): () => void;
+  onPopoverAction(callback: (event: PopoverActionEvent) => void): () => void;
+  onPopoverDismissed(callback: (payload: { id: string; reason: string }) => void): () => void;
   onBrowserShortcut(callback: (shortcut: BrowserShortcut) => void): () => void;
   spaceSelect(id: string, space: SpaceId): Promise<void>;
   tabCreate(id: string, space: SpaceId, url?: string): Promise<TabState>;

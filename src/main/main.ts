@@ -26,10 +26,27 @@ import { makeEvent } from './domain/environment';
 import { SafeStorageEncryptor } from './vault/electron-encryptor';
 import { VaultStore } from './vault/store';
 import { loadCredentials, saveCredentials } from './vault/persistence';
-import type { AppSettings, ApprovalMode, NavigationAction, SpaceId, TabRef, ViewportRect } from '../shared/types';
+import type {
+  AppSettings,
+  ApprovalMode,
+  DevToolsDockMode,
+  NativeMenuItem,
+  NavigationAction,
+  OverlayRequest,
+  PopoverActionEvent,
+  PopoverOpenOptions,
+  SpaceId,
+  TabRef,
+  ViewportPresetId,
+  ViewportRect,
+} from '../shared/types';
 import { BROWSER_MENU_SHORTCUTS, browserShortcut } from './browser-shortcuts';
 import { isOpenableExternalUrl } from './external-url';
 import { installSkill, skillStatus } from './agent-integration';
+import { WindowLayerManager } from './ui/layer-manager.ts';
+import { OverlayHost } from './ui/overlay-host.ts';
+import { PopoverHost } from './ui/popover-host.ts';
+import { popupNativeMenu } from './ui/native-menu.ts';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -109,9 +126,18 @@ let manager: EnvironmentManager;
 let plugins: PluginHost;
 let rpc: RpcServer;
 let window: BrowserWindow | undefined;
+let layers: WindowLayerManager | undefined;
+let overlayHost: OverlayHost | undefined;
+let popoverHost: PopoverHost | undefined;
 let tray: Tray | undefined;
 let quitting = false;
 let suspensionBlocker: number | undefined;
+
+function broadcastStateChanged(): void {
+  window?.webContents.send('state:changed');
+  overlayHost?.webContents.send('state:changed');
+  popoverHost?.broadcast('state:changed');
+}
 
 async function loadVault(): Promise<void> {
   // 凭据落在 warren.db 的 vault 表（只存密文）；老的 vault.json 在第一次打开空表时导入
@@ -181,7 +207,12 @@ function createWindow(): BrowserWindow {
   win.on('close', (event) => {
     if (quitting) return;
     event.preventDefault();
+    popoverHost?.close(undefined, 'host');
     manager?.backgroundWindow();
+  });
+
+  win.on('resize', () => {
+    overlayHost?.syncBounds();
   });
 
   return win;
@@ -251,13 +282,7 @@ function installMenu(): void {
       },
       {
         label: '显示',
-        submenu: [
-          { role: 'resetZoom' },
-          { role: 'zoomIn' },
-          { role: 'zoomOut' },
-          { type: 'separator' },
-          { role: 'togglefullscreen' },
-        ],
+        submenu: [{ role: 'togglefullscreen' }],
       },
       {
         label: '窗口',
@@ -267,6 +292,13 @@ function installMenu(): void {
   );
 }
 
+function isAuthorizedShellSender(sender: Electron.WebContents): boolean {
+  if (sender === window?.webContents) return true;
+  if (sender === overlayHost?.webContents) return true;
+  if (popoverHost?.isOwnedWebContents(sender)) return true;
+  return false;
+}
+
 function registerIpc(): void {
   const handle = <A extends unknown[]>(channel: string, fn: (...args: A) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
@@ -274,16 +306,22 @@ function registerIpc(): void {
       return fn(...(args as A));
     });
   };
+  const handleShell = <A extends unknown[]>(channel: string, fn: (...args: A) => unknown) => {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!isAuthorizedShellSender(event.sender)) throw new Error('unauthorized sender');
+      return fn(...(args as A));
+    });
+  };
 
-  handle('env:list', () => manager.list());
-  handle('env:create', (input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }) =>
+  handleShell('env:list', () => manager.list());
+  handleShell('env:create', (input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }) =>
     // 走界面的一定是人。走 RPC 的是 agent —— 审批策略按这个判（计划 §3.3）
     manager.create({ ...input, createdBy: 'human' }),
   );
-  handle('env:start', (id: string) => manager.start(id));
-  handle('env:stop', (id: string) => manager.stop(id));
-  handle('env:remove', (id: string) => manager.remove(id));
-  handle(
+  handleShell('env:start', (id: string) => manager.start(id));
+  handleShell('env:stop', (id: string) => manager.stop(id));
+  handleShell('env:remove', (id: string) => manager.remove(id));
+  handleShell(
     'env:update',
     (
       id: string,
@@ -295,25 +333,25 @@ function registerIpc(): void {
    * 审批策略：**只有界面能写**。RPC 那边只有 `settings.get`（读），没有写 ——
    * agent 能给自己放行的话这道门就等于不存在。见 docs/APPROVAL-EMBED-MEMORY-PLAN.md §3.4。
    */
-  handle('settings:get', () => store.appSettings());
+  handleShell('settings:get', () => store.appSettings());
   handle('settings:set', (patch: Partial<AppSettings>) => {
     const next = store.setAppSettings(patch);
     store.record(makeEvent('settings.updated', `审批策略更新: ${JSON.stringify(patch)}`, 'human'));
-    window?.webContents.send('state:changed');
+    broadcastStateChanged();
     return next;
   });
-  handle('env:moveToGroup', (id: string, groupId?: string) => manager.moveToGroup(id, groupId));
+  handleShell('env:moveToGroup', (id: string, groupId?: string) => manager.moveToGroup(id, groupId));
 
   // 分组只影响侧栏组织方式，不碰运行时
-  handle('group:list', () => manager.listGroups());
-  handle('group:create', (name: string) => manager.createGroup({ name }));
-  handle('group:rename', (id: string, name: string) => manager.renameGroup(id, name));
-  handle('group:remove', (id: string) => manager.removeGroup(id));
-  handle('group:collapse', (id: string, collapsed: boolean) => manager.setGroupCollapsed(id, collapsed));
-  handle('env:select', (id: string) => manager.select(id));
-  handle('env:selectSpace', (id: string, space: SpaceId) => manager.selectSpace(id, space));
+  handleShell('group:list', () => manager.listGroups());
+  handleShell('group:create', (name: string) => manager.createGroup({ name }));
+  handleShell('group:rename', (id: string, name: string) => manager.renameGroup(id, name));
+  handleShell('group:remove', (id: string) => manager.removeGroup(id));
+  handleShell('group:collapse', (id: string, collapsed: boolean) => manager.setGroupCollapsed(id, collapsed));
+  handleShell('env:select', (id: string) => manager.select(id));
+  handleShell('env:selectSpace', (id: string, space: SpaceId) => manager.selectSpace(id, space));
   // 选中的环境以主进程为准；渲染层不自己记一份，避免两份真相源
-  handle('env:selected', () => manager.selectedId() ?? null);
+  handleShell('env:selected', () => manager.selectedId() ?? null);
   handle('env:takeover', (id: string, space: SpaceId = 'agent') => manager.takeover(id, 'human', space));
   handle('env:release', (id: string, _space: SpaceId = 'agent') => {
     const env = manager.get(id);
@@ -321,7 +359,7 @@ function registerIpc(): void {
   });
   handle('events:list', (id?: string) => store.events(id));
   // 标签：都在 Environment 内部，共用它的 session / 代理 / 登录态
-  handle('tab:create', (id: string, space: SpaceId, url?: string, activate?: boolean) =>
+  handleShell('tab:create', (id: string, space: SpaceId, url?: string, activate?: boolean) =>
     manager.newTab(id, url, { activate }, space),
   );
   handle('tab:select', (id: string, space: SpaceId, ref: TabRef) => manager.selectTab(id, space, ref));
@@ -368,20 +406,67 @@ function registerIpc(): void {
   );
   // 导航状态是读；实际导航是写，主进程会校验人是否持控制权
   handle('browser:navState', (id: string, space: SpaceId) => manager.navState(id, space) ?? null);
-  handle('browser:humanNavigate', (id: string, space: SpaceId, action: NavigationAction) =>
+  handleShell('browser:humanNavigate', (id: string, space: SpaceId, action: NavigationAction) =>
     manager.humanNavigate(id, action, space),
   );
-  handle('history:suggest', (query: string, limit?: number) => store.searchUrlHistory(query, limit));
+  handleShell('history:suggest', (query: string, limit?: number) => store.searchUrlHistory(query, limit));
   handle('layout:viewport', (viewport: ViewportRect) => {
     manager.setViewport(viewport);
   });
   // 让开原生视图之前先取页面当前画面：渲染层把它垫在占位区，页面就不会整块消失
   handle('layout:pageSnapshot', () => manager.capturePage());
-  // 渲染层的浮层压到页面区域时把原生视图让开（原生视图永远在 DOM 之上）
+  // 只应在全屏切换（设置页/插件页）时把原生视图让开；普通浮层已由 OverlayHost / PopoverHost 承载
   handle('layout:viewVisible', (visible: boolean) => {
     manager.setViewVisible(visible);
   });
-  handle('browser:openDevTools', (id: string, space: SpaceId) => manager.openDevTools(id, space));
+  handleShell('browser:openDevTools', (id: string, space: SpaceId, dock?: DevToolsDockMode) =>
+    manager.openDevTools(id, space, dock),
+  );
+  handleShell('browser:closeDevTools', (id: string, space: SpaceId) => manager.closeDevTools(id, space));
+  handleShell('browser:setDevToolsDock', (dock: DevToolsDockMode, size?: number) =>
+    manager.setDevToolsDock(dock, size),
+  );
+  handleShell('browser:getDevToolsState', () => manager.getDevToolsState());
+  handleShell(
+    'browser:findInPage',
+    (id: string, space: SpaceId, text: string, options?: { forward?: boolean; findNext?: boolean }) =>
+      manager.findInPage(id, space, text, options),
+  );
+  handleShell('browser:stopFindInPage', (id: string, space: SpaceId) => manager.stopFindInPage(id, space));
+  handleShell('browser:setZoom', (id: string, space: SpaceId, mode: 'in' | 'out' | 'reset' | number) =>
+    manager.setZoom(id, space, mode),
+  );
+  handleShell('browser:getZoom', (id: string, space: SpaceId) => manager.getZoom(id, space));
+  handleShell('browser:setViewportPreset', (id: string, space: SpaceId, preset: ViewportPresetId) =>
+    manager.setViewportPreset(id, space, preset),
+  );
+  handleShell('browser:getViewportPreset', (id: string, space: SpaceId) => manager.getViewportPreset(id, space));
+  handleShell('browser:downloads', (id?: string) => manager.downloads(id));
+  handleShell('browser:revealDownload', (downloadId: string) => manager.revealDownload(downloadId));
+  handleShell('browser:printPage', (id: string, space: SpaceId) => manager.printPage(id, space));
+  handleShell('browser:savePage', (id: string, space: SpaceId) => manager.savePageAs(id, space));
+
+  handle('ui:popupMenu', (items: NativeMenuItem[], position?: { x: number; y: number }) => {
+    if (!window) return null;
+    return popupNativeMenu(window, items, position);
+  });
+  handle('overlay:open', (request: OverlayRequest) => {
+    if (!overlayHost) return null;
+    return overlayHost.open(request);
+  });
+  handleShell('overlay:current', () => overlayHost?.currentState() ?? null);
+  handleShell('overlay:resolve', (result: unknown) => {
+    overlayHost?.resolve(result);
+  });
+  handle('popover:open', (options: PopoverOpenOptions) => popoverHost?.open(options));
+  handle('popover:update', (id: string, options: Partial<PopoverOpenOptions>) => popoverHost?.update(id, options));
+  handleShell('popover:close', (id?: string) => {
+    popoverHost?.close(id);
+  });
+  handleShell('popover:current', () => popoverHost?.currentState() ?? null);
+  handleShell('popover:action', (event: PopoverActionEvent) => {
+    popoverHost?.emitAction(event);
+  });
 
   // Vault 只暴露「有哪些凭据」和「填进页面」；没有 reveal 通道
   handle('vault:list', () => ({ available: vault.available, credentials: vault.list() }));
@@ -398,11 +483,11 @@ function registerIpc(): void {
   // 插件的启停 / 重载会改变 rail 与设置分节，动完必须让渲染层重新取一遍
   const pluginsChanged = async <T>(action: () => Promise<T>): Promise<T> => {
     const result = await action();
-    window?.webContents.send('state:changed');
+    broadcastStateChanged();
     return result;
   };
 
-  handle('plugin:list', () => plugins.list());
+  handleShell('plugin:list', () => plugins.list());
   handle('plugin:enable', (id: string) => pluginsChanged(() => plugins.enable(id)));
   handle('plugin:disable', (id: string) => pluginsChanged(() => plugins.disable(id)));
   handle('plugin:reload', (id: string) => pluginsChanged(() => plugins.reload(id)));
@@ -418,7 +503,7 @@ function registerIpc(): void {
   handle('plugin:hostRead', (id: string, method: string, environmentId?: string, args?: unknown[]) =>
     plugins.hostRead(id, method, environmentId, args ?? []),
   );
-  handle('plugin:run', (id: string, command: string, environmentId: string) =>
+  handleShell('plugin:run', (id: string, command: string, environmentId: string) =>
     pluginsChanged(() => plugins.run(id, command, { environmentId })),
   );
   handle('plugin:installSource', async (source: string) => {
@@ -548,12 +633,56 @@ app.whenReady().then(async () => {
   });
 
   window = createWindow();
+  layers = new WindowLayerManager(window, 8);
+  const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      const devUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+      devUrl.searchParams.set('surface', surface);
+      return { devUrl: devUrl.toString() };
+    }
+    return { filePath: path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`) };
+  };
+  overlayHost = new OverlayHost({
+    window,
+    layers,
+    preloadPath: path.join(__dirname, 'preload.cjs'),
+    loadUrl: surfaceLoadUrl,
+    onResolved: () => {
+      if (window && !window.isDestroyed()) manager?.focusDisplayedPage();
+    },
+  });
+  popoverHost = new PopoverHost({
+    mainWindow: window,
+    preloadPath: path.join(__dirname, 'preload.cjs'),
+    loadUrl: surfaceLoadUrl,
+    onAction: (event) => {
+      window?.webContents.send('popover:action', event);
+    },
+    onDismissed: (payload) => {
+      window?.webContents.send('popover:dismissed', payload);
+    },
+  });
+  popoverHost.warmup();
+
   installTray();
   installMenu();
-  manager = new EnvironmentManager(store, window, () => {
-    window?.webContents.send('state:changed');
-    syncPowerSaveBlocker();
-  });
+  manager = new EnvironmentManager(
+    store,
+    window,
+    () => {
+      broadcastStateChanged();
+      syncPowerSaveBlocker();
+    },
+    {
+      layers,
+      onTargetUrl: (payload) => window?.webContents.send('browser:targetUrl', payload),
+      onFindResult: (result) => {
+        window?.webContents.send('browser:findResult', result);
+        popoverHost?.broadcast('browser:findResult', result);
+      },
+      onDownloadsChanged: () => broadcastStateChanged(),
+    },
+  );
 
   plugins = new PluginHost({
     root: path.join(coreDir, 'plugins'),
@@ -567,7 +696,7 @@ app.whenReady().then(async () => {
       window?.webContents.send('plugin:signal', { pluginId, channel, payload });
     },
     // CLI / agent 改的插件状态也要让界面知道，否则 rail 与设置分节会停在旧清单
-    onChange: () => window?.webContents.send('state:changed'),
+    onChange: () => broadcastStateChanged(),
   });
   await plugins.load();
 
@@ -610,6 +739,8 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  overlayHost?.destroy();
+  popoverHost?.destroy();
   manager?.shutdown();
   // 关库顺带 checkpoint WAL：不关的话 -wal 会一直留在盘上。
   // before-quit 是同步钩子，Electron 不等 async 体；同步关库必须放在 await 之前。

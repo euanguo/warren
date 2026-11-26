@@ -405,3 +405,30 @@ test('库损坏也能起来：挪到一边再开一个新的，不把应用卡�
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('按域偏好：保存缩放与视口预设并在删环境时连带清理', async () => {
+  await withStore({ environments: [], groups: [] }, async (store) => {
+    await store.create({ id: 'a' });
+    await store.create({ id: 'b' });
+
+    const saved = store.setDomainPref('a', 'https://example.com', {
+      zoomFactor: 1.25,
+      viewportPreset: 'mobile-390',
+    });
+    assert.equal(saved.zoomFactor, 1.25);
+    assert.equal(saved.viewportPreset, 'mobile-390');
+    assert.equal(store.domainPref('a', 'https://example.com')?.zoomFactor, 1.25);
+
+    store.setDomainPref('a', 'https://example.com', { viewportPreset: null });
+    const updated = store.domainPref('a', 'https://example.com');
+    assert.equal(updated?.zoomFactor, 1.25);
+    assert.equal(updated?.viewportPreset, undefined);
+
+    store.setDomainPref('b', 'https://example.com', { zoomFactor: 0.9 });
+    assert.equal(store.listDomainPrefs('a').length, 1);
+
+    await store.remove('a');
+    assert.equal(store.domainPref('a', 'https://example.com'), undefined);
+    assert.equal(store.domainPref('b', 'https://example.com')?.zoomFactor, 0.9);
+  });
+});

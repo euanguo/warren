@@ -9,18 +9,48 @@ import type { Session } from 'electron';
 import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { DownloadItemInfo } from '../../shared/types.ts';
 import { safeEnvKey } from '../domain/environment.ts';
 import { sanitizeFilename } from './policy.ts';
 import type { EnvPending } from './pending.ts';
 
+const DOWNLOAD_HISTORY_LIMIT = 200;
+
 /** 已经挂过 `will-download` 的 session。 */
 const wired = new WeakSet<Session>();
+
+/** 最近下载历史（供 UI 下载浮卡展示与 Finder 定位）。 */
+const history: DownloadItemInfo[] = [];
+const historyById = new Map<string, DownloadItemInfo>();
+
+function recordDownloadInfo(info: DownloadItemInfo): void {
+  historyById.set(info.downloadId, info);
+  const idx = history.findIndex((item) => item.downloadId === info.downloadId);
+  if (idx >= 0) history[idx] = info;
+  else {
+    history.unshift(info);
+    if (history.length > DOWNLOAD_HISTORY_LIMIT) {
+      const removed = history.pop();
+      if (removed) historyById.delete(removed.downloadId);
+    }
+  }
+}
+
+export function listDownloads(envId?: string): DownloadItemInfo[] {
+  const list = envId ? history.filter((item) => item.envId === envId) : history;
+  return list.map((item) => ({ ...item }));
+}
+
+export function getDownloadPath(downloadId: string): string | undefined {
+  return historyById.get(downloadId)?.savePath;
+}
 
 export function wireDownloads(
   ses: Session,
   environmentId: string,
   pendingFor: (environmentId: string) => EnvPending | undefined,
   record: (type: string, message: string) => void,
+  onChanged?: () => void,
 ): void {
   if (wired.has(ses)) return;
   wired.add(ses);
@@ -35,10 +65,43 @@ export function wireDownloads(
       const target = path.join(dir, `${downloadId}-${filename}`);
       item.setSavePath(target);
       const url = item.getURL();
-      pending.noteDownload(
-        { downloadId, url, filename, at: new Date().toISOString() },
-        { item, url, filename, path: target },
-      );
+      const at = new Date().toISOString();
+      pending.noteDownload({ downloadId, url, filename, at }, { item, url, filename, path: target });
+
+      const info: DownloadItemInfo = {
+        downloadId,
+        envId: environmentId,
+        filename,
+        url,
+        savePath: target,
+        receivedBytes: item.getReceivedBytes(),
+        totalBytes: item.getTotalBytes(),
+        state: 'progressing',
+        startedAt: at,
+      };
+      recordDownloadInfo(info);
+      onChanged?.();
+
+      item.on('updated', (_e, state) => {
+        const cur = historyById.get(downloadId);
+        if (!cur) return;
+        cur.receivedBytes = item.getReceivedBytes();
+        cur.totalBytes = item.getTotalBytes();
+        cur.state = state === 'interrupted' ? 'interrupted' : 'progressing';
+        cur.savePath = item.getSavePath() || cur.savePath;
+        onChanged?.();
+      });
+
+      item.once('done', (_e, state) => {
+        const cur = historyById.get(downloadId);
+        if (!cur) return;
+        cur.receivedBytes = item.getReceivedBytes();
+        cur.totalBytes = item.getTotalBytes();
+        cur.savePath = item.getSavePath() || cur.savePath;
+        cur.state = state === 'completed' ? 'completed' : state === 'cancelled' ? 'cancelled' : 'interrupted';
+        onChanged?.();
+      });
+
       record('browser.download', `${environmentId} 下载 ${filename}`);
     } catch {
       // 下载登记失败不能影响页面本身

@@ -5,6 +5,7 @@ import { TabList, closeSet } from './domain/tabs.ts';
 import { leafSignedByCa } from './domain/trusted-ca.ts';
 import { browserShortcut } from './browser-shortcuts';
 import type { BrowserController } from './browser/controller.ts';
+import type { WindowLayerManager } from './ui/layer-manager.ts';
 import type { SpaceId, TabRef, TabState, ViewportRect } from '../shared/types';
 
 /** 视图缺省安全设置。和 Environment 原来的一致，不要在这里放松。 */
@@ -170,22 +171,31 @@ export interface TabManagerOptions {
   envId: string;
   space: SpaceId;
   window: BrowserWindow;
+  layers?: WindowLayerManager;
   session: Session;
   trustedCa?: X509Certificate;
   /** 状态变更通知（已节流）—— 渲染层刷新用 */
   onChanged: () => void;
-  /** 挂在窗口里的视图换了（新建/切换/关闭）—— 遮罩要重新提到最上层 */
+  /** 挂在窗口里的视图换了（新建/切换/关闭）—— 遮罩与 DevTools 要跟随更新 */
   onViewChanged: () => void;
   /** 最后一个标签被关掉 —— 调用方负责停掉整个环境 */
   onEmpty: () => void;
   onEvent: (type: string, message: string) => void;
   createController: (tabId: string, webContents: WebContents) => BrowserController;
-  /** 标签的 webContents 被销毁后调用（遥测等按标签挂的东西要拆掉） */
+  /** 标签的 webContents 被销毁后调用（遥测/DevTools 等按标签挂的东西要拆掉） */
   onTabDestroyed: (tabId: string) => void;
   /** 页面开出了新标签（`window.open` 收敛处）——环境级 popup 队列据此记录 */
   onPopup?: (tabId: string, url: string) => void;
   /** 主框架发生实际导航（含页内导航），用于跨环境地址历史。 */
   onUrlVisited?: (url: string) => void;
+  /** 网页主框架完成切换后恢复按域偏好（例如页面缩放比例）。 */
+  onOriginZoomNeeded?: (tab: Tab, url: string) => void;
+  /** 网页原生右键菜单请求。 */
+  onContextMenu?: (tab: Tab, params: Electron.ContextMenuParams) => void;
+  /** 鼠标悬停链接预览 URL 变化。 */
+  onTargetUrl?: (url: string) => void;
+  /** 页内查找命中进度回调。 */
+  onFoundInPage?: (result: Electron.Result) => void;
 }
 
 /**
@@ -400,9 +410,13 @@ export class TabManager {
     if (!tab) return false;
     if (this.#attached === tab.view) return false; // 已经挂着了（就是被显示的那个）
     const view = tab.view;
-    this.#options.window.contentView.addChildView(view, 0);
-    view.setVisible(true);
-    view.setBounds(this.#viewport);
+    if (this.#options.layers) {
+      this.#options.layers.setSlot('below', view, { visible: true, bounds: this.#viewport });
+    } else {
+      this.#options.window.contentView.addChildView(view, 0);
+      view.setVisible(true);
+      view.setBounds(this.#viewport);
+    }
     this.#below = view;
     return true;
   }
@@ -410,7 +424,13 @@ export class TabManager {
   /** 摘掉 `attachBelow` 挂上去的那个视图（只摘它，不动正在显示的那个）。 */
   detachBelow(): void {
     if (!this.#below) return;
-    this.#removeFromWindow(this.#below);
+    if (this.#options.layers) {
+      if (this.#options.layers.slotView('below') === this.#below) {
+        this.#options.layers.setSlot('below', undefined);
+      }
+    } else {
+      this.#removeFromWindow(this.#below);
+    }
     this.#below = undefined;
   }
 
@@ -421,7 +441,10 @@ export class TabManager {
   setViewport(bounds: ViewportRect): void {
     this.#viewport = bounds;
     const tab = this.active();
-    if (tab && this.#attached === tab.view) tab.view.setBounds(bounds);
+    if (tab && this.#attached === tab.view) {
+      if (this.#options.layers) this.#options.layers.setBounds('page', bounds);
+      else tab.view.setBounds(bounds);
+    }
   }
 
   /**
@@ -430,7 +453,14 @@ export class TabManager {
    */
   setViewVisible(visible: boolean): void {
     this.#viewVisible = visible;
-    this.#attached?.setVisible(visible);
+    if (!this.#attached) return;
+    if (this.#options.layers) {
+      if (this.#options.layers.slotView('page') === this.#attached) {
+        this.#options.layers.setVisible('page', visible);
+      }
+      return;
+    }
+    this.#attached.setVisible(visible);
   }
 
   /**
@@ -467,7 +497,13 @@ export class TabManager {
     this.#viewVisible = true;
     this.detachBelow();
     if (!this.#attached) return;
-    this.#removeFromWindow(this.#attached);
+    if (this.#options.layers) {
+      if (this.#options.layers.slotView('page') === this.#attached) {
+        this.#options.layers.setSlot('page', undefined);
+      }
+    } else {
+      this.#removeFromWindow(this.#attached);
+    }
     this.#attached = undefined;
   }
 
@@ -505,8 +541,18 @@ export class TabManager {
     wc.on('did-navigate', (_event, url) => {
       this.#options.onEvent('browser.navigated', `标签 ${this.#list.indexOf(id) + 1} → ${url}`);
       this.#options.onUrlVisited?.(url);
+      this.#options.onOriginZoomNeeded?.(tab, url);
       // 换了页面，上一个页面的图标就不是这个标签的了（和 Chrome 一致）
       sync({ url, favicon: undefined });
+    });
+    wc.on('context-menu', (_event, params) => {
+      this.#options.onContextMenu?.(tab, params);
+    });
+    wc.on('update-target-url', (_event, url) => {
+      this.#options.onTargetUrl?.(url);
+    });
+    wc.on('found-in-page', (_event, result) => {
+      this.#options.onFoundInPage?.(result);
     });
     wc.on('did-navigate-in-page', (_event, url) => {
       this.#options.onUrlVisited?.(url);
@@ -624,7 +670,13 @@ export class TabManager {
     const { empty } = this.#list.remove(id);
 
     if (wasActive && this.#attached === tab.view) {
-      this.#removeFromWindow(tab.view);
+      if (this.#options.layers) {
+        if (this.#options.layers.slotView('page') === tab.view) {
+          this.#options.layers.setSlot('page', undefined);
+        }
+      } else {
+        this.#removeFromWindow(tab.view);
+      }
       this.#attached = undefined;
     }
     if (this.#below === tab.view) this.detachBelow();
@@ -656,6 +708,16 @@ export class TabManager {
 
     const tab = this.active();
     if (!tab) return;
+
+    if (this.#options.layers) {
+      this.#attached = tab.view;
+      this.#options.layers.setSlot('page', tab.view, {
+        visible: this.#viewVisible,
+        bounds: this.#viewport,
+      });
+      this.#options.onViewChanged();
+      return;
+    }
 
     if (this.#attached && this.#attached !== tab.view) this.#removeFromWindow(this.#attached);
     if (this.#attached !== tab.view) {

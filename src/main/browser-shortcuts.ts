@@ -44,7 +44,17 @@ export const BROWSER_MENU_SHORTCUTS = [
   { shortcut: 'closeTab', accelerator: 'CmdOrCtrl+W', label: '关闭标签' },
   { shortcut: 'reopenTab', accelerator: 'CmdOrCtrl+Shift+T', label: '重新打开关掉的标签' },
   { shortcut: 'reload', accelerator: 'CmdOrCtrl+R', label: '重新加载页面' },
+  { shortcut: 'hardReload', accelerator: 'CmdOrCtrl+Shift+R', label: '忽略缓存硬刷新' },
   { shortcut: 'focusAddress', accelerator: 'CmdOrCtrl+L', label: '聚焦地址栏' },
+  { shortcut: 'commandBar', accelerator: 'CmdOrCtrl+K', label: '命令栏' },
+  { shortcut: 'find', accelerator: 'CmdOrCtrl+F', label: '在页面中查找' },
+  { shortcut: 'findNext', accelerator: 'CmdOrCtrl+G', label: '查找下一个' },
+  { shortcut: 'findPrev', accelerator: 'CmdOrCtrl+Shift+G', label: '查找上一个' },
+  { shortcut: 'zoomIn', accelerator: 'CmdOrCtrl+=', label: '放大页面' },
+  { shortcut: 'zoomOut', accelerator: 'CmdOrCtrl+-', label: '缩小页面' },
+  { shortcut: 'zoomReset', accelerator: 'CmdOrCtrl+0', label: '实际大小' },
+  { shortcut: 'print', accelerator: 'CmdOrCtrl+P', label: '打印或存为 PDF' },
+  { shortcut: 'savePage', accelerator: 'CmdOrCtrl+S', label: '将页面另存为' },
 ] as const satisfies ReadonlyArray<{
   shortcut: BrowserShortcut;
   accelerator: string;

@@ -26,6 +26,14 @@
     margin: 0;
     overflow: hidden;
   }
+
+  /* OverlayHost / PopoverHost 独立渲染表面需要全透底，防止透明圆角边缘透出窗体底色 */
+  html[data-surface='overlay'],
+  html[data-surface='overlay'] body,
+  html[data-surface='popover'],
+  html[data-surface='popover'] body {
+    background: transparent !important;
+  }
 }
 
 /*

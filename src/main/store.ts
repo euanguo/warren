@@ -14,12 +14,14 @@ import type { DatabaseSync } from 'node:sqlite';
 import type {
   AppSettings,
   Creator,
+  DomainPref,
   Environment,
   EnvironmentConfig,
   EventRecord,
   Group,
   SpaceId,
   UrlHistoryEntry,
+  ViewportPresetId,
 } from '../shared/types';
 import { MIGRATED_SUFFIX, openDatabase, tx } from './db.ts';
 // 运行时导入必须带 .ts 扩展名：node --test 直接加载源文件，不走打包。
@@ -468,6 +470,7 @@ export class Store {
     this.#database.prepare('DELETE FROM running_state WHERE env_id = ?').run(id);
     // 标签同理：留着的话，id 被复用时会把别人的标签开回来
     this.#database.prepare('DELETE FROM env_tabs WHERE env_id = ?').run(id);
+    this.#database.prepare('DELETE FROM domain_prefs WHERE env_id = ?').run(id);
   }
 
   async moveToGroup(id: string, groupId: string | undefined): Promise<Environment> {
@@ -671,6 +674,84 @@ export class Store {
       )
       .all(q, q, q, q, size) as Row[];
     return rows.map(rowToUrlHistory);
+  }
+
+  // ---------------------------------------------------------------- 按域偏好
+
+  domainPref(envId: string, origin: string): DomainPref | undefined {
+    const row = this.#database
+      .prepare(
+        'SELECT env_id, origin, zoom_factor, viewport_preset, updated_at FROM domain_prefs WHERE env_id = ? AND origin = ?',
+      )
+      .get(envId, origin) as Row | undefined;
+    if (!row) return undefined;
+    const preset = optionalText(row.viewport_preset) as ViewportPresetId | undefined;
+    return {
+      envId: String(row.env_id),
+      origin: String(row.origin),
+      zoomFactor: Number(row.zoom_factor ?? 1),
+      viewportPreset: preset,
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  listDomainPrefs(envId?: string): DomainPref[] {
+    const rows = (
+      envId === undefined
+        ? this.#database
+            .prepare(
+              'SELECT env_id, origin, zoom_factor, viewport_preset, updated_at FROM domain_prefs ORDER BY updated_at DESC',
+            )
+            .all()
+        : this.#database
+            .prepare(
+              'SELECT env_id, origin, zoom_factor, viewport_preset, updated_at FROM domain_prefs WHERE env_id = ? ORDER BY updated_at DESC',
+            )
+            .all(envId)
+    ) as Row[];
+    return rows.map((row) => ({
+      envId: String(row.env_id),
+      origin: String(row.origin),
+      zoomFactor: Number(row.zoom_factor ?? 1),
+      viewportPreset: optionalText(row.viewport_preset) as ViewportPresetId | undefined,
+      updatedAt: String(row.updated_at),
+    }));
+  }
+
+  setDomainPref(
+    envId: string,
+    origin: string,
+    patch: { zoomFactor?: number; viewportPreset?: ViewportPresetId | null },
+  ): DomainPref {
+    const current = this.domainPref(envId, origin);
+    const nextZoom =
+      patch.zoomFactor !== undefined && Number.isFinite(patch.zoomFactor)
+        ? Math.max(0.25, Math.min(5, Math.round(patch.zoomFactor * 100) / 100))
+        : (current?.zoomFactor ?? 1);
+    const nextPreset =
+      patch.viewportPreset === null
+        ? undefined
+        : patch.viewportPreset !== undefined
+          ? patch.viewportPreset
+          : current?.viewportPreset;
+    const updatedAt = new Date().toISOString();
+    this.#database
+      .prepare(
+        `INSERT INTO domain_prefs (env_id, origin, zoom_factor, viewport_preset, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(env_id, origin) DO UPDATE SET
+           zoom_factor = excluded.zoom_factor,
+           viewport_preset = excluded.viewport_preset,
+           updated_at = excluded.updated_at`,
+      )
+      .run(envId, origin, nextZoom, nextPreset ?? null, updatedAt);
+    return {
+      envId,
+      origin,
+      zoomFactor: nextZoom,
+      viewportPreset: nextPreset,
+      updatedAt,
+    };
   }
 
   // ---------------------------------------------------------------- 事件

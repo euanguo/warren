@@ -387,6 +387,48 @@ export class BrowserController {
     return { url: wc.getURL() };
   }
 
+  async hardReload(opts: NavigateOptions = {}): Promise<{ url: string }> {
+    this.assertNoDialog();
+    const wc = this.#wc;
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    wc.reloadIgnoringCache();
+    const loaded = await awaitLoad(this.#page(), opts.waitUntil ?? 'load', timeoutMs);
+    if (loaded.timedOut) {
+      throw err(
+        'TIMEOUT',
+        `hardReload timed out after ${timeoutMs}ms: url=${loaded.url} readyState=${await readyState(this.#page())}`,
+      );
+    }
+    markDialogHandled(this.#wc);
+    invalidateAxCache(this.#wc.id);
+    this.#worldCtx = undefined;
+    this.#refs.bump();
+    return { url: wc.getURL() };
+  }
+
+  async setViewportPreset(preset: 'auto' | 'desktop-1440' | 'laptop-1280' | 'mobile-390'): Promise<void> {
+    if (preset === 'auto') {
+      await this.clearEmulatedViewport();
+      return;
+    }
+    const specs: Record<
+      'desktop-1440' | 'laptop-1280' | 'mobile-390',
+      { width: number; height: number; mobile: boolean; scale: number }
+    > = {
+      'desktop-1440': { width: 1440, height: 900, mobile: false, scale: 1 },
+      'laptop-1280': { width: 1280, height: 800, mobile: false, scale: 1 },
+      'mobile-390': { width: 390, height: 844, mobile: true, scale: 2 },
+    };
+    const spec = specs[preset];
+    this.attach();
+    await this.#send('Emulation.setDeviceMetricsOverride', {
+      width: spec.width,
+      height: spec.height,
+      deviceScaleFactor: spec.scale,
+      mobile: spec.mobile,
+    });
+  }
+
   navigationState(): { url: string; canGoBack: boolean; canGoForward: boolean; loading: boolean } {
     const history = this.#wc.navigationHistory;
     return {

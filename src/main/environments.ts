@@ -1,4 +1,14 @@
-import { app, screen, session, webContents, type BrowserWindow, type Session } from 'electron';
+import {
+  app,
+  clipboard,
+  dialog,
+  screen,
+  session,
+  shell,
+  webContents,
+  type BrowserWindow,
+  type Session,
+} from 'electron';
 import { mkdir, rm } from 'node:fs/promises';
 import { readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -14,10 +24,14 @@ import {
   type CookieSummary,
 } from './browser/cookies.ts';
 import { EnvPending } from './browser/pending.ts';
-import { wireDownloads } from './browser/downloads.ts';
+import { getDownloadPath, listDownloads, wireDownloads } from './browser/downloads.ts';
 import { NetInterceptor } from './net/interceptor.ts';
 import { EnvironmentNetOps } from './net/ops.ts';
 import { InputShield } from './input-shield';
+import { WindowLayerManager } from './ui/layer-manager.ts';
+import { DevToolsHost } from './ui/devtools-host.ts';
+import { popupNativeMenu } from './ui/native-menu.ts';
+import { buildPageContextMenu } from './browser-context-menu.ts';
 import { newTabPage } from './newtab';
 import { TabManager, newTabUrl, type Tab, type TabListItem } from './tabs';
 import { Telemetry, type ConsoleEntry, type NetworkEntry } from './telemetry';
@@ -46,12 +60,16 @@ import type {
   BrowserShortcut,
   ControlOwner,
   Creator,
+  DevToolsDockMode,
+  DownloadItemInfo,
   Environment,
   EnvironmentSpace,
+  FindInPageResult,
   Group,
   NavigationAction,
   SpaceId,
   TabRef,
+  ViewportPresetId,
   ViewportRect,
 } from '../shared/types';
 
@@ -126,8 +144,16 @@ export interface LeaseHandle {
   environmentId: string;
   space: SpaceId;
   owner: ControlOwner;
+  label?: string;
   leaseId: string;
   expiresAt: number;
+}
+
+export interface EnvironmentManagerOptions {
+  layers?: WindowLayerManager;
+  onTargetUrl?: (payload: { envId: string; url: string }) => void;
+  onFindResult?: (result: FindInPageResult) => void;
+  onDownloadsChanged?: () => void;
 }
 
 interface EnvironmentSpaces {
@@ -185,11 +211,19 @@ export class EnvironmentManager {
   #idleMs = idleMsFromEnv();
   #sweepTimer?: ReturnType<typeof setInterval>;
   #onChange: () => void;
+  #layers: WindowLayerManager;
+  #devtools: DevToolsHost;
+  #options: EnvironmentManagerOptions;
+  #viewVisible = true;
+  #presets = new Map<string, ViewportPresetId>();
 
-  constructor(store: Store, window: BrowserWindow, onChange: () => void) {
+  constructor(store: Store, window: BrowserWindow, onChange: () => void, options: EnvironmentManagerOptions = {}) {
     this.#store = store;
     this.#window = window;
     this.#onChange = onChange;
+    this.#options = options;
+    this.#layers = options.layers ?? new WindowLayerManager(window);
+    this.#devtools = new DevToolsHost(this.#layers, () => this.#syncAfterDevToolsChange());
     // 遥测也落在同一个库上（console / network 摘要）
     this.#telemetry = new Telemetry(store.database);
     for (const id of store.runningSnapshot().dormant ?? []) {
@@ -246,8 +280,12 @@ export class EnvironmentManager {
     if (this.#selected === id) spaces[spaces.active].detach();
     spaces.active = space;
     if (this.#selected === id) {
+      this.#devtools.activateTab(spaces[space].activeId);
+      const split = this.#devtools.computeSplitBounds();
       spaces[space].attach();
-      spaces[space].setViewport(this.#viewport);
+      spaces[space].setViewVisible(this.#viewVisible);
+      spaces[space].setViewport(split.page);
+      this.#layers.setVisible('devtools', this.#viewVisible && this.#devtools.isOpen());
       this.#syncShield(id);
     }
     this.#onChange();
@@ -265,9 +303,11 @@ export class EnvironmentManager {
      */
     if (viewport.width <= 0 || viewport.height <= 0) return;
     this.#viewport = viewport;
-    if (this.#selected) this.#spaceManager(this.#selected)?.setViewport(viewport);
+    this.#devtools.setViewport(viewport);
+    const split = this.#devtools.computeSplitBounds();
+    if (this.#selected) this.#spaceManager(this.#selected)?.setViewport(split.page);
     const shield = this.#selected ? this.#shields.get(this.#selected) : undefined;
-    if (shield?.attached) shield.view.setBounds(viewport);
+    if (shield?.attached) shield.setBounds(split.page);
   }
 
   /** 窗口被拖到屏幕外 / 上次离屏恢复失败时，把工作区拉回主屏可见范围。 */
@@ -307,25 +347,190 @@ export class EnvironmentManager {
   /**
    * 让开 / 收回原生视图。
    *
-   * 页面视图和输入遮罩都是 `WebContentsView`，永远画在渲染层 DOM 之上——
-   * 所以渲染层一开右键菜单 / 下拉 / 对话框，压到页面区域的部分就会被它们盖住，
-   * 连点都点不到。渲染层检测到这种重叠时调这里，把两者一起藏起来。
+   * 只应在全屏切换（设置页 / 插件独立页）时让开页面，普通弹窗与菜单不再隐藏视图。
    */
   setViewVisible(visible: boolean): void {
+    this.#viewVisible = visible;
     if (this.#selected) {
       this.#spaceManager(this.#selected)?.setViewVisible(visible);
       this.#shields.get(this.#selected)?.setVisible(visible);
     }
+    this.#layers.setVisible('devtools', visible && this.#devtools.isOpen());
   }
 
-  /**
-   * 打开该环境当前标签的 DevTools。
-   *
-   * 渲染层在**人持控制权**时才给这个按钮——DevTools 的 Elements / Console
-   * 能直接改页面，和导航一样属于写操作（PRD 5.3）。
-   */
-  openDevTools(id: string, space: SpaceId = 'agent'): void {
-    this.#spaceManager(id, space)?.openDevTools();
+  /** 打开该环境当前标签的 Chrome DevTools（支持 right / bottom / detach 停靠）。 */
+  openDevTools(id: string, space: SpaceId = 'agent', dock?: DevToolsDockMode): void {
+    if (space === 'agent') {
+      const lease = this.#leases.get(id);
+      if (lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > Date.now()) {
+        throw Object.assign(new Error(`ENV_BUSY: Agent 正在操作 ${id}，请先接管控制权再打开开发者工具`), {
+          code: 'ENV_BUSY',
+        });
+      }
+    }
+    const tab = this.#spaceManager(id, space)?.active();
+    const wc = tab?.webContents;
+    if (!tab || !wc || wc.isDestroyed()) return;
+    if (this.#selected !== id) this.select(id, space);
+    else if (this.#activeSpaceOf(id) !== space) this.selectSpace(id, space);
+    this.#devtools.openForTab(tab.id, wc, dock);
+    this.#reapplySplitBounds(id);
+  }
+
+  closeDevTools(id: string, space: SpaceId = 'agent'): void {
+    const tab = this.#spaceManager(id, space)?.active();
+    if (!tab) return;
+    this.#devtools.closeForTab(tab.id);
+    this.#reapplySplitBounds(id);
+  }
+
+  inspectAt(id: string, space: SpaceId, x: number, y: number): void {
+    if (space === 'agent') {
+      const lease = this.#leases.get(id);
+      if (lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > Date.now()) {
+        throw Object.assign(new Error(`ENV_BUSY: Agent 正在操作 ${id}，请先接管控制权再检查元素`), {
+          code: 'ENV_BUSY',
+        });
+      }
+    }
+    const tab = this.#spaceManager(id, space)?.active();
+    const wc = tab?.webContents;
+    if (!tab || !wc || wc.isDestroyed()) return;
+    if (this.#selected !== id) this.select(id, space);
+    else if (this.#activeSpaceOf(id) !== space) this.selectSpace(id, space);
+    this.#devtools.inspectAt(tab.id, wc, x, y);
+    this.#reapplySplitBounds(id);
+  }
+
+  setDevToolsDock(dock: DevToolsDockMode, size?: number): void {
+    this.#devtools.setDockConfig(dock, size);
+    if (this.#selected) this.#reapplySplitBounds(this.#selected);
+  }
+
+  getDevToolsState(): { open: boolean; dock: DevToolsDockMode; size: number } {
+    return this.#devtools.state();
+  }
+
+  findInPage(id: string, space: SpaceId, text: string, options: { forward?: boolean; findNext?: boolean } = {}): void {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    const trimmed = text;
+    if (!trimmed) {
+      wc.stopFindInPage('clearSelection');
+      this.#options.onFindResult?.({ envId: id, requestId: 0, activeMatchOrdinal: 0, matches: 0, finalUpdate: true });
+      return;
+    }
+    wc.findInPage(trimmed, {
+      forward: options.forward ?? true,
+      findNext: options.findNext ?? false,
+    });
+  }
+
+  stopFindInPage(id: string, space: SpaceId): void {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.stopFindInPage('clearSelection');
+  }
+
+  setZoom(id: string, space: SpaceId, mode: 'in' | 'out' | 'reset' | number): { factor: number } {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    if (!wc || wc.isDestroyed()) return { factor: 1 };
+    const current = wc.getZoomFactor() || 1;
+    let next = current;
+    if (mode === 'reset') next = 1;
+    else if (mode === 'in') next = Math.min(3, Math.round((current + 0.1) * 100) / 100);
+    else if (mode === 'out') next = Math.max(0.5, Math.round((current - 0.1) * 100) / 100);
+    else if (typeof mode === 'number' && Number.isFinite(mode)) {
+      next = Math.max(0.25, Math.min(5, Math.round(mode * 100) / 100));
+    }
+    wc.setZoomFactor(next);
+    const origin = this.#originOf(wc.getURL());
+    if (origin) this.#store.setDomainPref(id, origin, { zoomFactor: next });
+    this.#onChange();
+    return { factor: next };
+  }
+
+  getZoom(id: string, space: SpaceId): { factor: number } {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    if (!wc || wc.isDestroyed()) return { factor: 1 };
+    return { factor: Math.round((wc.getZoomFactor() || 1) * 100) / 100 };
+  }
+
+  async setViewportPreset(id: string, space: SpaceId, preset: ViewportPresetId): Promise<{ preset: ViewportPresetId }> {
+    const tabs = this.#spaceManager(id, space);
+    const controller = tabs?.controller();
+    const wc = tabs?.active()?.webContents;
+    if (!controller || !wc || wc.isDestroyed()) {
+      throw Object.assign(new Error(`environment ${id} active tab is not ready`), { code: 'ENV_NOT_RUNNING' });
+    }
+    await controller.setViewportPreset(preset);
+    this.#presets.set(`${id}:${space}`, preset);
+    const origin = this.#originOf(wc.getURL());
+    if (origin) this.#store.setDomainPref(id, origin, { viewportPreset: preset === 'auto' ? null : preset });
+    this.#onChange();
+    return { preset };
+  }
+
+  getViewportPreset(id: string, space: SpaceId): { preset: ViewportPresetId } {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    const origin = wc && !wc.isDestroyed() ? this.#originOf(wc.getURL()) : undefined;
+    if (origin) {
+      const saved = this.#store.domainPref(id, origin)?.viewportPreset;
+      if (saved) return { preset: saved };
+    }
+    return { preset: this.#presets.get(`${id}:${space}`) ?? 'auto' };
+  }
+
+  downloads(id?: string): DownloadItemInfo[] {
+    return listDownloads(id);
+  }
+
+  revealDownload(downloadId: string): void {
+    const target = getDownloadPath(downloadId);
+    if (target) shell.showItemInFolder(target);
+  }
+
+  printPage(id: string, space: SpaceId): void {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.print();
+  }
+
+  async savePageAs(id: string, space: SpaceId): Promise<{ saved: boolean; path?: string }> {
+    const wc = this.#spaceManager(id, space)?.active()?.webContents;
+    if (!wc || wc.isDestroyed()) return { saved: false };
+    const title = (wc.getTitle() || 'page').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 64);
+    const result = await dialog.showSaveDialog(this.#window, {
+      title: '将页面另存为',
+      defaultPath: `${title}.html`,
+      filters: [{ name: 'Webpage, Complete', extensions: ['html', 'htm'] }],
+    });
+    if (result.canceled || !result.filePath) return { saved: false };
+    await wc.savePage(result.filePath, 'HTMLComplete');
+    return { saved: true, path: result.filePath };
+  }
+
+  #originOf(rawUrl: string): string | undefined {
+    try {
+      const u = new URL(rawUrl);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined;
+      return u.origin;
+    } catch {
+      return undefined;
+    }
+  }
+
+  #syncAfterDevToolsChange(): void {
+    if (this.#selected) this.#reapplySplitBounds(this.#selected);
+    this.#onChange();
+  }
+
+  #reapplySplitBounds(id: string): void {
+    if (this.#selected !== id) return;
+    const split = this.#devtools.computeSplitBounds();
+    this.#spaceManager(id)?.setViewport(split.page);
+    const shield = this.#shields.get(id);
+    if (shield?.attached) shield.setBounds(split.page);
   }
 
   consoleEntries(id: string): ConsoleEntry[] {
@@ -603,7 +808,7 @@ export class EnvironmentManager {
       windowOpacity: this.#window.getOpacity(),
       telemetryWrite: this.#telemetry.writeStats,
       viewVisible: tabs?.viewVisible ?? true,
-      devToolsOpen: tabs?.devToolsOpen ?? false,
+      devToolsOpen: this.#devtools.isOpen() || (tabs?.devToolsOpen ?? false),
       webContents: webContents.getAllWebContents().length,
       running: this.#spaces.size,
       maxRunning: this.#maxRunning,
@@ -950,6 +1155,7 @@ export class EnvironmentManager {
       envId: id,
       space,
       window: this.#window,
+      layers: this.#layers,
       session: ses,
       trustedCa,
       onChanged: () => {
@@ -957,7 +1163,11 @@ export class EnvironmentManager {
         this.#rememberTabs(id);
       },
       onViewChanged: () => {
-        if (this.#selected === id && this.#activeSpaceOf(id) === space) this.#syncShield(id);
+        if (this.#selected === id && this.#activeSpaceOf(id) === space) {
+          this.#devtools.activateTab(this.#spaceManager(id, space)?.activeId);
+          this.#reapplySplitBounds(id);
+          this.#syncShield(id);
+        }
       },
       onEmpty: () => this.#onSpaceEmpty(id, space),
       onEvent: (type, message) => {
@@ -973,6 +1183,33 @@ export class EnvironmentManager {
         pending.notePopup({ tabId, index, url, at: new Date().toISOString() });
       },
       onUrlVisited: (url) => this.#store.recordUrlHistory(url),
+      onOriginZoomNeeded: (tab, url) => {
+        const origin = this.#originOf(url);
+        if (!origin) return;
+        const pref = this.#store.domainPref(id, origin);
+        const wc = tab.webContents;
+        if (!wc || wc.isDestroyed()) return;
+        if (pref && Math.abs(pref.zoomFactor - 1) > 0.001) {
+          wc.setZoomFactor(pref.zoomFactor);
+        }
+      },
+      onTargetUrl: (url) => {
+        if (this.#selected === id && this.#activeSpaceOf(id) === space) {
+          this.#options.onTargetUrl?.({ envId: id, url });
+        }
+      },
+      onFoundInPage: (result) => {
+        this.#options.onFindResult?.({
+          envId: id,
+          requestId: result.requestId,
+          activeMatchOrdinal: result.activeMatchOrdinal,
+          matches: result.matches,
+          finalUpdate: result.finalUpdate,
+        });
+      },
+      onContextMenu: (tab, params) => {
+        void this.#handlePageContextMenu(id, space, tab, params);
+      },
       createController: (tabId, webContents) => {
         try {
           this.#telemetry.attachTab(id, tabId, webContents);
@@ -997,8 +1234,110 @@ export class EnvironmentManager {
         controller.attach();
         return controller;
       },
-      onTabDestroyed: (tabId) => this.#telemetry.detachTab(tabId),
+      onTabDestroyed: (tabId) => {
+        this.#telemetry.detachTab(tabId);
+        this.#devtools.closeForTab(tabId);
+      },
     });
+  }
+
+  async #handlePageContextMenu(
+    id: string,
+    space: SpaceId,
+    tab: Tab,
+    params: Electron.ContextMenuParams,
+  ): Promise<void> {
+    const wc = tab.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    const lease = this.#leases.get(id);
+    const canNavigate =
+      space === 'person' ||
+      Boolean(lease && lease.space === 'agent' && lease.owner === 'human' && lease.expiresAt > Date.now());
+    const history = wc.navigationHistory;
+    const items = buildPageContextMenu({
+      x: params.x,
+      y: params.y,
+      pageURL: params.pageURL || wc.getURL(),
+      linkURL: params.linkURL,
+      srcURL: params.srcURL,
+      mediaType: params.mediaType,
+      selectionText: params.selectionText,
+      isEditable: params.isEditable,
+      canGoBack: history.canGoBack(),
+      canGoForward: history.canGoForward(),
+      canNavigate,
+      editFlags: params.editFlags,
+    });
+    const picked = await popupNativeMenu(this.#window, items);
+    if (!picked || wc.isDestroyed()) return;
+    switch (picked) {
+      case 'link:openTab':
+        if (canNavigate && params.linkURL) this.newTab(id, params.linkURL, { activate: true }, space);
+        break;
+      case 'link:copy':
+        if (params.linkURL) clipboard.writeText(params.linkURL);
+        break;
+      case 'image:openTab':
+        if (canNavigate && params.srcURL) this.newTab(id, params.srcURL, { activate: true }, space);
+        break;
+      case 'image:copy':
+        wc.copyImageAt(params.x, params.y);
+        break;
+      case 'image:copyUrl':
+        if (params.srcURL) clipboard.writeText(params.srcURL);
+        break;
+      case 'image:saveAs':
+        if (params.srcURL) wc.downloadURL(params.srcURL);
+        break;
+      case 'edit:undo':
+        wc.undo();
+        break;
+      case 'edit:redo':
+        wc.redo();
+        break;
+      case 'edit:cut':
+        wc.cut();
+        break;
+      case 'edit:copy':
+        wc.copy();
+        break;
+      case 'edit:paste':
+        wc.paste();
+        break;
+      case 'edit:selectAll':
+        wc.selectAll();
+        break;
+      case 'nav:back':
+        if (canNavigate) this.humanNavigate(id, { kind: 'back' }, space);
+        break;
+      case 'nav:forward':
+        if (canNavigate) this.humanNavigate(id, { kind: 'forward' }, space);
+        break;
+      case 'nav:reload':
+        if (canNavigate) this.humanNavigate(id, { kind: 'reload' }, space);
+        break;
+      case 'nav:hardReload':
+        if (canNavigate) this.humanNavigate(id, { kind: 'hardReload' }, space);
+        break;
+      case 'page:saveAs':
+        await this.savePageAs(id, space);
+        break;
+      case 'page:print':
+        this.printPage(id, space);
+        break;
+      case 'page:viewSource': {
+        const url = params.pageURL || wc.getURL();
+        if (canNavigate && url && !url.startsWith('view-source:')) {
+          this.newTab(id, `view-source:${url}`, { activate: true }, space);
+        }
+        break;
+      }
+      case 'devtools:inspect':
+        if (canNavigate) this.inspectAt(id, space, params.x, params.y);
+        break;
+      default:
+        break;
+    }
   }
 
   #onSpaceEmpty(id: string, space: SpaceId): void {
@@ -1062,6 +1401,7 @@ export class EnvironmentManager {
       id,
       (envId) => this.#pending.get(envId),
       (type, message) => this.#store.record(makeEvent(type, message, 'system', id)),
+      () => this.#options.onDownloadsChanged?.(),
     );
 
     const spaces: EnvironmentSpaces = {
@@ -1122,6 +1462,7 @@ export class EnvironmentManager {
     }
     spaces.person.destroy();
     spaces.agent.destroy();
+    this.#closeEnvDevTools(spaces);
     this.#spaces.delete(id);
     // 环境都停了，lease 没有意义了；留着会让下一次操作白等一个 TTL
     this.#leases.delete(id);
@@ -1165,6 +1506,7 @@ export class EnvironmentManager {
     if (this.#selected === id) spaces[spaces.active].detach();
     spaces.person.destroy();
     spaces.agent.destroy();
+    this.#closeEnvDevTools(spaces);
     this.#hibernating.delete(id);
     this.#spaces.delete(id);
     this.#leases.delete(id);
@@ -1258,11 +1600,21 @@ export class EnvironmentManager {
     );
     const active = this.#selected === id && this.#activeSpaceOf(id) === 'agent' && !humanOwnsAgent;
     if (active) {
-      shield.attach(this.#window, this.#viewport);
-      // addChildView 是后加的在上面：切标签刚加进来一个页面视图，遮罩必须重新提到最上层
+      const caller = lease && lease.space === 'agent' && lease.owner === 'agent' ? lease.label : undefined;
+      shield.setCallerLabel(caller);
+      shield.setVisible(this.#viewVisible);
+      shield.attach(this.#window, this.#devtools.computeSplitBounds().page);
       shield.raise(this.#window);
     } else {
       shield.detach(this.#window);
+    }
+  }
+
+  #closeEnvDevTools(spaces: EnvironmentSpaces): void {
+    for (const space of SPACE_IDS) {
+      for (const tab of spaces[space].list()) {
+        this.#devtools.closeForTab(tab.id);
+      }
     }
   }
 
@@ -1285,6 +1637,7 @@ export class EnvironmentManager {
     this.#rememberRunning();
 
     if (!attachTarget || !target) {
+      this.#devtools.activateTab(undefined);
       // 环境没启动（没有页面视图可挂）。**选中态要保留**：
       // 界面要能说「环境未启动」，而不是退回「未选择环境」。
       // 这里以前直接把 #selected 清成 undefined 且不摘视图，结果是
@@ -1295,9 +1648,26 @@ export class EnvironmentManager {
     }
 
     target.attach();
-    target.setViewport(this.#viewport);
+    target.setViewVisible(this.#viewVisible);
+    this.#devtools.activateTab(target.activeId);
+    target.setViewport(this.#devtools.computeSplitBounds().page);
+    this.#layers.setVisible('devtools', this.#viewVisible && this.#devtools.isOpen());
 
-    if (!this.#shields.has(id)) this.#shields.set(id, new InputShield());
+    if (!this.#shields.has(id)) {
+      this.#shields.set(
+        id,
+        new InputShield({
+          layers: this.#layers,
+          onTakeover: () => {
+            try {
+              this.takeover(id, 'human', 'agent');
+            } catch {
+              // ignore
+            }
+          },
+        }),
+      );
+    }
     this.#syncShield(id);
     this.#onChange();
   }
@@ -1309,6 +1679,7 @@ export class EnvironmentManager {
    */
   #detachSelected(): void {
     if (!this.#selected) return;
+    this.#devtools.activateTab(undefined);
     this.#spaceManager(this.#selected)?.detach();
     this.#shields.get(this.#selected)?.detach(this.#window);
   }
@@ -1424,9 +1795,13 @@ export class EnvironmentManager {
     return tabs;
   }
 
-  /** 标签变化之后：遮罩重新提到最上层（刚加进来的页面视图会盖住它） */
+  /** 标签变化之后：遮罩与 DevTools 跟随激活标签同步 */
   #afterTabChange(id: string): void {
-    if (this.#selected === id) this.#syncShield(id);
+    if (this.#selected === id) {
+      this.#devtools.activateTab(this.#spaceManager(id)?.activeId);
+      this.#reapplySplitBounds(id);
+      this.#syncShield(id);
+    }
     this.#onChange();
   }
 
@@ -1467,6 +1842,7 @@ export class EnvironmentManager {
     if (action.kind === 'back') controller.goBack();
     else if (action.kind === 'forward') controller.goForward();
     else if (action.kind === 'goto') void controller.navigate(action.url);
+    else if (action.kind === 'hardReload') void controller.hardReload();
     else void controller.reload();
     const detail = action.kind === 'goto' ? `goto ${action.url}` : action.kind;
     this.#store.record(makeEvent('browser.navigated', `human ${detail} on ${id}`, 'human', id));
@@ -1501,6 +1877,7 @@ export class EnvironmentManager {
         // 传错了 renewLease 会直接抛 ENV_NOT_LEASED，续租就只剩 catch 兜底在生效。
         const ttl = leaseTtlMs();
         current.expiresAt = renewLease(env, current.leaseId, ttl).leaseExpiresAt ?? Date.now() + ttl;
+        if (label) current.label = label;
         this.#syncShield(id);
         this.#onChange();
         return current;
@@ -1525,6 +1902,7 @@ export class EnvironmentManager {
       environmentId: id,
       space,
       owner,
+      label,
       leaseId: crypto.randomUUID(),
       expiresAt: Date.now() + leaseTtlMs(),
     };
@@ -1727,6 +2105,7 @@ export class EnvironmentManager {
       clearInterval(this.#sweepTimer);
       this.#sweepTimer = undefined;
     }
+    this.#devtools.destroyAll();
     for (const id of [...this.#spaces.keys()]) this.stop(id);
   }
 

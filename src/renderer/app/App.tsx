@@ -2,17 +2,14 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { toast } from 'sonner';
 import { usePanelRef } from 'react-resizable-panels';
 import { EnvironmentSidebar } from '@/features/environments/environment-sidebar';
-import type { NewEnvironment } from '@/features/environments/create-environment-dialog';
 import { EnvironmentStage } from '@/features/environments/environment-stage';
 import { SettingsPage, type SettingsSection } from '@/features/settings/settings-page';
-import type { EnvironmentEdit } from '@/features/environments/edit-environment-dialog';
 import { AppRail, type RailDestination } from '@/app/app-rail';
 import { AppTitlebar } from '@/app/app-titlebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { createNativeViewOverlayGuard } from '@/lib/native-view-overlay-guard';
 import { loadPluginApps, emptyRegistry, type PluginRegistry } from '@/lib/plugin-runtime';
 import { usePluginBadges } from '@/lib/plugin-badges';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
@@ -129,8 +126,18 @@ export function App() {
     // ref 对象是稳定的，列进来只是为了让 exhaustive-deps 满意
   }, [sidebarPanelRef, sidebarVisible]);
 
-  // 页面是原生视图，永远在 DOM 之上；浮层压到它就把它让开（见 lib/native-view-overlay-guard.ts）
-  useEffect(() => createNativeViewOverlayGuard(), []);
+  // ⌘K 全局命令栏（走 OverlayHost 独立透明层，不挡也不藏底层网页）
+  useEffect(() => {
+    return window.envApi.onBrowserShortcut((shortcut) => {
+      if (shortcut !== 'commandBar') return;
+      void window.envApi.openOverlay<{ command?: string } | null>({ kind: 'command-bar' }).then((result) => {
+        if (result?.command === 'openSettings') {
+          setRequestedPage(undefined);
+          setSettingsOpen(true);
+        }
+      });
+    });
+  }, []);
 
   /** 主进程报「状态变了」。环境列表、插件清单都挂在这个计数上重取。 */
   useEffect(() => window.envApi.onStateChanged(() => setStateTick((tick) => tick + 1)), []);
@@ -282,9 +289,6 @@ export function App() {
 
   const select = (id: string) => void run(() => window.envApi.select(id), '切换环境失败');
 
-  // 表单在弹窗里，这里只收已经填好的值
-  const create = (input: NewEnvironment) => void run(() => window.envApi.create(input), '创建环境失败');
-
   const start = (id: string) => void run(() => window.envApi.start(id), '启动环境失败');
 
   const stop = (id: string) => void run(() => window.envApi.stop(id), '停止环境失败');
@@ -299,11 +303,6 @@ export function App() {
     void run(async () => {
       return window.envApi.pluginRun(pluginId, command, environmentId);
     }, '插件动作失败');
-  /** 编辑环境：显示名 / 代理 / 启动 URL / 自动切换。空串 = 清掉那个字段（代理留空就是直连）。 */
-  const editEnvironment = (id: string, patch: EnvironmentEdit) =>
-    void run(() => window.envApi.update(id, patch), '保存环境失败');
-
-  const createGroup = (name: string) => void run(() => window.envApi.groupCreate(name), '新建分组失败');
   const renameGroup = (id: string, name: string) =>
     void run(() => window.envApi.groupRename(id, name), '重命名分组失败');
   const removeGroup = (id: string) => void run(() => window.envApi.groupRemove(id), '删除分组失败');
@@ -465,15 +464,12 @@ export function App() {
                         environments={environments}
                         groups={groups}
                         selected={selected}
-                        onCreate={create}
                         onSelect={select}
                         onStart={start}
                         onStop={stop}
                         onRemove={remove}
                         onTakeover={takeover}
                         onRelease={release}
-                        onEditEnvironment={editEnvironment}
-                        onCreateGroup={createGroup}
                         onRenameGroup={renameGroup}
                         onRemoveGroup={removeGroup}
                         onToggleGroup={toggleGroup}

@@ -168,6 +168,15 @@ CREATE TABLE IF NOT EXISTS network_entries (
   resource_type TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS network_entries_env ON network_entries (env_id, id);
+
+CREATE TABLE IF NOT EXISTS domain_prefs (
+  env_id TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  zoom_factor REAL NOT NULL DEFAULT 1.0,
+  viewport_preset TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (env_id, origin)
+);
 `;
 
 /** 一个文件一条连接。 */

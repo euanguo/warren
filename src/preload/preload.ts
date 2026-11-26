@@ -3,8 +3,15 @@ import type {
   AppSettings,
   ApprovalMode,
   BrowserShortcut,
+  DevToolsDockMode,
+  FindInPageResult,
+  NativeMenuItem,
   NavigationAction,
+  OverlayRequest,
+  PopoverActionEvent,
+  PopoverOpenOptions,
   SpaceId,
+  ViewportPresetId,
   ViewportRect,
 } from '../shared/types';
 
@@ -60,7 +67,69 @@ const api = {
   humanNavigate: (id: string, space: SpaceId, action: NavigationAction) =>
     ipcRenderer.invoke('browser:humanNavigate', id, space, action),
   historySuggest: (query: string, limit?: number) => ipcRenderer.invoke('history:suggest', query, limit),
-  openDevTools: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:openDevTools', id, space),
+  openDevTools: (id: string, space: SpaceId, dock?: DevToolsDockMode) =>
+    ipcRenderer.invoke('browser:openDevTools', id, space, dock),
+  closeDevTools: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:closeDevTools', id, space),
+  setDevToolsDock: (dock: DevToolsDockMode, size?: number) => ipcRenderer.invoke('browser:setDevToolsDock', dock, size),
+  getDevToolsState: () => ipcRenderer.invoke('browser:getDevToolsState'),
+  findInPage: (id: string, space: SpaceId, text: string, options?: { forward?: boolean; findNext?: boolean }) =>
+    ipcRenderer.invoke('browser:findInPage', id, space, text, options),
+  stopFindInPage: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:stopFindInPage', id, space),
+  onFindResult: (callback: (result: FindInPageResult) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, result: FindInPageResult) => callback(result);
+    ipcRenderer.on('browser:findResult', listener);
+    return () => ipcRenderer.removeListener('browser:findResult', listener);
+  },
+  setZoom: (id: string, space: SpaceId, mode: 'in' | 'out' | 'reset' | number) =>
+    ipcRenderer.invoke('browser:setZoom', id, space, mode),
+  getZoom: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:getZoom', id, space),
+  setViewportPreset: (id: string, space: SpaceId, preset: ViewportPresetId) =>
+    ipcRenderer.invoke('browser:setViewportPreset', id, space, preset),
+  getViewportPreset: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:getViewportPreset', id, space),
+  onTargetUrl: (callback: (payload: { envId: string; url: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { envId: string; url: string }) => callback(payload);
+    ipcRenderer.on('browser:targetUrl', listener);
+    return () => ipcRenderer.removeListener('browser:targetUrl', listener);
+  },
+  downloads: (id?: string) => ipcRenderer.invoke('browser:downloads', id),
+  revealDownload: (downloadId: string) => ipcRenderer.invoke('browser:revealDownload', downloadId),
+  printPage: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:printPage', id, space),
+  savePage: (id: string, space: SpaceId) => ipcRenderer.invoke('browser:savePage', id, space),
+  popupMenu: (items: NativeMenuItem[], position?: { x: number; y: number }) =>
+    ipcRenderer.invoke('ui:popupMenu', items, position),
+  openOverlay: <T = unknown>(request: OverlayRequest) =>
+    ipcRenderer.invoke('overlay:open', request) as Promise<T | null>,
+  getOverlayState: () => ipcRenderer.invoke('overlay:current'),
+  resolveOverlay: (result: unknown) => ipcRenderer.invoke('overlay:resolve', result),
+  onOverlayState: (callback: (request: OverlayRequest | null) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: OverlayRequest | null) => callback(request);
+    ipcRenderer.on('overlay:state', listener);
+    return () => ipcRenderer.removeListener('overlay:state', listener);
+  },
+  openPopover: (options: PopoverOpenOptions) => ipcRenderer.invoke('popover:open', options),
+  updatePopover: (id: string, options: Partial<PopoverOpenOptions>) =>
+    ipcRenderer.invoke('popover:update', id, options),
+  closePopover: (id?: string) => ipcRenderer.invoke('popover:close', id),
+  getPopoverState: () => ipcRenderer.invoke('popover:current'),
+  dispatchPopoverAction: (event: PopoverActionEvent) => ipcRenderer.invoke('popover:action', event),
+  onPopoverState: (callback: (payload: { id: string; props: Record<string, unknown> } | null) => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { id: string; props: Record<string, unknown> } | null,
+    ) => callback(payload);
+    ipcRenderer.on('popover:state', listener);
+    return () => ipcRenderer.removeListener('popover:state', listener);
+  },
+  onPopoverAction: (callback: (event: PopoverActionEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: PopoverActionEvent) => callback(event);
+    ipcRenderer.on('popover:action', listener);
+    return () => ipcRenderer.removeListener('popover:action', listener);
+  },
+  onPopoverDismissed: (callback: (payload: { id: string; reason: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { id: string; reason: string }) => callback(payload);
+    ipcRenderer.on('popover:dismissed', listener);
+    return () => ipcRenderer.removeListener('popover:dismissed', listener);
+  },
   onBrowserShortcut: (callback: (shortcut: BrowserShortcut) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, shortcut: BrowserShortcut) => callback(shortcut);
     ipcRenderer.on('browser:shortcut', listener);
