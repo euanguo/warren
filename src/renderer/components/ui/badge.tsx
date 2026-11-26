@@ -14,7 +14,7 @@ const badgeVariants = cva(
         secondary: "bg-surface-selected text-foreground",
         destructive: "bg-destructive/10 text-destructive",
         // Soft chip — no stroke (chrome chips are fill, not outlined boxes).
-        outline: "bg-surface-fog text-subtle-foreground",
+        outline: "border border-border bg-surface-fog text-muted-foreground",
         ghost: "bg-transparent text-subtle-foreground",
         link: "bg-transparent text-foreground underline-offset-4 hover:underline",
       },

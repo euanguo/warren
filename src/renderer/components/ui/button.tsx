@@ -13,13 +13,13 @@ import { cn } from "@/lib/utils";
  */
 const buttonVariants = cva(
   cn(
-    "group/button inline-flex shrink-0 items-center justify-center bg-clip-padding text-sm font-normal whitespace-nowrap transition-colors select-none [corner-shape:var(--corner-shape)]",
-    // Borderless chrome; focus = thin border-focus hairline, never ring-3 bloom.
+    "group/button inline-flex shrink-0 items-center justify-center bg-clip-padding text-sm font-normal whitespace-nowrap transition-[background-color,border-color,color,box-shadow,transform] duration-150 select-none [corner-shape:var(--corner-shape)]",
+    // Borderless chrome by default; outline adds real border + raised highlight.
     "border border-transparent shadow-none outline-none",
     // Split/group surfaces need a real edge so ButtonGroup can join corners.
     "in-data-[slot=button-group]:border-border",
     "focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-transparent focus-visible:border-focus",
-    "active:translate-y-0 disabled:pointer-events-none disabled:opacity-40",
+    "active:scale-[0.98] motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-40",
     "aria-invalid:border-destructive",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   ),
@@ -27,16 +27,17 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-foreground text-background hover:bg-foreground/80 active:bg-foreground/70 aria-expanded:bg-foreground/80",
-        // Secondary: soft wash — not a stroked box.
+          "bg-foreground text-background [box-shadow:var(--shadow-raised)] hover:bg-foreground/88 active:bg-foreground/78 aria-expanded:bg-foreground/88",
+        // Secondary: soft wash — low-weight chip without hard border.
         secondary:
-          "bg-surface-fog text-foreground hover:bg-surface-hover active:bg-foreground/15 aria-expanded:bg-surface-hover",
+          "bg-surface-fog text-foreground hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
+        // Outline: crisp raised tactile key with visible hairline border + top highlight.
         outline:
-          "bg-surface-fog text-foreground hover:bg-surface-hover active:bg-foreground/15 aria-expanded:bg-surface-hover",
+          "border-border-heavy bg-surface-elevated/85 text-foreground [box-shadow:var(--shadow-raised)] hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
         ghost:
           // Do not force text-foreground when expanded — colored triggers (e.g. Full access)
           // must keep their semantic color while open.
-          "bg-transparent text-subtle-foreground hover:bg-surface-hover hover:text-foreground active:bg-foreground/15 aria-expanded:bg-surface-hover",
+          "bg-transparent text-subtle-foreground hover:bg-surface-hover hover:text-foreground active:bg-surface-active aria-expanded:bg-surface-hover",
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 active:bg-destructive/25",
         link: "rounded-none bg-transparent text-foreground underline-offset-4 hover:underline active:opacity-80",

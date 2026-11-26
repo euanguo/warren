@@ -181,13 +181,13 @@ export function AppTitlebar({
           aria-label="全局视图"
           data-slot="global-nav"
           className={cn(
-            'absolute left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--control-radius)] border border-border/80 bg-background/80 p-0.5 shadow-2xs',
+            'absolute left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-input-fill p-0.5 [box-shadow:var(--shadow-recessed)]',
             NO_DRAG_CLASS,
           )}
         >
           <Button
             size="xs"
-            variant={route === 'settings' ? 'secondary' : 'ghost'}
+            variant={route === 'settings' ? 'outline' : 'ghost'}
             aria-label="设置"
             aria-current={route === 'settings' ? 'page' : undefined}
             onClick={() => onOpenSettings()}
@@ -205,7 +205,7 @@ export function AppTitlebar({
               <Button
                 key={`${page.pluginId}:${page.id}`}
                 size="xs"
-                variant={active ? 'secondary' : 'ghost'}
+                variant={active ? 'outline' : 'ghost'}
                 aria-label={page.title}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onOpenPluginPage(page.pluginId, page.id)}
@@ -264,7 +264,7 @@ export function AppTitlebar({
             onClick={openCurrentEnvMenu}
             onContextMenu={openCurrentEnvMenu}
             title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击管理环境`}
-            className="flex h-[var(--control-height-icon)] max-w-[228px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border bg-background px-2 text-xs shadow-2xs outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
+            className="flex h-[var(--control-height-icon)] max-w-[228px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/80 bg-surface-elevated px-2 text-xs [box-shadow:var(--shadow-raised)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
           >
             <StatusDot tone={environment.error ? 'error' : statusTone(environment.status)} />
             <span className="truncate font-medium text-foreground">{environment.name}</span>

@@ -23,7 +23,7 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
   return (
     <div
       data-slot="space-switcher"
-      className="flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-muted/30 p-0.5"
+      className="flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-input-fill p-0.5 [box-shadow:var(--shadow-recessed)]"
     >
       {spaces.map((space) => {
         const active = space.id === activeSpaceId;
@@ -40,7 +40,7 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
           <Button
             key={space.id}
             size="xs"
-            variant={active ? 'secondary' : 'ghost'}
+            variant={active ? 'outline' : 'ghost'}
             className={cn('gap-1', active && 'text-foreground')}
             data-space={space.id}
             data-active={active ? 'true' : undefined}
@@ -51,7 +51,9 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
               <StatusDot tone={agentTone(agent)} className={cn(agentRunning && 'animate-pulse')} />
             )}
             {space.id === 'person' ? '我的' : 'Agent'}
-            <span className="font-mono text-[10px] text-muted-foreground">{space.tabs.length}</span>
+            <span className="font-mono text-[length:var(--font-size-micro)] text-muted-foreground">
+              {space.tabs.length}
+            </span>
           </Button>
         );
       })}

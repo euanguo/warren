@@ -54,12 +54,15 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-surface-under: var(--surface-under);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-drawer: var(--surface-drawer);
   --color-surface-hover: var(--surface-hover);
   --color-surface-active: var(--surface-active);
   --color-surface-selected: var(--surface-selected);
   --color-surface-fog: var(--surface-fog);
   --color-divider: var(--divider);
   --color-surface-recessed: var(--surface-recessed);
+  --color-status-idle: var(--status-idle);
   --color-overlay: var(--overlay);
   --color-tooltip: var(--tooltip);
   --color-tooltip-foreground: var(--tooltip-foreground);
@@ -168,11 +171,11 @@
 }
 
 :root {
-  /* ── Chrome seeds (swap these to theme-switch) ── */
+  /* ── Chrome seeds (精密微立体 · 浅色三级冷银白阶梯) ── */
   --theme-surface: #ffffff;
-  --theme-surface-under: #eff1f4;
-  --theme-ink: #141414;
-  --theme-accent: #0d6efd;
+  --theme-surface-under: #e9edf3;
+  --theme-ink: #111621;
+  --theme-accent: #3b5bdb;
 
   --radius-scale: 1.25;
   /* uses superellipse corners, not circular arcs — same px radius looks "rounder" without this. */
@@ -180,103 +183,101 @@
 
   --surface: var(--theme-surface);
   --surface-under: var(--theme-surface-under);
+  --surface-elevated: #ffffff;
+  --surface-drawer: #f4f6fa;
   --ink: var(--theme-ink);
   --accent-seed: var(--theme-accent);
 
   --background: var(--surface);
   --foreground: var(--ink);
-  --card: var(--surface);
+  --card: var(--surface-elevated);
   --card-foreground: var(--ink);
   /* Elevated solid fallback (opaque windows / reduced transparency). */
-  --popover: color-mix(in oklab, var(--surface) 96%, var(--ink));
+  --popover: #ffffff;
   --popover-foreground: var(--ink);
   /* Glass fill used by menus/dialogs/tooltips when blur is available. */
-  --menu: color-mix(in oklab, var(--popover) 96%, transparent);
+  --menu: rgba(255, 255, 255, 0.94);
   --menu-foreground: var(--ink);
-  --tooltip: color-mix(in oklab, var(--popover) 96%, transparent);
-  --tooltip-foreground: var(--ink);
-  /* Primary CTA = ink reverse , not accent blue fill. */
+  --tooltip: #181c26;
+  --tooltip-foreground: #f4f6fa;
+  /* Primary CTA = ink reverse, high contrast focus anchor. */
   --primary: var(--ink);
   --primary-foreground: var(--surface);
-  --secondary: color-mix(in oklab, var(--ink) 5%, transparent);
+  --secondary: rgba(17, 22, 33, 0.055);
   --secondary-foreground: var(--ink);
-  --muted: color-mix(in oklab, var(--ink) 2.5%, transparent);
-  --muted-foreground: color-mix(in oklab, var(--ink) 65%, transparent);
-  /* description/tertiary ≈ 49.8% */
-  --subtle-foreground: color-mix(in oklab, var(--ink) 50%, transparent);
-  --accent: color-mix(in oklab, var(--ink) 4%, transparent);
+  --muted: rgba(17, 22, 33, 0.035);
+  --muted-foreground: #475166;
+  /* WCAG AA ≥ 4.5:1 on both #ffffff (6.6:1) and #e9edf3 (5.6:1). */
+  --subtle-foreground: #525d73;
+  --status-idle: #647087;
+  --accent: rgba(17, 22, 33, 0.05);
   --accent-foreground: var(--ink);
-  --destructive: #ba2623;
-  --success: #008635;
-  --warning: #d97706;
+  --destructive: #c81e1e;
+  --success: #047857;
+  --warning: #b45309;
   --info: var(--accent-seed);
-  --diff-addition: #00a240;
-  --diff-deletion: #ba2623;
+  --diff-addition: #047857;
+  --diff-deletion: #c81e1e;
   /* border ladder */
-  --border: color-mix(in oklab, var(--ink) 8.4%, transparent);
-  --border-light: color-mix(in oklab, var(--ink) 4.2%, transparent);
-  --border-heavy: color-mix(in oklab, var(--ink) 15.6%, transparent);
-  --menu-border: color-mix(in oklab, var(--ink) 8.4%, transparent);
-  --input: color-mix(in oklab, var(--ink) 15.6%, transparent);
-  --input-fill: color-mix(in oklab, var(--ink) 3.5%, transparent);
-  /* Focus is blue hairline — not ink gray, not ring bloom. */
-  --focus: color-mix(in oklab, var(--accent-seed) 76%, transparent);
+  --border: rgba(17, 22, 33, 0.1);
+  --border-light: rgba(17, 22, 33, 0.055);
+  --border-heavy: rgba(17, 22, 33, 0.17);
+  --menu-border: rgba(17, 22, 33, 0.11);
+  --input: rgba(17, 22, 33, 0.14);
+  --input-fill: rgba(17, 22, 33, 0.052);
+  /* Focus is brand indigo hairline — not ink gray, not ring bloom. */
+  --focus: color-mix(in oklab, var(--accent-seed) 82%, transparent);
   --ring: var(--focus);
-  /* 常显分隔线（rail / 面板 / 标题行）。参考稿 #f0f0f0 on white ≈ ink 6%。 */
-  --divider: color-mix(in oklab, var(--ink) 6%, transparent);
-  --surface-hover: color-mix(in oklab, var(--ink) 7.8%, transparent);
-  /* icon active ≈ foreground/15 */
-  --surface-active: color-mix(in oklab, var(--ink) 15%, transparent);
-  --surface-selected: color-mix(in oklab, var(--ink) 6%, transparent);
-  --surface-fog: color-mix(in oklab, var(--ink) 2.5%, transparent);
-  --overlay: color-mix(in oklab, black 18%, transparent);
+  --divider: rgba(17, 22, 33, 0.085);
+  --surface-hover: rgba(17, 22, 33, 0.065);
+  --surface-active: rgba(17, 22, 33, 0.15);
+  --surface-selected: rgba(17, 22, 33, 0.105);
+  --surface-fog: rgba(17, 22, 33, 0.05);
+  --overlay: rgba(15, 23, 42, 0.24);
   /* Row denser pad — aliases of control compact pads */
   --padding-row-x: var(--control-pad-x-compact);
   --padding-row-y: var(--control-pad-y-compact);
-  --chart-1: #339cff;
-  --chart-2: #40c977;
-  --chart-3: #fb6a22;
-  --chart-4: #ad7bf9;
-  --chart-5: #ff6764;
+  --chart-1: #3b5bdb;
+  --chart-2: #047857;
+  --chart-3: #d97706;
+  --chart-4: #7c3aed;
+  --chart-5: #dc2626;
   --radius: calc(0.625rem * var(--radius-scale));
   --radius-menu: var(--radius-xl);
   --radius-menu-item: var(--radius-lg);
   --radius-dialog: var(--radius-3xl);
   --radius-control: var(--radius-lg);
   --radius-composer: calc(1.375rem * var(--radius-scale));
+  --shell-stage-radius: 8px;
   --sidebar: var(--surface-under);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--ink);
   --sidebar-primary-foreground: var(--surface);
-  --sidebar-accent: color-mix(in oklab, var(--ink) 4%, transparent);
+  --sidebar-accent: rgba(17, 22, 33, 0.05);
   --sidebar-accent-foreground: var(--ink);
-  --sidebar-border: color-mix(in oklab, var(--ink) 8.4%, transparent);
+  --sidebar-border: var(--border);
   --sidebar-ring: var(--focus);
-  /* elevation-prominent */
+  /* Micro-depth lighting & elevation ladder (light) */
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --shadow-recessed: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-raised: var(--highlight-top), 0 1px 2px rgba(15, 23, 42, 0.08);
   --elevation-stroke: 0 0 0 0.5px var(--border-heavy);
+  --elevation-stage: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 2px 10px rgba(15, 23, 42, 0.07);
   --elevation-popover:
-    var(--elevation-stroke), 0 3px 7.5px color-mix(in oklab, black 4%, transparent),
-    0 0 20px color-mix(in oklab, black 5%, transparent);
+    var(--elevation-stroke), 0 10px 28px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.08);
   --elevation-sidebar:
-    var(--elevation-stroke), 0 3px 7.5px color-mix(in oklab, black 3%, transparent),
-    0 0 16px color-mix(in oklab, black 2%, transparent);
-  --blur-menu: 8px;
+    var(--elevation-stroke), 0 4px 14px rgba(15, 23, 42, 0.07);
+  --blur-menu: 12px;
   --blur-dialog: 20px;
   --blur-tooltip: 0px;
 
-  /* ── Desktop shell（对齐 bb 的桌面形态）───────────────────────────────
-   * 层次：外壳(--surface-recessed) < 侧栏卡片(--surface-under) < 内容卡片(--surface)。
-   * rail 贴在外壳上、在两张卡片**外面**，所以它自己不圆角。
-   * 三列（rail / 侧栏 / 内容）的顶行共用 --shell-chrome-row-height，横向才是一条线。
-   */
-  --shell-title-bar-height: 3rem; /* macOS hiddenInset 拖拽区 + 红绿灯；对齐参考稿 header 50 */
-  --shell-top-row-height: 2.5rem; /* 40px 两层壳首行：红绿灯 + 环境胶囊 + Space + 标签 + 全局动作 */
-  --shell-frame-lip: 0px; /* 卡片贴满窗口：右/下留白会在底部显成一条多余的灰线 */
+  /* ── Desktop shell ── */
+  --shell-title-bar-height: 3rem;
+  --shell-top-row-height: 2.5rem;
+  --shell-frame-lip: 0px;
   --shell-chrome-row-height: 2.25rem;
-  --shell-address-row-height: 2.5rem; /* 40px 两层壳第二行：导航 + 地址栏 + 研发工具 */
+  --shell-address-row-height: 2.5rem;
   --shell-card-radius: var(--radius-xl);
-  /* rail 几何：全部落在既有阶梯上 —— 控件 32（control-size-lg）、圆角 12.5（control-radius）、
-     padding 10（space-4）、间距 4（space-1）。四边 padding 同值，宽度 52 = 32 + 2×10。 */
   --rail-padding: var(--space-4);
   --rail-padding-y: var(--rail-padding);
   --rail-control-size: var(--control-size-lg);
@@ -284,87 +285,93 @@
   --rail-control-radius: var(--control-radius);
   --rail-gap: var(--space-1);
   --rail-width: calc(var(--rail-control-size) + 2 * var(--rail-padding));
-  /* 外壳（标题行 / rail / 卡片外的留白）。混 ink 而不是混黑：
-     深色主题下 ink 是白的，外壳会比卡片**亮**；浅色主题下 ink 是深的，外壳比卡片**暗**。
-     一条公式两个方向都对，而且不会出现「纯黑的一圈」。
-     参考 bb：--surface-recessed = ink 6% over canvas。 */
-  --surface-recessed: color-mix(in oklab, var(--ink) 6%, var(--surface));
+  --surface-recessed: #e2e7ef;
 
   color-scheme: light;
 }
 
 :root.dark,
 :root[data-theme="dark"] {
-  /* Live dark seeds */
-  --theme-surface: #181818;
-  --theme-surface-under: #141414;
-  --theme-ink: #ffffff;
-  --theme-accent: #339cff;
+  /* ── Chrome seeds (精密微立体 · 暗色四阶微冷锌靛灰阶) ── */
+  --theme-surface: #181b21;
+  --theme-surface-under: #111317;
+  --theme-ink: #f4f6fa;
+  --theme-accent: #5b8cff;
 
   --surface: var(--theme-surface);
   --surface-under: var(--theme-surface-under);
+  --surface-elevated: #20242d;
+  --surface-drawer: #15181e;
+  --surface-recessed: #0c0e12;
   --ink: var(--theme-ink);
   --accent-seed: var(--theme-accent);
 
   --background: var(--surface);
   --foreground: var(--ink);
-  --card: var(--surface);
+  --card: var(--surface-elevated);
   --card-foreground: var(--ink);
-  /* dropdown / input elevated */
-  --popover: rgb(45, 45, 45);
+  /* dropdown / elevated fallback */
+  --popover: #222630;
   --popover-foreground: var(--ink);
   /* menu glass */
-  --menu: rgba(54, 54, 54, 0.96);
+  --menu: rgba(34, 38, 48, 0.94);
   --menu-foreground: var(--ink);
-  --tooltip: rgba(54, 54, 54, 0.96);
+  --tooltip: #262b37;
   --tooltip-foreground: var(--ink);
   --primary: var(--ink);
   --primary-foreground: var(--surface-under);
-  --secondary: color-mix(in oklab, var(--ink) 5.2%, transparent);
+  --secondary: rgba(244, 246, 250, 0.06);
   --secondary-foreground: var(--ink);
-  --muted: color-mix(in oklab, var(--ink) 3.2%, transparent);
-  --muted-foreground: color-mix(in oklab, var(--ink) 65%, transparent);
-  --subtle-foreground: color-mix(in oklab, var(--ink) 50%, transparent);
-  --accent: color-mix(in oklab, var(--ink) 5.2%, transparent);
+  --muted: rgba(244, 246, 250, 0.038);
+  --muted-foreground: #adb6c7;
+  /* WCAG AA ≥ 4.5:1 across surface/under/menu (#222630 → CR 5.1:1). */
+  --subtle-foreground: #939db2;
+  --status-idle: #748096;
+  --accent: rgba(244, 246, 250, 0.06);
   --accent-foreground: var(--ink);
-  --destructive: #ff6764;
-  --success: #40c977;
-  --warning: #ff8549;
-  --info: #339cff;
-  --diff-addition: #40c977;
+  --destructive: #ff6b6b;
+  --success: #3dd68c;
+  --warning: #f59e42;
+  --info: #5b8cff;
+  --diff-addition: #3dd68c;
   --diff-deletion: #fa423e;
-  --border: color-mix(in oklab, var(--ink) 8.4%, transparent);
-  --border-light: color-mix(in oklab, var(--ink) 4.2%, transparent);
-  --border-heavy: color-mix(in oklab, var(--ink) 15.6%, transparent);
-  --menu-border: color-mix(in oklab, var(--ink) 8.4%, transparent);
-  --input: color-mix(in oklab, var(--ink) 15.6%, transparent);
-  --input-fill: rgba(45, 45, 45, 0.96);
-  /* Live: rgba(131, 195, 255, 0.76) */
-  --focus: color-mix(in oklab, var(--accent-seed) 76%, transparent);
+  --border: rgba(244, 246, 250, 0.09);
+  --border-light: rgba(244, 246, 250, 0.05);
+  --border-heavy: rgba(244, 246, 250, 0.16);
+  --menu-border: rgba(244, 246, 250, 0.1);
+  --input: rgba(244, 246, 250, 0.13);
+  --input-fill: #0e1015;
+  --focus: color-mix(in oklab, var(--accent-seed) 82%, transparent);
   --ring: var(--focus);
-  /* 深色下 6% 白太淡（#242424），提到 8% 才和浅色的 #f0f0f0 等价。 */
-  --divider: color-mix(in oklab, var(--ink) 8%, transparent);
-  --surface-hover: color-mix(in oklab, var(--ink) 7.8%, transparent);
-  --surface-active: color-mix(in oklab, var(--ink) 15%, transparent);
-  --surface-selected: color-mix(in oklab, var(--ink) 8%, transparent);
-  --surface-fog: color-mix(in oklab, var(--ink) 2.5%, transparent);
-  --overlay: color-mix(in oklab, black 40%, transparent);
-  --chart-1: #339cff;
-  --chart-2: #40c977;
-  --chart-3: #fb6a22;
-  --chart-4: #ad7bf9;
-  --chart-5: #ff6764;
+  --divider: rgba(244, 246, 250, 0.08);
+  /* hover (6.5%) 与 selected (12%) 清晰拉开，彻底消除 #2a2a2a 撞色 */
+  --surface-hover: rgba(244, 246, 250, 0.065);
+  --surface-active: rgba(244, 246, 250, 0.17);
+  --surface-selected: rgba(244, 246, 250, 0.12);
+  --surface-fog: rgba(244, 246, 250, 0.055);
+  --overlay: rgba(6, 8, 12, 0.52);
+  --chart-1: #5b8cff;
+  --chart-2: #3dd68c;
+  --chart-3: #f59e42;
+  --chart-4: #a78bfa;
+  --chart-5: #ff6b6b;
   --sidebar: var(--surface-under);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--accent-seed);
   --sidebar-primary-foreground: var(--surface-under);
-  --sidebar-accent: color-mix(in oklab, var(--ink) 5.2%, transparent);
+  --sidebar-accent: rgba(244, 246, 250, 0.06);
   --sidebar-accent-foreground: var(--ink);
-  --sidebar-border: color-mix(in oklab, var(--ink) 8.4%, transparent);
+  --sidebar-border: var(--border);
   --sidebar-ring: var(--focus);
+  /* Micro-depth lighting & elevation ladder (dark) */
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --shadow-recessed: inset 0 1px 2px rgba(0, 0, 0, 0.44);
+  --shadow-raised: var(--highlight-top), 0 1px 2px rgba(0, 0, 0, 0.34);
   --elevation-stroke: 0 0 0 0.5px var(--border-heavy);
-  --elevation-popover: var(--elevation-stroke), 0 3px 7.5px #0000000a, 0 0 20px #0000000d;
-  --elevation-sidebar: var(--elevation-stroke), 0 3px 7.5px #00000008, 0 0 16px #00000005;
+  --elevation-stage: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 4px 18px rgba(0, 0, 0, 0.38);
+  --elevation-popover:
+    var(--elevation-stroke), var(--highlight-top), 0 10px 28px rgba(0, 0, 0, 0.48), 0 2px 6px rgba(0, 0, 0, 0.32);
+  --elevation-sidebar: var(--elevation-stroke), 0 4px 16px rgba(0, 0, 0, 0.28);
   color-scheme: dark;
 }
 

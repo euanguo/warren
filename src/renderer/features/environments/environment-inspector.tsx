@@ -257,7 +257,7 @@ export function EnvironmentInspector({
     <Tabs
       value={activeTab}
       onValueChange={onTabChange}
-      className="h-full w-full min-w-0 gap-0 overflow-hidden bg-background"
+      className="h-full w-full min-w-0 gap-0 overflow-hidden bg-surface-drawer"
     >
       <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-0.5 border-b border-border px-1.5">
         {tabScroll.left && (
@@ -319,13 +319,13 @@ export function EnvironmentInspector({
           {tabScroll.left && (
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-background to-transparent"
+              className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-surface-drawer to-transparent"
             />
           )}
           {tabScroll.right && (
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-background to-transparent"
+              className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-surface-drawer to-transparent"
             />
           )}
         </div>

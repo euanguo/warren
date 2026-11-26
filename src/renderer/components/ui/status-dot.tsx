@@ -10,7 +10,7 @@ const toneClass = {
   success: "text-[var(--success)]",
   warning: "text-[var(--warning)]",
   info: "text-[var(--info)]",
-  idle: "text-muted-foreground/40",
+  idle: "text-[var(--status-idle)]",
 } as const
 
 export type StatusDotTone = keyof typeof toneClass

@@ -596,7 +596,7 @@ export function EnvironmentStage({
               <div
                 ref={stageRef}
                 data-slot="stage-placeholder"
-                className="relative h-full rounded-[6px] bg-muted/20 ring-1 ring-border/75"
+                className="relative h-full rounded-[var(--shell-stage-radius)] bg-background [box-shadow:var(--elevation-stage)]"
               >
                 {(!running || tabs.length === 0) && (
                   <Empty className="absolute inset-0 border-0 pb-8">
@@ -683,7 +683,7 @@ export function EnvironmentStage({
             className="min-w-0"
           >
             {activePopover ? (
-              <div data-slot="plugin-popover-drawer" className="flex h-full flex-col bg-background">
+              <div data-slot="plugin-popover-drawer" className="flex h-full flex-col bg-surface-drawer">
                 <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
                   <span className="truncate text-xs font-medium">{activePopover.title}</span>
                   <div className="flex items-center gap-1">

@@ -61,7 +61,9 @@ function AddressSuggestView({ props }: { props: Record<string, unknown> }) {
         >
           <Icon name="Globe" className="shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.url}</span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">{entry.visitCount} 次</span>
+          <span className="shrink-0 text-[length:var(--font-size-micro)] text-muted-foreground">
+            {entry.visitCount} 次
+          </span>
         </button>
       ))}
     </div>

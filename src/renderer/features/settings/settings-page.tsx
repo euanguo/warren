@@ -201,7 +201,7 @@ export function SettingsPage({
               if (items.length === 0) return null;
               return (
                 <div key={groupName} className="flex flex-col gap-0.5">
-                  <span className="px-2.5 pb-1 text-[10px] font-medium tracking-wider text-muted-foreground">
+                  <span className="px-2.5 pb-1 text-[length:var(--font-size-micro)] font-medium tracking-wider text-muted-foreground">
                     {groupName}
                   </span>
                   {items.map((item) => (

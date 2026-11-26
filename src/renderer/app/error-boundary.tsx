@@ -46,7 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
           {error.message}
         </pre>
         {stack && (
-          <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] border bg-muted/30 p-3 text-[10px] leading-relaxed text-muted-foreground">
+          <pre className="max-h-64 overflow-auto rounded-[var(--radius-md)] border bg-muted/30 p-3 text-[length:var(--font-size-micro)] leading-relaxed text-muted-foreground">
             {stack}
           </pre>
         )}

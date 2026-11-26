@@ -21,7 +21,7 @@ export function SidebarGroupHeader({ title, count, runningCount, collapsed, onTo
       <span className="truncate">{title}</span>
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {collapsed && runningCount > 0 && <StatusDot tone="success" />}
-        <span className="text-[10px] tabular-nums opacity-60">{count}</span>
+        <span className="text-[length:var(--font-size-micro)] tabular-nums text-subtle-foreground">{count}</span>
       </span>
     </SidebarGroupLabel>
   );

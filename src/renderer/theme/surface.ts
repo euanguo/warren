@@ -22,7 +22,7 @@ export const elevatedPanelSurfaceClass = cn(
  * Tooltip — Measured: r12.5, 1px border (~8.4%), solid popover bg, no blur/shadow.
  */
 export const elevatedTooltipSurfaceClass = cn(
-  "rounded-[var(--control-radius)] border border-border bg-popover text-popover-foreground shadow-none backdrop-blur-none [corner-shape:var(--corner-shape)]",
+  "rounded-[var(--control-radius)] border border-border-heavy bg-tooltip text-tooltip-foreground [box-shadow:var(--elevation-popover)] backdrop-blur-none [corner-shape:var(--corner-shape)]",
 );
 
 /** Composer shell. */
@@ -35,15 +35,15 @@ export const elevatedComposerSurfaceClass = cn(
  * 圆角走 token——各处手写 `rounded-lg` 会绕开 --radius-scale，换肤时对不上。
  */
 export const cardSurfaceClass = cn(
-  "rounded-[var(--radius-lg)] border border-border p-3 [corner-shape:var(--corner-shape)]",
+  "rounded-[var(--radius-lg)] border border-border bg-surface-elevated/80 p-3 [box-shadow:var(--shadow-raised)] [corner-shape:var(--corner-shape)]",
 );
 
 /**
  * DEFAULT field chrome (Input / SelectTrigger / Textarea).
- * Dialog field (legacy reference ~39h): h≈39, radius-xl≈15, pad 8×12, fill rgba(45,45,45,0.96), border 15.6%.
+ * Recessed well fill + hairline focus.
  */
 export const controlFieldClass = cn(
-  "[corner-shape:var(--corner-shape)] h-[var(--control-height-field)] min-h-[var(--control-height-field)] rounded-[var(--control-radius-field)] border border-input bg-input-fill px-[var(--control-pad-x-field)] py-[var(--control-pad-y-field)] text-sm leading-[21px] text-foreground shadow-none",
+  "[corner-shape:var(--corner-shape)] h-[var(--control-height-field)] min-h-[var(--control-height-field)] rounded-[var(--control-radius-field)] border border-input bg-input-fill px-[var(--control-pad-x-field)] py-[var(--control-pad-y-field)] text-sm leading-[21px] text-foreground [box-shadow:var(--shadow-recessed)]",
   "placeholder:text-subtle-foreground",
   "disabled:cursor-not-allowed disabled:opacity-40",
   "aria-invalid:border-destructive",
@@ -51,7 +51,7 @@ export const controlFieldClass = cn(
 
 /** Compact field (dense chrome / toolbar selects) — still tokenized. */
 export const controlFieldCompactClass = cn(
-  "[corner-shape:var(--corner-shape)] h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] rounded-[var(--control-radius)] border border-input bg-input-fill px-[var(--control-pad-x-compact)] text-sm leading-[18px] text-foreground shadow-none",
+  "[corner-shape:var(--corner-shape)] h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] rounded-[var(--control-radius)] border border-input bg-input-fill px-[var(--control-pad-x-compact)] text-sm leading-[18px] text-foreground [box-shadow:var(--shadow-recessed)]",
   "placeholder:text-subtle-foreground",
   "disabled:cursor-not-allowed disabled:opacity-40",
   "aria-invalid:border-destructive",
@@ -123,7 +123,7 @@ export const surfaceTabChipClass = cn(
 );
 
 export const surfaceTabChipActiveClass = cn(
-  "bg-surface-selected text-foreground hover:bg-surface-selected hover:text-foreground",
+  "border-border/80 bg-surface-elevated text-foreground [box-shadow:var(--shadow-raised)] hover:bg-surface-elevated hover:text-foreground",
 );
 
 export const surfaceTabChipIconOnlyClass =
