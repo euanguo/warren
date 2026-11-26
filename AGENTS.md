@@ -311,12 +311,15 @@ CSS / XPath 解析一律跑在**隔离世界**（`Page.createIsolatedWorld`，�
 在项目根目录依次执行，**全部通过才能宣称完成**：
 
 ```bash
+npm run check                                     # 一键串联下面 5 条强制门禁
 npm run lint                                      # 1. lint（oxlint，警告即失败）
 npm run format:check                              # 2. 格式（prettier，不通过就 npm run format）
 npx tsc --noEmit                                  # 3. 类型
-npm test                                          # 4. 单测（当前 266 个，只增不减）
+npm test                                          # 4. 单测（只增不减）
 node node_modules/vite/bin/vite.js build --config vite.renderer.config.mjs   # 5. 渲染层构建
 ```
+
+> 依赖版本约束与定期升级节奏见 `docs/DEPENDENCY-POLICY.md`。
 
 这五条也是 CI（`.github/workflows/ci.yml`）跑的东西，push / PR 上自动跑。
 **GUI 回归套件在 CI 里**（`gui-regression` job，macOS runner）：起 fixture + 非 TTY 起应用，

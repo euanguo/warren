@@ -5,8 +5,9 @@
 ## 接手 / 想知道「现在到哪了」
 
 1. **`HANDOFF.md`** —— 会话交接：决策、当前状态、踩过的坑、接手起点。**先读这份。**
-2. `REMAINING-PLAN-2026-10-16.md` —— 剩余工作施工计划 + 逐项实测记录（批次 A–G，都已落地）。
-3. `FULL-REGRESSION-2026-10-15.md` —— 全量回归跑什么、怎么复跑。
+2. **`WARREN-2.0-ARCHITECTURE-PLAN.md`** —— **Warren 2.0 全面重构架构总蓝图**（2026-11-26，已冻结待实施）：叠层根治、停靠式 DevTools、核心解耦与插件 2.0、UI/设置中心重构、Agent CLI v2 与 Wave 0–4 验收门禁。
+3. `REMAINING-PLAN-2026-10-16.md` —— 剩余工作施工计划 + 逐项实测记录（批次 A–G，都已落地）。
+4. `FULL-REGRESSION-2026-10-15.md` —— 全量回归跑什么、怎么复跑。
    （当前数字：**152 PASS / 0 FAIL**，套件已自足，跑之前只要应用 + fixture 起着。）
 
 ## 要改东西
@@ -19,6 +20,7 @@
 | 插件（打包 / 安装 / 权限 / 面 / 运行时 / 存储） | `PLUGIN-PACKAGE-MIGRATION-PLAN-2026-10-20.md`（当前 v4 包契约）、`PLUGIN-CAPABILITY-DESIGN.md`（能力设计，含 Cookie 受控通道 §9）、`PLUGIN-MODERNIZATION-PLAN.md`（历史施工图 + 实测） |
 | 界面 / 组件 / 皮肤 | `ui-design-language.md`、`UI-KIT-MIGRATION.md`、`DESKTOP-SHELL-MIGRATION.md` |
 | 打包 / 签名 / 公证 / 更新 | `RELEASE.md` |
+| 依赖管理与定期升级规范 | `DEPENDENCY-POLICY.md`（禁用 `latest`、Electron 月度周期、`@types/node` 锁定） |
 | 代理（Whistle 插件） | `WHISTLE-PLUGIN-PLAN.md`（当前实现）、`WHISTLE-PROXY-FEASIBILITY.md`（早期调研） |
 | **内核 / 右边要不要换成真 Chrome / 套壳方案** | `CHROME-SHELL-PLAN.md`（本轮调研结论 + 分阶段规划；**换内核的实测数字在这里**） |
 | **不换内核时怎么更接近真实浏览器（联调场景）** | `ELECTRON-REALISM-PLAN.md`（四维盘点 + P0/P1/P2 清单；`CHROME-SHELL-PLAN.md` 的对照面） |

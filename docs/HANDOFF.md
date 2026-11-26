@@ -221,7 +221,6 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
-<<<<<<< ours
 ### E2E 工具链对接：账号插件脱敏 + exec 能力面单源化（2026-11-05）
 
 来源：早期内部 E2E 改造方案 WP1 / WP2（文档未随仓库公开）。
@@ -286,7 +285,7 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
   `docs/WHISTLE-PLUGIN-PLAN.md` §8「W5」。
 - **未验收**：装机版（`/Applications/Warren.app` + `~/.warren` 插件目录）本轮不动，
   所以装机版 `--help` 仍是旧清单；行为证据来自实现级集成测试（见 §8「W5」）。
-=======
+
 ### 选择器错误归类 + lease 原因（2026-11-05，审计 WP7 / WP8）
 
 来源：早期内部 E2E 审计 P1-5 / P1-6（审计文档未随仓库公开）。
@@ -314,7 +313,6 @@ legacy/                 旧的独立 Chrome 看板原型（前身，勿参考）
   实测（`WARREN_LEASE_TTL_MS=30000`）：`never_leased` / `expired`（带过期时刻）/
   `superseded` / `user_takeover` 四种都在真实 CLI 输出里复现；`wrong_space` 无 CLI 路径，
   只有单测覆盖。
->>>>>>> theirs
 
 ### Space、静默后台、跨环境地址历史（2026-10-21）
 

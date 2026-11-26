@@ -31,8 +31,7 @@ function readRuntime() {
   try {
     return JSON.parse(readFileSync(RUNTIME_FILE, 'utf8'));
   } catch {
-    console.error('找不到运行中的核心。请先启动桌面端：npm start');
-    process.exit(1);
+    throw Object.assign(new Error('找不到运行中的核心。请先启动桌面端：npm start'), { code: 'CORE_NOT_RUNNING' });
   }
 }
 
@@ -65,7 +64,14 @@ process.on('unhandledRejection', (reason) => {
 
 function call(method, params = {}) {
   return new Promise((resolve, reject) => {
-    const socket = net.connect(runtimeInfo().socketPath);
+    let info;
+    try {
+      info = runtimeInfo();
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const socket = net.connect(info.socketPath);
     let buffer = '';
     const id = String(++seq);
     // 没有超时的话，一个卡住的页面调用会把 agent 永久挂死
@@ -77,7 +83,7 @@ function call(method, params = {}) {
       clearTimeout(timer);
       fn(value);
     };
-    socket.on('connect', () => socket.write(JSON.stringify({ id, token: runtime.token, method, params }) + '\n'));
+    socket.on('connect', () => socket.write(JSON.stringify({ id, token: info.token, method, params }) + '\n'));
     socket.on(
       'data',
       done((chunk) => {
@@ -877,7 +883,27 @@ try {
         // 注意 `--help` 会被 parseFlags 收进 flags，`args` 里已经看不到它了。
         const wantsHelp = Boolean(flags.help) || Boolean(flags.h);
         if (!command || command === '--help' || command === '-h' || wantsHelp) {
-          const plugins = await call('plugin.list').catch(() => []);
+          let offline = '';
+          const plugins = await call('plugin.list').catch((error) => {
+            offline = `（当前连不上 Warren 实例，未能读取插件清单：${error?.code ?? error?.message ?? error}）`;
+            return [];
+          });
+          if (offline) {
+            if (wantsHelp && command && command !== '--help' && command !== '-h') {
+              console.log(`${id} ${command}`);
+              console.log(`  ${offline}`);
+              console.log('');
+              console.log('用法: warren plugin run ' + id + ' ' + command + ' [--env <环境>] [--input=\'{"k":1}\']');
+              console.log('');
+              console.log('（--help 只打印帮助，不执行命令）');
+              process.exit(0);
+            }
+            console.log(`${id}  ${offline}`);
+            console.log(
+              '用法: warren plugin run ' + id + ' <command> [--env <环境>] [--input=\'{"k":1}\'] [--lease=<leaseId>]',
+            );
+            process.exit(command ? 0 : 1);
+          }
           const plugin = plugins.find((item) => item.id === id);
           if (!plugin) {
             console.error(`没有插件 ${id}`);
