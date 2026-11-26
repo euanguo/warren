@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Icon } from '@/components/icons';
+import { Icon, isIconName } from '@/components/icons';
+import { getPluginBrand } from '@/lib/plugin-brand';
 import { cardSurfaceClass } from '@/theme/surface';
 import { cn } from '@/lib/utils';
 import { PERMISSION_TIERS } from '@shared/permissions';
@@ -159,26 +160,42 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
     return logs.filter((entry) => entry.message.toLowerCase().includes(q) || entry.level.toLowerCase().includes(q));
   }, [logs, logFilter]);
 
+  const brand = getPluginBrand(plugin.id, plugin.icon);
+  const brandIconName = isIconName(brand.icon) ? brand.icon : 'Plug';
+
   return (
     <div className={cn(cardSurfaceClass, 'flex flex-col gap-3')} data-plugin={plugin.id}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-sm font-medium">{plugin.name}</span>
-            <span className="text-[10px] text-muted-foreground">v{plugin.version}</span>
-            {/* 不写「沙箱」以免暗示 OS 安全沙箱，只描述真实进程模型（见 AGENTS 硬约束 1）。 */}
-            <Badge variant="outline" title={RUNTIME_HINT[plugin.runtime]}>
-              {plugin.runtime === 'host' ? 'Node 宿主进程' : '受限 VM 进程'}
-            </Badge>
-            <Badge variant="outline" className={statusTone(plugin.status)}>
-              {STATUS_LABEL[plugin.status]}
-            </Badge>
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <span
+            aria-hidden
+            style={{ '--brand-hue': brand.hue } as CSSProperties}
+            className="plugin-brand-chip mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-md)]"
+          >
+            <Icon name={brandIconName} className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-medium">{plugin.name}</span>
+              <span className="text-[length:var(--font-size-micro)] text-muted-foreground">v{plugin.version}</span>
+              {/* 不写「沙箱」以免暗示 OS 安全沙箱，只描述真实进程模型（见 AGENTS 硬约束 1）。 */}
+              <Badge variant="outline" title={RUNTIME_HINT[plugin.runtime]}>
+                {plugin.runtime === 'host' ? 'Node 宿主进程' : '受限 VM 进程'}
+              </Badge>
+              <Badge variant="outline" className={statusTone(plugin.status)}>
+                {STATUS_LABEL[plugin.status]}
+              </Badge>
+            </div>
+            {plugin.description && <p className="mt-1 text-xs text-muted-foreground">{plugin.description}</p>}
+            {plugin.statusDetail && (
+              <p className="mt-1 text-[length:var(--font-size-micro)] text-destructive">{plugin.statusDetail}</p>
+            )}
+            {surfaces.length > 0 && (
+              <p className="mt-1 text-[length:var(--font-size-micro)] text-muted-foreground">
+                挂载界面：{surfaces.join('、')}
+              </p>
+            )}
           </div>
-          {plugin.description && <p className="mt-1 text-xs text-muted-foreground">{plugin.description}</p>}
-          {plugin.statusDetail && <p className="mt-1 text-[11px] text-destructive">{plugin.statusDetail}</p>}
-          {surfaces.length > 0 && (
-            <p className="mt-1 text-[10px] text-muted-foreground">挂载界面：{surfaces.join('、')}</p>
-          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -272,7 +289,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
               <Icon name="Refresh" />
             </IconButton>
           </div>
-          <pre className="max-h-44 overflow-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-2 font-mono text-[10px] leading-relaxed">
+          <pre className="max-h-44 overflow-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-2 font-mono text-[length:var(--font-size-micro)] leading-relaxed">
             {filteredLogs.length
               ? filteredLogs
                   .map((entry) => `${entry.at.slice(11, 19)} ${entry.level.toUpperCase()} ${entry.message}`)

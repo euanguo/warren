@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
-import { Icon, type IconName } from '@/components/icons';
+import { Icon, isIconName, type IconName } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,6 +11,7 @@ import { ApprovalPanel } from '@/features/settings/approval-panel';
 import { BrowserPanel } from '@/features/settings/browser-panel';
 import { DiagnosticsPanel } from '@/features/settings/diagnostics-panel';
 import { GeneralPanel } from '@/features/settings/general-panel';
+import { getPluginBrand } from '@/lib/plugin-brand';
 import type { PluginSettingsSection } from '@/lib/plugin-runtime';
 import { setSettingsQuery, useNavigationState, type SettingsSection } from '@/state/navigation-store';
 import type { Environment, InstalledPlugin } from '@shared/types';
@@ -25,6 +26,7 @@ interface SectionDescriptor {
   title: string;
   subtitle: string;
   icon: IconName;
+  brandHue?: number;
   keywords: string;
   pluginSection?: PluginSettingsSection;
 }
@@ -120,15 +122,19 @@ export function SettingsPage({
   }, [settingsQuery, onClose]);
 
   const allSections = useMemo<SectionDescriptor[]>(() => {
-    const dynamic: SectionDescriptor[] = pluginSections.map((pluginSection) => ({
-      id: `plugin:${pluginSection.pluginId}:${pluginSection.id}`,
-      group: '扩展与维护',
-      title: pluginSection.title,
-      subtitle: pluginSection.description || `扩展「${pluginSection.pluginId}」专属配置`,
-      icon: 'Plug',
-      keywords: `${pluginSection.pluginId} ${pluginSection.title} ${pluginSection.description ?? ''} 插件 扩展`,
-      pluginSection,
-    }));
+    const dynamic: SectionDescriptor[] = pluginSections.map((pluginSection) => {
+      const brand = getPluginBrand(pluginSection.pluginId, pluginSection.icon);
+      return {
+        id: `plugin:${pluginSection.pluginId}:${pluginSection.id}`,
+        group: '扩展与维护',
+        title: pluginSection.title,
+        subtitle: pluginSection.description || `扩展「${pluginSection.pluginId}」专属配置`,
+        icon: isIconName(brand.icon) ? brand.icon : 'Plug',
+        brandHue: brand.hue,
+        keywords: `${pluginSection.pluginId} ${pluginSection.title} ${pluginSection.description ?? ''} 插件 扩展`,
+        pluginSection,
+      };
+    });
     const list = [...BUILTIN_SECTIONS];
     // 把动态插件分节紧挨着「插件管理」插进「扩展」组
     const idx = list.findIndex((item) => item.id === 'plugins');
@@ -211,7 +217,17 @@ export function SettingsPage({
                       data-settings-section={item.id}
                       className={SECTION_TRIGGER_CLASS}
                     >
-                      <Icon name={item.icon} className="size-3.5 shrink-0 opacity-80" />
+                      <Icon
+                        name={item.icon}
+                        style={
+                          item.brandHue !== undefined ? ({ '--brand-hue': item.brandHue } as CSSProperties) : undefined
+                        }
+                        className={
+                          item.brandHue !== undefined
+                            ? 'plugin-brand-icon size-3.5 shrink-0'
+                            : 'size-3.5 shrink-0 opacity-80'
+                        }
+                      />
                       <span className="truncate">{item.title}</span>
                     </TabsTrigger>
                   ))}

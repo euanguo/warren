@@ -53,7 +53,7 @@
           "kind": "envAction",
           "id": "login",
           "title": "用插件登录",
-          "icon": "KeyRound",
+          "icon": "Key",
           "command": "login"
         }
       ]

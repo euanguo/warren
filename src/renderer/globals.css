@@ -170,3 +170,47 @@
     corner-shape: round;
   }
 }
+
+/* 身份与插件微彩系统（工具静 · 身份彩） */
+.env-identity-chip {
+  background-color: hsl(var(--env-hue, 210) 70% 45% / 0.14);
+  color: hsl(var(--env-hue, 210) 72% 34%);
+  border: 1px solid hsl(var(--env-hue, 210) 68% 45% / 0.28);
+}
+
+:root.dark .env-identity-chip,
+:root[data-theme='dark'] .env-identity-chip {
+  background-color: hsl(var(--env-hue, 210) 76% 62% / 0.16);
+  color: hsl(var(--env-hue, 210) 86% 76%);
+  border-color: hsl(var(--env-hue, 210) 78% 64% / 0.3);
+}
+
+.plugin-brand-icon {
+  color: hsl(var(--brand-hue, 215) 72% 40%);
+}
+
+:root.dark .plugin-brand-icon,
+:root[data-theme='dark'] .plugin-brand-icon {
+  color: hsl(var(--brand-hue, 215) 86% 74%);
+}
+
+.plugin-brand-chip {
+  background-color: hsl(var(--brand-hue, 215) 70% 48% / 0.12);
+  color: hsl(var(--brand-hue, 215) 74% 36%);
+  border: 1px solid hsl(var(--brand-hue, 215) 68% 48% / 0.24);
+}
+
+:root.dark .plugin-brand-chip,
+:root[data-theme='dark'] .plugin-brand-chip {
+  background-color: hsl(var(--brand-hue, 215) 78% 62% / 0.15);
+  color: hsl(var(--brand-hue, 215) 86% 76%);
+  border-color: hsl(var(--brand-hue, 215) 78% 64% / 0.28);
+}
+
+.warren-brand-aura {
+  background: radial-gradient(
+    circle at 50% 40%,
+    color-mix(in oklab, var(--theme-accent) 20%, transparent),
+    transparent 72%
+  );
+}

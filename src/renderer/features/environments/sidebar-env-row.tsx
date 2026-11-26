@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react';
+import type { CSSProperties, MouseEvent } from 'react';
 import { Icon } from '@/components/icons';
 import {
   ListRow,
@@ -10,7 +10,8 @@ import {
   ListRowMeta,
 } from '@/components/ui/list-row';
 import { Spinner } from '@/components/ui/spinner';
-import { StatusMark } from '@/components/ui/status-dot';
+import { StatusDot } from '@/components/ui/status-dot';
+import { getEnvIdentity } from '@/lib/env-identity';
 import { ownerLabel, statusLabel, statusTone } from '@/lib/labels';
 import type { PluginBadgeSnapshot, PluginEnvBadge } from '@/lib/plugin-badges';
 import { cn } from '@/lib/utils';
@@ -88,6 +89,7 @@ export function SidebarEnvRow({
   onContextMenu,
 }: Props) {
   const badge = badgesForEnv(env.id, pluginBadges);
+  const identity = getEnvIdentity(env.id, env.name);
   const showSecondLine =
     !compact && (env.status === 'running' || env.owner !== 'none' || Boolean(badge.first) || Boolean(env.proxy));
 
@@ -102,7 +104,18 @@ export function SidebarEnvRow({
           onContextMenu={(event) => onContextMenu(event, env)}
           title={rowTitle(env)}
         >
-          <StatusMark tone={env.error ? 'error' : statusTone(env.status)} className="shrink-0" />
+          <span
+            aria-hidden
+            data-slot="env-identity-chip"
+            style={{ '--env-hue': identity.hue } as CSSProperties}
+            className="env-identity-chip relative flex size-5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[length:var(--font-size-micro)] font-semibold select-none"
+          >
+            {identity.initial}
+            <StatusDot
+              tone={env.error ? 'error' : statusTone(env.status)}
+              className="absolute -right-0.5 -bottom-0.5 size-2 ring-[1.5px] ring-sidebar"
+            />
+          </span>
           <ListRowBody className="gap-0.5">
             <ListRowLabel className="flex-1">
               <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{env.name}</span>

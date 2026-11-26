@@ -24,6 +24,7 @@
     "runtime": "host",
     "host": "host.mjs",
     "app": "app.js",
+    "icon": "Globe",
     "engines": {
       "warren": ">=0.1.0"
     },

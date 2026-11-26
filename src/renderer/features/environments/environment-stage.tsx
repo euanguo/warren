@@ -601,19 +601,38 @@ export function EnvironmentStage({
                 {(!running || tabs.length === 0) && (
                   <Empty className="absolute inset-0 border-0 pb-8">
                     <EmptyHeader>
-                      <EmptyMedia>
-                        <WarrenMark className="size-12" />
+                      <EmptyMedia className="relative mb-2">
+                        <div
+                          aria-hidden
+                          className="warren-brand-aura pointer-events-none absolute -inset-6 rounded-full"
+                        />
+                        <div className="relative flex size-16 items-center justify-center rounded-[var(--radius-2xl)] border border-border-heavy/80 bg-surface-elevated/90 [box-shadow:var(--shadow-raised)]">
+                          <WarrenMark className="size-11" />
+                        </div>
                       </EmptyMedia>
                       <EmptyTitle>
                         {!current ? '还没有选择环境' : running ? '这个空间还没有标签' : `环境「${current.name}」未启动`}
                       </EmptyTitle>
-                      <EmptyDescription>
-                        {!current
-                          ? '新建或从左侧选择一个隔离环境，页面会在这里显示。'
-                          : running
-                            ? '新建标签页开始浏览，或在上方地址栏直接输入网址。'
-                            : `网络出口：${egressLabel(current.proxy)}${current.startUrl ? ` · 默认打开 ${current.startUrl}` : ''}`}
-                      </EmptyDescription>
+                      {!current || running ? (
+                        <EmptyDescription>
+                          {!current
+                            ? '新建或从左侧选择一个隔离环境，页面会在这里显示。'
+                            : '新建标签页开始浏览，或在上方地址栏直接输入网址。'}
+                        </EmptyDescription>
+                      ) : (
+                        <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
+                            <span>网络出口</span>
+                            <span className="font-mono font-medium text-foreground">{egressLabel(current.proxy)}</span>
+                          </span>
+                          {current.startUrl && (
+                            <span className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
+                              <span className="shrink-0">默认页</span>
+                              <span className="truncate font-mono font-medium text-foreground">{current.startUrl}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </EmptyHeader>
                     {!current ? (
                       <Button

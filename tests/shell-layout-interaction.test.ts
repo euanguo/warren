@@ -14,6 +14,8 @@ import {
   setInspectorTab,
   toggleSettings,
 } from '../src/renderer/state/navigation-store.ts';
+import { ENV_IDENTITY_HUES, getEnvIdentity } from '../src/renderer/lib/env-identity.ts';
+import { getPluginBrand } from '../src/renderer/lib/plugin-brand.ts';
 
 test('shouldExcludeRightPanels：bottom 与 detach 永不与工作台互斥', () => {
   assert.equal(
@@ -94,4 +96,27 @@ test('navigation-store：全局设置、插件页切换及返回环境状态流�
   assert.equal(getNavigationSnapshot().inspectorOpen, true);
   assert.equal(getNavigationSnapshot().inspectorTab, 'rules');
   setInspectorOpen(false);
+});
+
+test('env-identity：隔离环境色标映射确定且落在 8 组色相内', () => {
+  const a1 = getEnvIdentity('env-cap', 'cap');
+  const a2 = getEnvIdentity('env-cap', 'cap');
+  assert.deepEqual(a1, a2);
+  assert.equal(a1.initial, 'C');
+  assert.ok((ENV_IDENTITY_HUES as readonly number[]).includes(a1.hue));
+  assert.equal(getEnvIdentity('env-cn', '测试环境').initial, '测');
+});
+
+test('plugin-brand：内置插件具备独立品牌图标与色相，第三方插件有稳定回退', () => {
+  const whistle = getPluginBrand('com.warren.whistle');
+  const accounts = getPluginBrand('com.warren.accounts');
+  const notes = getPluginBrand('com.example.notes');
+  assert.equal(whistle.icon, 'Globe');
+  assert.equal(accounts.icon, 'Key');
+  assert.equal(notes.icon, 'List');
+  assert.notEqual(whistle.hue, accounts.hue);
+  assert.notEqual(accounts.hue, notes.hue);
+  const custom = getPluginBrand('com.thirdparty.custom');
+  assert.equal(custom.icon, 'Plug');
+  assert.equal(custom.hue, getPluginBrand('com.thirdparty.custom').hue);
 });

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
-import { Icon } from '@/components/icons';
+import { Icon, isIconName } from '@/components/icons';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import {
@@ -16,6 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getPluginBrand } from '@/lib/plugin-brand';
 import type { PluginInspectorTab } from '@/lib/plugin-runtime';
 import { cn } from '@/lib/utils';
 import type {
@@ -33,7 +34,7 @@ import type {
 
 const actorClass: Record<string, string> = {
   agent: 'text-[var(--info)]',
-  human: 'text-[var(--warning)]',
+  human: 'text-[var(--success)]',
   system: 'text-muted-foreground',
 };
 
@@ -305,16 +306,25 @@ export function EnvironmentInspector({
               {cookies && cookies.length > 0 && <Badge variant="outline">{cookies.length}</Badge>}
             </TabsTrigger>
             {pluginTabs.length > 0 && <span className="mx-1 h-3.5 w-px shrink-0 bg-border" aria-hidden />}
-            {pluginTabs.map((tab) => (
-              <TabsTrigger
-                key={tab.id}
-                value={`plugin:${tab.pluginId}:${tab.id}`}
-                disabled={!running}
-                className="shrink-0 px-2 text-xs"
-              >
-                {tab.title}
-              </TabsTrigger>
-            ))}
+            {pluginTabs.map((tab) => {
+              const brand = getPluginBrand(tab.pluginId, tab.icon);
+              const iconName = isIconName(brand.icon) ? brand.icon : 'Plug';
+              return (
+                <TabsTrigger
+                  key={tab.id}
+                  value={`plugin:${tab.pluginId}:${tab.id}`}
+                  disabled={!running}
+                  className="shrink-0 gap-1 px-2 text-xs"
+                >
+                  <Icon
+                    name={iconName}
+                    style={{ '--brand-hue': brand.hue } as CSSProperties}
+                    className="plugin-brand-icon size-3"
+                  />
+                  {tab.title}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
           {tabScroll.left && (
             <div
@@ -370,6 +380,8 @@ export function EnvironmentInspector({
                   <DropdownMenuLabel>插件伴随</DropdownMenuLabel>
                   {pluginTabs.map((tab) => {
                     const value = `plugin:${tab.pluginId}:${tab.id}`;
+                    const brand = getPluginBrand(tab.pluginId, tab.icon);
+                    const iconName = isIconName(brand.icon) ? brand.icon : 'Plug';
                     return (
                       <DropdownMenuItem
                         key={value}
@@ -377,7 +389,14 @@ export function EnvironmentInspector({
                         onClick={() => onTabChange(value)}
                         className="justify-between"
                       >
-                        <span>{tab.title}</span>
+                        <span className="flex items-center gap-1.5">
+                          <Icon
+                            name={iconName}
+                            style={{ '--brand-hue': brand.hue } as CSSProperties}
+                            className="plugin-brand-icon size-3.5"
+                          />
+                          {tab.title}
+                        </span>
                         {activeTab === value && <Icon name="Check" className="size-3.5 text-[var(--theme-accent)]" />}
                       </DropdownMenuItem>
                     );

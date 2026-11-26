@@ -226,6 +226,7 @@ export interface PluginSettingsSection {
   id: string;
   title: string;
   description?: string;
+  icon?: string;
   component: ComponentType<PluginSurfaceProps>;
 }
 
@@ -234,6 +235,7 @@ export interface PluginInspectorTab {
   pluginId: string;
   id: string;
   title: string;
+  icon?: string;
   component: ComponentType<PluginSurfaceProps>;
 }
 
