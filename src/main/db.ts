@@ -177,6 +177,14 @@ CREATE TABLE IF NOT EXISTS domain_prefs (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (env_id, origin)
 );
+
+-- 站点记忆（按域名或路径前缀沉淀非凭据备忘；绝不存放密码或 token）
+CREATE TABLE IF NOT EXISTS site_notes (
+  site TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT 'human',
+  updated_at TEXT NOT NULL
+);
 `;
 
 /** 一个文件一条连接。 */

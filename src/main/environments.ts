@@ -550,6 +550,7 @@ export class EnvironmentManager {
       status: spaces ? 'running' : this.#lifecycle.isDormant(env.id) ? 'dormant' : 'stopped',
       owner: lease ? lease.owner : 'none',
       leaseId: lease?.leaseId,
+      leaseLabel: lease?.label,
       leaseExpiresAt: lease?.expiresAt,
       currentUrl: active?.url || env.currentUrl,
       title: active?.title || env.title,

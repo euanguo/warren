@@ -19,6 +19,7 @@ import type {
   EnvironmentConfig,
   EventRecord,
   Group,
+  SiteNote,
   SpaceId,
   UrlHistoryEntry,
   ViewportPresetId,
@@ -78,6 +79,48 @@ export interface RememberedTab {
  */
 export const EVENT_LIMIT = 5000;
 const URL_HISTORY_LIMIT = 5000;
+
+const SECRET_NOTE_PATTERNS: RegExp[] = [
+  /\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*\S{4,}/i,
+  /\bBearer\s+[A-Za-z0-9._-]{12,}/i,
+  /\bsk-[A-Za-z0-9_-]{16,}/,
+  /\bghp_[A-Za-z0-9]{20,}/,
+];
+
+/** 规范化站点记忆键：支持完整 URL 或域名（可选路径前缀），统一小写并去尾斜杠。 */
+export function normalizeSiteKey(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) throw Object.assign(new Error('site is required'), { code: 'BAD_REQUEST' });
+  let normalized = trimmed;
+  if (/^[a-z]+:\/\//i.test(trimmed)) {
+    const parsed = new URL(trimmed);
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      throw Object.assign(new Error(`仅支持 http/https 站点或域名：${raw}`), { code: 'BAD_REQUEST' });
+    }
+    const cleanPath = parsed.pathname.replace(/\/+$/, '');
+    normalized = `${parsed.host.toLowerCase()}${cleanPath}`;
+  } else {
+    normalized = trimmed.replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase();
+  }
+  if (!normalized || normalized.length > 256 || /\s/.test(normalized)) {
+    throw Object.assign(new Error(`无效的站点键：${raw}`), { code: 'BAD_REQUEST' });
+  }
+  return normalized;
+}
+
+function assertNoteSafe(content: string): string {
+  const cleaned = String(content ?? '').trim();
+  if (!cleaned) throw Object.assign(new Error('note content is empty'), { code: 'BAD_REQUEST' });
+  if (cleaned.length > 8192) {
+    throw Object.assign(new Error('note content exceeds 8192 characters'), { code: 'BAD_REQUEST' });
+  }
+  if (SECRET_NOTE_PATTERNS.some((re) => re.test(cleaned))) {
+    throw Object.assign(new Error('site_notes 严禁存放密码或令牌明文，请使用 warren vault add'), {
+      code: 'BAD_REQUEST',
+    });
+  }
+  return cleaned;
+}
 
 type Row = Record<string, unknown>;
 
@@ -790,6 +833,117 @@ export class Store {
             .prepare('SELECT * FROM events WHERE environment_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?')
             .all(environmentId, size);
     return (rows as Row[]).map(rowToEvent).reverse();
+  }
+
+  /** 按游标 `afterId` 或时间戳 `since` 增量读取事件（按入库顺序升序），供 `warren events --follow` 使用。 */
+  eventsSince(
+    options: { environmentId?: string; afterId?: string; since?: string; limit?: number } = {},
+  ): EventRecord[] {
+    const size =
+      Number.isFinite(options.limit) && (options.limit ?? 0) > 0 ? Math.min(500, Math.floor(options.limit!)) : 100;
+    let afterRowId = 0;
+    if (options.afterId) {
+      const anchor = this.#database.prepare('SELECT rowid FROM events WHERE id = ?').get(options.afterId) as
+        { rowid?: number } | undefined;
+      if (anchor && typeof anchor.rowid === 'number') afterRowId = anchor.rowid;
+    }
+    const where: string[] = [];
+    const args: Array<string | number> = [];
+    if (options.environmentId) {
+      where.push('environment_id = ?');
+      args.push(options.environmentId);
+    }
+    if (afterRowId > 0) {
+      where.push('rowid > ?');
+      args.push(afterRowId);
+    } else if (options.since) {
+      where.push('created_at > ?');
+      args.push(options.since);
+    }
+    const sql = `SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY rowid ASC LIMIT ?`;
+    args.push(size);
+    return (this.#database.prepare(sql).all(...args) as Row[]).map(rowToEvent);
+  }
+
+  // ---------------------------------------------------------------- 站点记忆
+
+  getSiteNote(site: string): SiteNote | undefined {
+    const key = normalizeSiteKey(site);
+    const row = this.#database
+      .prepare('SELECT site, content, updated_by, updated_at FROM site_notes WHERE site = ?')
+      .get(key) as Row | undefined;
+    if (!row) return undefined;
+    return {
+      site: String(row.site),
+      content: String(row.content),
+      updatedBy: String(row.updated_by ?? 'human'),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  listSiteNotes(): SiteNote[] {
+    const rows = this.#database
+      .prepare('SELECT site, content, updated_by, updated_at FROM site_notes ORDER BY updated_at DESC')
+      .all() as Row[];
+    return rows.map((row) => ({
+      site: String(row.site),
+      content: String(row.content),
+      updatedBy: String(row.updated_by ?? 'human'),
+      updatedAt: String(row.updated_at),
+    }));
+  }
+
+  /** 按域名与路径前缀匹配当前页面命中的站点记忆（最长前缀优先，严格不返回空）。 */
+  matchSiteNotesForUrl(rawUrl: string): SiteNote[] {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return [];
+    }
+    if (!/^https?:$/i.test(parsed.protocol)) return [];
+    const host = parsed.host.toLowerCase();
+    const cleanPath = parsed.pathname.replace(/\/+$/, '');
+    const full = `${host}${cleanPath}`;
+    return this.listSiteNotes()
+      .filter((note) => {
+        if (note.site === host || note.site === full) return true;
+        if (note.site.startsWith(`${host}/`)) {
+          return full === note.site || full.startsWith(`${note.site}/`);
+        }
+        return host.endsWith(`.${note.site}`);
+      })
+      .sort((a, b) => b.site.length - a.site.length);
+  }
+
+  setSiteNote(site: string, content: string, updatedBy = 'human'): SiteNote {
+    const key = normalizeSiteKey(site);
+    const safeContent = assertNoteSafe(content);
+    const updatedAt = new Date().toISOString();
+    this.#database
+      .prepare(
+        `INSERT INTO site_notes (site, content, updated_by, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(site) DO UPDATE SET
+           content = excluded.content,
+           updated_by = excluded.updated_by,
+           updated_at = excluded.updated_at`,
+      )
+      .run(key, safeContent, updatedBy, updatedAt);
+    return { site: key, content: safeContent, updatedBy, updatedAt };
+  }
+
+  appendSiteNote(site: string, text: string, updatedBy = 'human'): SiteNote {
+    const key = normalizeSiteKey(site);
+    const addition = assertNoteSafe(text);
+    const existing = this.getSiteNote(key);
+    const merged = existing ? `${existing.content}\n${addition}` : addition;
+    return this.setSiteNote(key, merged, updatedBy);
+  }
+
+  removeSiteNote(site: string): boolean {
+    const key = normalizeSiteKey(site);
+    const result = this.#database.prepare('DELETE FROM site_notes WHERE site = ?').run(key);
+    return Number(result.changes ?? 0) > 0;
   }
 
   #pruneEvents(): void {

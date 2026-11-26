@@ -73,6 +73,7 @@ export interface Environment {
   title?: string;
   owner: ControlOwner;
   leaseId?: string;
+  leaseLabel?: string;
   leaseExpiresAt?: number;
   error?: string;
   /** 所属分组；undefined = 未分组 */
@@ -163,5 +164,13 @@ export interface DomainPref {
   origin: string;
   zoomFactor: number;
   viewportPreset?: ViewportPresetId;
+  updatedAt: string;
+}
+
+/** 站点级记忆笔记（按域名或路径前缀关联，仅存非凭据结构/流程提示）。 */
+export interface SiteNote {
+  site: string;
+  content: string;
+  updatedBy: string;
   updatedAt: string;
 }

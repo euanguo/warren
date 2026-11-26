@@ -102,11 +102,15 @@ export async function collectSystemDiagnostics(input: CollectSystemDiagnosticsIn
   // 5. 内置 Skill 同步状态
   const skills = await skillStatus(os.homedir(), input.skillSourceDir).catch(() => []);
   const installedCount = skills.filter((item) => item.installed).length;
+  const outdatedCount = skills.filter((item) => item.installed && item.upToDate === false).length;
   checks.push({
     id: 'skills',
     label: 'CLI Skill 接入状态',
-    status: installedCount === 0 ? 'warn' : 'ok',
-    detail: skills.length === 0 ? '未检测到 Skill 目录' : `${installedCount}/${skills.length} 个 Agent 目录已安装`,
+    status: installedCount === 0 || outdatedCount > 0 ? 'warn' : 'ok',
+    detail:
+      skills.length === 0
+        ? '未检测到 Skill 目录'
+        : `${installedCount}/${skills.length} 个 Agent 目录已安装${outdatedCount > 0 ? `（${outdatedCount} 处待更新）` : ''}`,
   });
 
   // 6. 插件宿主与运行时边界

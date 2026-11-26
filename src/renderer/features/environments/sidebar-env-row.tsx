@@ -107,7 +107,9 @@ export function SidebarEnvRow({
                 title={ownerLabel[env.owner]}
               >
                 <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3.5" />
-                {!compact && env.owner === 'agent' && <span className="font-mono">AI</span>}
+                {!compact && env.owner === 'agent' && (
+                  <span className="max-w-[4.5rem] truncate font-mono">{env.leaseLabel || 'AI'}</span>
+                )}
               </span>
             )}
             {badge.first && (

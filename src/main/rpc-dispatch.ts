@@ -10,10 +10,16 @@
  * **接线只在这里做**：写操作必须走 `writeCall` / `inputCall` / `dialogCall`，
  * 或者显式 `deps.manager.assertWritable`。`tests/rpc-gating.test.ts` 用源码断言盯着这条。
  */
+import { executeBatch, hasWriteSteps, parseBatchLines, type BatchStep } from './browser/ops/batch.ts';
+import { diffScreenshots, diffSnapshots, getLastSnapshot, rememberSnapshot } from './browser/ops/diff.ts';
+import { targetFromBy, type InspectProp, type InspectState } from './browser/ops/inspector.ts';
+import { readPage } from './browser/ops/reader.ts';
+import { formatCompactSnapshot } from './browser/ops/snapshot-compact.ts';
 import { fillSecretInto } from './browser/fill-secret.ts';
 import { makeEvent, type EnvironmentPatch } from './domain/environment.ts';
 import { captureEvidence } from './evidence.ts';
 import { runDoctor } from './doctor.ts';
+import { findRpcMethods } from './rpc-methods.ts';
 import type { EnvironmentManager } from './environments';
 import type { PluginHost } from './plugins/host';
 import type { Permission } from './plugins/package.ts';
@@ -229,6 +235,9 @@ export async function dispatchRpc(
     case 'ping':
       return { pong: true, pid: process.pid };
 
+    case 'rpc.methods':
+      return findRpcMethods(typeof params.name === 'string' ? params.name : undefined);
+
     case 'env.list':
       return deps.manager.list();
 
@@ -352,6 +361,37 @@ export async function dispatchRpc(
 
     case 'events.list':
       return deps.store.events(typeof params.environmentId === 'string' ? params.environmentId : undefined);
+
+    case 'events.since':
+      return deps.store.eventsSince({
+        environmentId: typeof params.environmentId === 'string' ? params.environmentId : undefined,
+        afterId: typeof params.afterId === 'string' ? params.afterId : undefined,
+        since: typeof params.since === 'string' ? params.since : undefined,
+        limit: num('limit'),
+      });
+
+    case 'notes.list':
+      return deps.store.listSiteNotes();
+
+    case 'notes.get':
+      return deps.store.getSiteNote(str('site')) ?? null;
+
+    case 'notes.set':
+      return deps.store.setSiteNote(
+        str('site'),
+        str('content'),
+        typeof params.updatedBy === 'string' ? params.updatedBy : 'agent',
+      );
+
+    case 'notes.append':
+      return deps.store.appendSiteNote(
+        str('site'),
+        str('text'),
+        typeof params.updatedBy === 'string' ? params.updatedBy : 'agent',
+      );
+
+    case 'notes.rm':
+      return { removed: deps.store.removeSiteNote(str('site')) };
 
     case 'evidence.capture':
       return captureEvidence(deps.manager, str('id'), {
@@ -799,7 +839,128 @@ export async function dispatchRpc(
         roles: Array.isArray(params.roles) ? (params.roles as string[]) : undefined,
         selector: typeof params.selector === 'string' ? params.selector : undefined,
       });
-      return { url: controller.currentUrl(), title: await controller.title(), nodes };
+      const url = controller.currentUrl();
+      const title = await controller.title();
+      const siteNotes = deps.store.matchSiteNotesForUrl?.(url) ?? [];
+      rememberSnapshot(`${id}:${space}`, { url, title, nodes });
+      if (params.compact) {
+        return {
+          url,
+          title,
+          ...(siteNotes.length > 0 ? { siteNotes } : {}),
+          compact: formatCompactSnapshot({
+            url,
+            title,
+            nodes,
+            siteNotes,
+            interactiveOnly: Boolean(params.interactiveOnly),
+            maxDepth: num('maxDepth'),
+            maxNodes: num('limit'),
+          }),
+          nodes,
+        };
+      }
+      return { url, title, ...(siteNotes.length > 0 ? { siteNotes } : {}), nodes };
+    }
+
+    case 'browser.read': {
+      const id = str('id');
+      const c = deps.manager.controllerFor(id, optionalTab, space);
+      const siteNotes = deps.store.matchSiteNotesForUrl?.(c.currentUrl()) ?? [];
+      return readPage(c, {
+        selector: typeof params.selector === 'string' ? params.selector : undefined,
+        data: Boolean(params.data),
+        links: params.links as boolean | string | undefined,
+        scroll: Boolean(params.scroll),
+        maxScrolls: num('maxScrolls'),
+        siteNotes,
+      });
+    }
+
+    case 'browser.get':
+      return deps.manager
+        .controllerFor(str('id'), optionalTab, space)
+        .getProp(
+          str('prop') as InspectProp,
+          params.target as never,
+          typeof params.attr === 'string' ? params.attr : undefined,
+        );
+
+    case 'browser.is':
+      return {
+        ok: await deps.manager
+          .controllerFor(str('id'), optionalTab, space)
+          .checkState(str('state') as InspectState, params.target as never),
+      };
+
+    case 'browser.diff': {
+      if (params.kind === 'screenshot') {
+        return diffScreenshots(str('a'), str('b'));
+      }
+      const id = str('id');
+      const scopeKey = `${id}:${space}`;
+      const c = deps.manager.controllerFor(id, optionalTab, space);
+      const prev = getLastSnapshot(scopeKey) ?? { url: '', title: '', nodes: [] };
+      const nodes = await c.snapshot({ interactiveOnly: Boolean(params.interactiveOnly) });
+      const next = { url: c.currentUrl(), title: await c.title(), nodes };
+      rememberSnapshot(scopeKey, next);
+      return diffSnapshots(prev, next);
+    }
+
+    case 'browser.find': {
+      const target = targetFromBy(str('by'), str('spec'), typeof params.name === 'string' ? params.name : undefined);
+      const action = str('action');
+      if (action === 'text' || action === 'html' || action === 'value' || action === 'attr' || action === 'box') {
+        return controller().getProp(
+          action as InspectProp,
+          target,
+          typeof params.attr === 'string' ? params.attr : undefined,
+        );
+      }
+      if (action === 'visible' || action === 'enabled' || action === 'checked') {
+        return { ok: await controller().checkState(action as InspectState, target) };
+      }
+      if (action === 'click' || action === 'dblclick' || action === 'hover' || action === 'focus') {
+        return inputCall(action, target);
+      }
+      if (action === 'fill') return inputCall('fill', target, str('value'));
+      if (action === 'press') return inputCall('press', target, str('value'));
+      if (action === 'select') return inputCall('selectOption', target, str('value'));
+      throw new RpcError('BAD_REQUEST', `unsupported find action: ${action}`);
+    }
+
+    case 'browser.batch': {
+      const id = str('id');
+      const steps: BatchStep[] = Array.isArray(params.steps)
+        ? (params.steps as BatchStep[])
+        : typeof params.script === 'string'
+          ? parseBatchLines(params.script)
+          : [];
+      if (steps.length === 0) throw new RpcError('BAD_REQUEST', 'batch steps or script is empty');
+      if (hasWriteSteps(steps)) deps.manager.assertWritable(id, optionalLease, space);
+      const c = deps.manager.controllerFor(id, optionalTab, space);
+      return executeBatch({
+        steps,
+        bail: Boolean(params.bail),
+        controller: c,
+        store: deps.store,
+        networkEntries: () => deps.manager.networkEntries(id),
+        prepareInput: async <T>(fn: () => Promise<T>): Promise<T> => {
+          const temporary = deps.manager.ensureOperable(id, space);
+          let emulatedViewport = false;
+          try {
+            deps.manager.assertInputOnScreen(id, space);
+            deps.manager.assertActiveTab(id, optionalTab, space);
+            c.assertNoDialog();
+            await deps.manager.focusForInput(id, space);
+            if (temporary) emulatedViewport = await deps.manager.prepareBackgroundInput(id, space);
+            return await fn();
+          } finally {
+            if (emulatedViewport) await deps.manager.clearBackgroundInput(id, space);
+            if (temporary) deps.manager.detachOperable(id, space);
+          }
+        },
+      });
     }
 
     case 'browser.waitFor': {

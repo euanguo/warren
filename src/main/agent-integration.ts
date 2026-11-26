@@ -7,6 +7,7 @@
  * Skill 的**唯一真相**是仓库里的 `skills/warren/SKILL.md`；打包时由 `forge.config.cjs`
  * 的 `extraResource` 带进 `Contents/Resources/skills`（见 main.ts 里的 `skillSourceDir()`）。
  */
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSkillStatus } from '../shared/types.ts';
@@ -29,9 +30,14 @@ export const AGENT_TARGETS: readonly AgentTarget[] = [
 ];
 
 export const SKILL_NAME = 'warren';
+export const SKILL_STAMP_FILE = '.warren-skill';
 
 export function targetSkillPath(home: string, target: AgentTarget): string {
   return path.join(home, target.skillsDir, SKILL_NAME, 'SKILL.md');
+}
+
+function sha256Text(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -52,22 +58,66 @@ export async function readSkillMarkdown(sourceDir: string): Promise<string> {
 }
 
 export async function skillStatus(home: string, sourceDir: string): Promise<AgentSkillStatus[]> {
+  // 源文件缺失是配置错误（打包漏了 extraResource），早报比装出空文件好
+  const sourceMarkdown = await readSkillMarkdown(sourceDir);
+  const sourceSha = sha256Text(sourceMarkdown);
+
   const out: AgentSkillStatus[] = [];
   for (const target of AGENT_TARGETS) {
     const file = targetSkillPath(home, target);
-    out.push({ id: target.id, label: target.label, path: file, installed: await exists(file) });
+    const installed = await exists(file);
+    let installedSha: string | undefined;
+    if (installed) {
+      try {
+        installedSha = sha256Text(await readFile(file, 'utf8'));
+      } catch {
+        installedSha = undefined;
+      }
+    }
+    out.push({
+      id: target.id,
+      label: target.label,
+      path: file,
+      installed,
+      upToDate: installed && installedSha === sourceSha,
+      ...(installedSha ? { sha256: installedSha } : {}),
+    });
   }
-  // 源文件缺失是配置错误（打包漏了 extraResource），早报比装出空文件好
-  await readSkillMarkdown(sourceDir);
   return out;
 }
 
-export async function installSkill(home: string, sourceDir: string, targetId: string): Promise<{ path: string }> {
+export async function installSkill(
+  home: string,
+  sourceDir: string,
+  targetId: string,
+): Promise<{ path: string; sha256: string }> {
   const target = AGENT_TARGETS.find((item) => item.id === targetId);
   if (!target) throw new Error(`未知的 agent: ${targetId}`);
   const markdown = await readSkillMarkdown(sourceDir);
+  const sha256 = sha256Text(markdown);
   const file = targetSkillPath(home, target);
-  await mkdir(path.dirname(file), { recursive: true });
+  const dir = path.dirname(file);
+  await mkdir(dir, { recursive: true });
   await writeFile(file, markdown, 'utf8');
-  return { path: file };
+  await writeFile(
+    path.join(dir, SKILL_STAMP_FILE),
+    JSON.stringify({ sha256, updatedAt: new Date().toISOString() }, null, 2) + '\n',
+    'utf8',
+  );
+  return { path: file, sha256 };
+}
+
+/** 刷新所有已安装但内容过期的 Skill 目标目录。 */
+export async function refreshSkills(
+  home: string,
+  sourceDir: string,
+): Promise<Array<{ id: string; path: string; sha256: string }>> {
+  const statuses = await skillStatus(home, sourceDir);
+  const refreshed: Array<{ id: string; path: string; sha256: string }> = [];
+  for (const status of statuses) {
+    if (!status.installed || status.upToDate) continue;
+    const { path: written, sha256 } = await installSkill(home, sourceDir, status.id);
+    refreshed.push({ id: status.id, path: written, sha256 });
+  }
+  return refreshed;
 }

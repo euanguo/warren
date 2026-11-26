@@ -25,6 +25,7 @@ warren env list
 warren env start <env>
 warren env acquire <env>       # 取 Agent Space 写权限；返回 leaseId
 warren tab list <env>          # 默认列 Agent Space；--space=person 才列人的空间
+warren browser snapshot <env> -i   # 极简交互元素树（大幅降低 Token 并注入 # site-notes）
 ```
 
 Agent 第一次操作某个环境时，如果 Agent Space 还没有 Tab，Warren 会懒建一个，
@@ -80,9 +81,37 @@ VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`
 `snapshot` 返回的是**结构对象**（`url` + `title` + `nodes` 数组），不是字符串。
 `console.log(await page.snapshot())` 打印的是 JSON；要截断先 `JSON.stringify(...)`，不要直接 `.slice()`。
 
-## 看页面：先 snapshot
+## 看页面与读取：先 snapshot -i / read，高频联调走 batch
 
-`page.snapshot()` 返回可访问性树，是主观察通道。`screenshot()` 只在确实需要视觉判断时使用。
+`warren browser snapshot <env> -i` 输出极简可交互元素树（并在命中域名时注入 `# site-notes`），比默认 JSON 节省大量上下文；`page.snapshot()` 仍返回结构化 `{ url, title, nodes }`。
+
+常用高效命令：
+
+```bash
+warren browser read <env> --links --data          # 抽取干净正文、内嵌 JSON 与链接
+warren browser find <env> role button click --name=登录
+warren browser get <env> title
+warren browser is <env> visible @1
+warren browser diff <env> snapshot
+warren notes set example.com "后台菜单需要 hover 展开"
+warren notes get example.com
+warren methods                                    # 实时反射全部 RPC 方法目录
+warren --skill                                    # 打印内置最新 SKILL.md
+warren skills status                              # 检查并校验本地 Skill SHA-256
+```
+
+多步常规探索可用 `warren batch <env> --bail` 一次下发并在结束后直接拿到 Delta Receipt（URL/标题变化、新增网络请求摘要与增量交互节点）：
+
+```bash
+warren batch <env> --bail <<'EOF'
+goto http://localhost:3000
+fill "#user" "alice"
+click "button:has-text(\"登录\")"
+snapshot -i
+EOF
+```
+
+`screenshot()` 只在确实需要视觉判断时使用。
 
 `@N` ref 只属于当前那份快照；导航、重拍或页面重渲染后，旧 ref 会失效。
 

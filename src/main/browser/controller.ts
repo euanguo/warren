@@ -40,6 +40,7 @@ import {
   resolveTarget,
 } from './page-helpers.ts';
 import type { PageContext, PendingSink } from './ctx.ts';
+import { checkTargetState, readTargetProperty, type InspectProp, type InspectState } from './ops/inspector.ts';
 import {
   awaitLoad,
   readyState,
@@ -907,6 +908,14 @@ export class BrowserController {
 
   async fetch(url: string, opts: FetchOptions = {}): Promise<FetchResult> {
     return fetchPage(this.#page(), url, opts);
+  }
+
+  async getProp(prop: InspectProp, target?: TargetInput, attr?: string): Promise<unknown> {
+    return readTargetProperty(this.#page(), prop, target, attr);
+  }
+
+  async checkState(state: InspectState, target: TargetInput): Promise<boolean> {
+    return checkTargetState(this.#page(), state, target);
   }
 
   async cdp(method: string, params: Record<string, unknown> = {}): Promise<unknown> {

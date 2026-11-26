@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_TARGETS, installSkill, skillStatus, targetSkillPath } from '../src/main/agent-integration.ts';
+import {
+  AGENT_TARGETS,
+  installSkill,
+  refreshSkills,
+  SKILL_STAMP_FILE,
+  skillStatus,
+  targetSkillPath,
+} from '../src/main/agent-integration.ts';
 
 /** 造一个临时 home + 一个临时 skill 源目录。 */
 async function fixtures(markdown = '# warren\n') {
@@ -77,5 +84,31 @@ test('源文件缺失或为空时报错 —— 宁可失败也不装空壳', asy
     await assert.rejects(() => installSkill(empty.home, empty.source, 'agents'), /空/);
   } finally {
     await empty.cleanup();
+  }
+});
+
+test('写入 .warren-skill SHA-256 校验戳并支持过期检测与 refreshSkills', async () => {
+  const f = await fixtures('# warren v1\n');
+  try {
+    const installed = await installSkill(f.home, f.source, 'codex');
+    const stampRaw = await readFile(path.join(path.dirname(installed.path), SKILL_STAMP_FILE), 'utf8');
+    const stamp = JSON.parse(stampRaw) as { sha256: string };
+    assert.equal(stamp.sha256, installed.sha256);
+
+    const freshList = await skillStatus(f.home, f.source);
+    assert.equal(freshList.find((item) => item.id === 'codex')?.upToDate, true);
+
+    await writeFile(path.join(f.source, 'warren', 'SKILL.md'), '# warren v2\n', 'utf8');
+    const staleList = await skillStatus(f.home, f.source);
+    assert.equal(staleList.find((item) => item.id === 'codex')?.upToDate, false);
+
+    const refreshed = await refreshSkills(f.home, f.source);
+    assert.equal(refreshed.length, 1);
+    assert.equal(refreshed[0]?.id, 'codex');
+
+    const updatedList = await skillStatus(f.home, f.source);
+    assert.equal(updatedList.find((item) => item.id === 'codex')?.upToDate, true);
+  } finally {
+    await f.cleanup();
   }
 });

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { usageOf } from './commands.mjs';
+import { detectCallerLabel } from './caller.mjs';
+import { parseCliFlags, usageOf } from './commands.mjs';
 import { createEmitResult, createExecSandbox, createPageApi, describeCapabilities } from './exec-runtime.mjs';
 // warren —— Agent 的操作入口。形态参考 ego-browser：一次调用可以跑一整段脚本。
 //
@@ -45,6 +46,74 @@ const runtimeInfo = () => (runtime ??= readRuntime());
 let seq = 0;
 
 const CALL_TIMEOUT_MS = Number(process.env.WARREN_TIMEOUT_MS ?? 60_000);
+const CALLER_LABEL = detectCallerLabel();
+const SKILL_TARGET_DIRS = [
+  { id: 'agents', label: '通用（~/.agents）', skillsDir: '.agents/skills' },
+  { id: 'claude', label: 'Claude Code（~/.claude）', skillsDir: '.claude/skills' },
+  { id: 'codex', label: 'Codex（~/.codex）', skillsDir: '.codex/skills' },
+];
+
+function resolveBundledSkillPath() {
+  const candidates = [
+    path.join(import.meta.dirname, '..', 'skills', 'warren', 'SKILL.md'),
+    ...(process.resourcesPath ? [path.join(process.resourcesPath, 'skills', 'warren', 'SKILL.md')] : []),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw Object.assign(new Error('找不到内置 skills/warren/SKILL.md'), { code: 'SKILL_MISSING' });
+}
+
+function skillSha256(text) {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function getLocalSkillStatuses() {
+  const sourcePath = resolveBundledSkillPath();
+  const sourceText = readFileSync(sourcePath, 'utf8');
+  const sourceSha = skillSha256(sourceText);
+  return SKILL_TARGET_DIRS.map((t) => {
+    const file = path.join(os.homedir(), t.skillsDir, 'warren', 'SKILL.md');
+    const installed = existsSync(file);
+    let upToDate = false;
+    let sha256;
+    if (installed) {
+      try {
+        sha256 = skillSha256(readFileSync(file, 'utf8'));
+        upToDate = sha256 === sourceSha;
+      } catch {
+        upToDate = false;
+      }
+    }
+    return { id: t.id, label: t.label, path: file, installed, upToDate, ...(sha256 ? { sha256 } : {}) };
+  });
+}
+
+function installLocalSkill(targetId) {
+  const sourcePath = resolveBundledSkillPath();
+  const markdown = readFileSync(sourcePath, 'utf8');
+  const sha256 = skillSha256(markdown);
+  const targets = targetId === 'all' ? SKILL_TARGET_DIRS : SKILL_TARGET_DIRS.filter((item) => item.id === targetId);
+  if (targets.length === 0) {
+    throw Object.assign(new Error(`未知 Skill 目标：${targetId}（可选 agents | claude | codex | all）`), {
+      code: 'BAD_REQUEST',
+    });
+  }
+  const written = [];
+  for (const target of targets) {
+    const file = path.join(os.homedir(), target.skillsDir, 'warren', 'SKILL.md');
+    const dir = path.dirname(file);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, markdown, 'utf8');
+    writeFileSync(
+      path.join(dir, '.warren-skill'),
+      JSON.stringify({ sha256, updatedAt: new Date().toISOString() }, null, 2) + '\n',
+      'utf8',
+    );
+    written.push({ id: target.id, path: file, sha256 });
+  }
+  return written;
+}
 
 /**
  * 未处理的 Promise 拒绝。
@@ -117,24 +186,7 @@ function call(method, params = {}) {
 }
 
 function parseFlags(args) {
-  const flags = {};
-  const rest = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith('--')) {
-      // 只按**第一个** `=` 切：值里带 `=` 很常见（`--response-header=a=b`、JSON 值）
-      const eq = arg.indexOf('=');
-      const key = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
-      const inline = eq < 0 ? undefined : arg.slice(eq + 1);
-      const value = inline !== undefined ? inline : args[i + 1] && !args[i + 1].startsWith('--') ? args[++i] : true;
-      // 同一个 flag 出现多次时收成数组（网络规则要一次给多个头）
-      if (key in flags) flags[key] = Array.isArray(flags[key]) ? [...flags[key], value] : [flags[key], value];
-      else flags[key] = value;
-    } else {
-      rest.push(arg);
-    }
-  }
-  return { flags, rest };
+  return parseCliFlags(args);
 }
 
 async function readStdin() {
@@ -428,8 +480,10 @@ async function withLease(environmentId, flags, label, fn) {
   let leaseId = typeof flags.lease === 'string' ? flags.lease : undefined;
   const auto = !leaseId;
   let stopRenewer = () => {};
+  const effectiveLabel =
+    typeof flags.label === 'string' ? flags.label : CALLER_LABEL !== 'warren' ? CALLER_LABEL : label;
   if (auto) {
-    const lease = await call('env.acquire', { id: environmentId, label });
+    const lease = await call('env.acquire', { id: environmentId, label: effectiveLabel });
     leaseId = lease.leaseId;
     stopRenewer = startLeaseRenewer(environmentId, lease.leaseExpiresAt);
   }
@@ -450,9 +504,10 @@ async function acquire(environmentId, flags) {
   // `--wait=5000` 是等 5 秒；裸写 `--wait` 给一个默认值，不然会被当成「不等」静默失败
   const waitMs = typeof flags.wait === 'string' ? Number(flags.wait) : flags.wait === true ? 30_000 : 0;
   const deadline = Date.now() + (Number.isFinite(waitMs) ? waitMs : 0);
+  const label = typeof flags.label === 'string' ? flags.label : CALLER_LABEL;
   for (;;) {
     try {
-      return await call('env.acquire', { id: environmentId, label: flags.label });
+      return await call('env.acquire', { id: environmentId, label });
     } catch (error) {
       const retryable = error.code === 'ENV_BUSY' && Date.now() < deadline;
       if (!retryable) throw error;
@@ -531,13 +586,97 @@ const formatNetBodyLine = (item) =>
 
 /** `extension list` 的行格式。**每个返回数组的命令都要有自己的 formatter**（见 AGENTS 已知问题 1）。 */
 const formatExtensionLine = (item) => `${item.id}  ${item.dir}`;
+const formatMethodLine = (item) => `${String(item.kind).padEnd(7)} ${String(item.name).padEnd(24)} ${item.summary}`;
+const formatNoteLine = (item) =>
+  `[${item.site}] (${item.updatedBy}, ${String(item.updatedAt ?? '').slice(0, 19)})\n  ${item.content.replace(/\n/g, '\n  ')}`;
+const formatSkillLine = (item) =>
+  `${item.installed ? (item.upToDate ? '✓' : '!') : '○'} ${item.id.padEnd(8)} ${item.label.padEnd(24)} ${item.path}`;
 
 const group = args[0];
 const sub = args[1];
 const asJson = Boolean(flags.json);
 
 try {
-  if (group === 'env') {
+  if (flags.skill) {
+    process.stdout.write(readFileSync(resolveBundledSkillPath(), 'utf8'));
+  } else if (group === 'skills') {
+    switch (sub) {
+      case 'status':
+        print(getLocalSkillStatuses(), asJson, formatSkillLine);
+        break;
+      case 'install':
+        print(installLocalSkill(args[2] ?? 'all'), asJson, (w) => `✓ 已安装 ${w.id} → ${w.path}`);
+        break;
+      case 'refresh': {
+        const outdated = getLocalSkillStatuses().filter((item) => item.installed && !item.upToDate);
+        const refreshed = outdated.flatMap((item) => installLocalSkill(item.id));
+        print(refreshed, asJson, (w) => `✓ 已更新 ${w.id} → ${w.path}`);
+        break;
+      }
+      default:
+        console.error(usageOf('skills', ' [target|all]'));
+        process.exit(1);
+    }
+  } else if (group === 'methods') {
+    print(await call('rpc.methods', { name: args[1] }), asJson, formatMethodLine);
+  } else if (group === 'notes') {
+    switch (sub) {
+      case 'list':
+        print(await call('notes.list'), asJson, formatNoteLine);
+        break;
+      case 'get':
+        print(await call('notes.get', { site: args[2] }), asJson);
+        break;
+      case 'set':
+        print(
+          await call('notes.set', {
+            site: args[2],
+            content: args.slice(3).join(' ') || (await readStdin()),
+            updatedBy: CALLER_LABEL,
+          }),
+          asJson,
+        );
+        break;
+      case 'append':
+        print(
+          await call('notes.append', {
+            site: args[2],
+            text: args.slice(3).join(' ') || (await readStdin()),
+            updatedBy: CALLER_LABEL,
+          }),
+          asJson,
+        );
+        break;
+      case 'rm':
+        print(await call('notes.rm', { site: args[2] }), asJson);
+        break;
+      default:
+        console.error(usageOf('notes', ' <site> [content]'));
+        process.exit(1);
+    }
+  } else if (group === 'batch') {
+    const environmentId = args[1];
+    if (!environmentId) {
+      console.error("用法: warren batch <env> [--bail] [--json] <<'EOF' ... EOF");
+      process.exit(1);
+    }
+    const raw = (await readStdin()).trim();
+    if (!raw) {
+      console.error('BAD_REQUEST: batch 需要从 stdin 传入步骤列表（逐行命令或 JSON 数组）');
+      process.exit(1);
+    }
+    const params = raw.startsWith('[') ? { steps: JSON.parse(raw) } : { script: raw };
+    const result = await withLease(environmentId, flags, 'warren batch', (leaseId) =>
+      call('browser.batch', {
+        id: environmentId,
+        leaseId,
+        bail: Boolean(flags.bail),
+        ...params,
+      }),
+    );
+    print(result, asJson);
+    if (result && result.ok === false) process.exit(1);
+  } else if (group === 'env') {
     const id = args[2];
     switch (sub) {
       case 'list':
@@ -674,7 +813,32 @@ try {
         process.exit(1);
     }
   } else if (group === 'events') {
-    print(await call('events.list', { environmentId: args[1] }), asJson, formatEventLine);
+    const envId = args[1];
+    if (!flags.follow) {
+      print(await call('events.list', { environmentId: envId }), asJson, formatEventLine);
+    } else {
+      let stopped = false;
+      process.on('SIGINT', () => {
+        stopped = true;
+      });
+      process.on('SIGTERM', () => {
+        stopped = true;
+      });
+      const initial = await call('events.list', { environmentId: envId });
+      let lastId = initial.at(-1)?.id;
+      for (const item of initial.slice(-10)) {
+        console.log(asJson ? JSON.stringify(item) : formatEventLine(item));
+      }
+      while (!stopped) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        if (stopped) break;
+        const next = await call('events.since', { environmentId: envId, afterId: lastId });
+        for (const item of next) {
+          lastId = item.id;
+          console.log(asJson ? JSON.stringify(item) : formatEventLine(item));
+        }
+      }
+    }
   } else if (group === 'vault') {
     switch (sub) {
       case 'list':
@@ -1366,20 +1530,135 @@ try {
           asJson,
         );
         break;
-      case 'snapshot':
-        print(
-          await call('browser.snapshot', {
+      case 'snapshot': {
+        const compact = Boolean(flags.interactive || flags.compact) && !asJson;
+        const res = await call('browser.snapshot', {
+          id: environmentId,
+          scope: typeof flags.scope === 'string' ? flags.scope : undefined,
+          limit: typeof flags.limit === 'string' ? Number(flags.limit) : undefined,
+          maxDepth: typeof flags.depth === 'string' ? Number(flags.depth) : undefined,
+          compact: Boolean(flags.interactive || flags.compact),
+          includeActionMarks: Boolean(flags['action-marks']),
+          includeStableLocator: Boolean(flags.locator),
+          interactiveOnly: Boolean(flags.interactive),
+          selector: typeof flags.selector === 'string' ? flags.selector : undefined,
+        });
+        if (compact && typeof res.compact === 'string') {
+          console.log(res.compact);
+        } else {
+          print(res, asJson);
+        }
+        break;
+      }
+      case 'read': {
+        const res = await call('browser.read', {
+          id: environmentId,
+          selector: typeof flags.selector === 'string' ? flags.selector : undefined,
+          data: Boolean(flags.data),
+          links: flags.links,
+          scroll: Boolean(flags.scroll),
+        });
+        const textOut =
+          res.siteNotes?.length && !asJson
+            ? `# site-notes\n${res.siteNotes.map((n) => `- [${n.site}] ${n.content}`).join('\n')}\n\n${res.text}`
+            : res.text;
+        if (typeof flags.out === 'string' && flags.out.trim()) {
+          const dest = path.resolve(flags.out.trim());
+          mkdirSync(path.dirname(dest), { recursive: true });
+          const body = asJson || flags.data || flags.links ? JSON.stringify(res, null, 2) : textOut;
+          writeFileSync(dest, body + '\n', 'utf8');
+          print({ out: dest, bytes: Buffer.byteLength(body), url: res.url, title: res.title }, asJson);
+        } else if (asJson || flags.data || flags.links) {
+          print(res, asJson);
+        } else {
+          console.log(textOut);
+        }
+        break;
+      }
+      case 'find': {
+        const by = args[3];
+        const spec = args[4];
+        const action = args[5];
+        const val = args[6];
+        if (!by || !spec || !action) {
+          console.error('用法: warren browser find <env> <by> <spec> <action> [value] [--name=...]');
+          process.exit(1);
+        }
+        const readActions = new Set(['text', 'html', 'value', 'attr', 'box', 'visible', 'enabled', 'checked']);
+        const execFind = (leaseId) =>
+          call('browser.find', {
             id: environmentId,
-            scope: typeof flags.scope === 'string' ? flags.scope : undefined,
-            limit: typeof flags.limit === 'string' ? Number(flags.limit) : undefined,
-            includeActionMarks: Boolean(flags['action-marks']),
-            includeStableLocator: Boolean(flags.locator),
-            interactiveOnly: Boolean(flags.interactive),
-            selector: typeof flags.selector === 'string' ? flags.selector : undefined,
+            leaseId,
+            by,
+            spec,
+            action,
+            value: val,
+            name: typeof flags.name === 'string' ? flags.name : undefined,
+            attr: typeof flags.attr === 'string' ? flags.attr : val,
+          });
+        const out = readActions.has(action)
+          ? await execFind(undefined)
+          : await withLease(environmentId, flags, `warren browser find ${action}`, execFind);
+        print(out, asJson);
+        break;
+      }
+      case 'get': {
+        const prop = args[3];
+        const target = args[4];
+        if (!prop) {
+          console.error('用法: warren browser get <env> <url|title|text|html|value|attr|box> [target] [--attr=name]');
+          process.exit(1);
+        }
+        print(
+          await call('browser.get', {
+            id: environmentId,
+            prop,
+            target,
+            attr: typeof flags.attr === 'string' ? flags.attr : args[5],
           }),
           asJson,
         );
         break;
+      }
+      case 'is': {
+        const stateName = args[3];
+        const target = args[4];
+        if (!stateName || !target) {
+          console.error('用法: warren browser is <env> <visible|enabled|checked> <target>');
+          process.exit(1);
+        }
+        print(await call('browser.is', { id: environmentId, state: stateName, target }), asJson);
+        break;
+      }
+      case 'diff': {
+        const kind = args[3] || 'snapshot';
+        if (kind === 'screenshot') {
+          const a = args[4];
+          const b = args[5];
+          if (!a || !b) {
+            console.error('用法: warren browser diff <env> screenshot <a.png> <b.png>');
+            process.exit(1);
+          }
+          const res = await call('browser.diff', {
+            id: environmentId,
+            kind: 'screenshot',
+            a: path.resolve(a),
+            b: path.resolve(b),
+          });
+          print(res, asJson);
+          if (!res.match) process.exit(1);
+        } else {
+          print(
+            await call('browser.diff', {
+              id: environmentId,
+              kind: 'snapshot',
+              interactiveOnly: Boolean(flags.interactive),
+            }),
+            asJson,
+          );
+        }
+        break;
+      }
       case 'info':
         print(await call('browser.info', { id: environmentId }), asJson);
         break;
@@ -1448,13 +1727,24 @@ try {
   warren browser open <env> <url>
   warren browser back <env>                 # 后退（写操作）
   warren browser forward <env>              # 前进（写操作）
-  warren browser snapshot <env>
+  warren browser snapshot <env> [-i] [-d=<N>] [--scope=...] [--json]   # -i 极简交互树并注入 site-notes
+  warren browser read <env> [-s <sel>] [--data] [--links] [--scroll] [--out=<file>]
+  warren browser find <env> <by> <spec> <action> [val]   # 语义一步定位与动作
+  warren browser get <env> <url|title|text|html|value|attr|box> [target]
+  warren browser is <env> <visible|enabled|checked> <target>
+  warren browser diff <env> <snapshot|screenshot> [a] [b]
   warren browser screenshot <env> [--output=<path>] [--full-page] [--format=png|jpeg] [--base64]
   warren browser highlight <env> [选择器]   # 高亮元素给人看（不传选择器 = 清除）
   warren browser info <env>          # url/title/loading/dialog/标签
   warren browser events <env>        # 读并清空 dialog/popup/download/fileChooser
   warren browser console <env>       # 页面 console 摘要
   warren browser network <env>       # 页面请求摘要
+
+  warren batch <env> [--bail] [--json] <<'EOF'   # 多步命令批处理 + Delta Receipt
+  warren notes get|set|append|list|rm [site] [text]   # 站点记忆（自动注入 snapshot/read）
+  warren methods [name] [--json]                 # 实时反射全部 RPC 方法与参数
+  warren --skill                                 # 输出内置 SKILL.md 手册
+  warren skills install|status|refresh [target]  # 本地 Skill 校验戳管理（不依赖启动应用）
 
   warren net rules <env>             # 该环境的拦截规则 + 命中数
   warren net rule add <env> --match='*/api/*' --mock='{"id":1}' [--status=200] [--method=GET]
@@ -1483,7 +1773,7 @@ try {
   warren evidence capture <env> [--name=<标签>]   # 截图 + snapshot + 网络/命中摘要 + manifest
   warren help                        # 这份清单
 
-  warren events [env]
+  warren events [env] [--follow]
 
   warren shot diff <a.png> <b.png>         # 比两张截图（SHA-256；不同则退出 1，可当断言用）
 
