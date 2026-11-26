@@ -507,5 +507,157 @@ export default function register(app) {
     );
   }
 
+  function hostOf(rawUrl) {
+    if (!rawUrl) return '';
+    try {
+      return new URL(rawUrl).hostname.toLowerCase();
+    } catch {
+      return String(rawUrl).toLowerCase();
+    }
+  }
+
+  function AccountsInspectorTab({ environmentId }) {
+    const [accounts, setAccounts] = useState([]);
+    const [pageUrl, setPageUrl] = useState('');
+    const [busyId, setBusyId] = useState(null);
+    const [error, setError] = useState(null);
+
+    const load = useCallback(() => {
+      app.rpc
+        .call('list', {})
+        .then((next) => {
+          setAccounts(Array.isArray(next?.accounts) ? next.accounts : []);
+          setError(null);
+        })
+        .catch((err) => setError(String(err.message || err)));
+    }, []);
+
+    useEffect(() => {
+      load();
+    }, [load]);
+    app.useSignal('changed', load);
+
+    useEffect(() => {
+      if (!environmentId) return undefined;
+      let cancelled = false;
+      app.host.environment
+        .get(environmentId)
+        .then((env) => {
+          if (!cancelled) setPageUrl(env?.currentUrl || '');
+        })
+        .catch(() => {
+          if (!cancelled) setPageUrl('');
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [environmentId]);
+
+    const currentHost = hostOf(pageUrl);
+    const sorted = [...accounts].sort((a, b) => {
+      const am =
+        currentHost && hostOf(a.url) && (currentHost.includes(hostOf(a.url)) || hostOf(a.url).includes(currentHost))
+          ? 1
+          : 0;
+      const bm =
+        currentHost && hostOf(b.url) && (currentHost.includes(hostOf(b.url)) || hostOf(b.url).includes(currentHost))
+          ? 1
+          : 0;
+      return bm - am;
+    });
+
+    const quickFill = async (account) => {
+      if (!environmentId) return;
+      setBusyId(account.id);
+      try {
+        const fields = {};
+        if (account.username) {
+          fields.username =
+            'input[type="email"], input[name*="user" i], input[name*="account" i], input[name*="login" i], input[type="text"]';
+        }
+        if (account.hasPassword) {
+          fields.password = 'input[type="password"]';
+        }
+        const res = await app.rpc.call('fill', { id: account.id, environmentId, fields });
+        toast.success(`已向当前页直填 ${res?.filled?.join(' / ') || '凭据'}`);
+      } catch (err) {
+        toast.error('直填失败（请确认页面存在登录输入框）', { description: String(err.message || err) });
+      } finally {
+        setBusyId(null);
+      }
+    };
+
+    return h(
+      'div',
+      { className: 'flex flex-col gap-2.5 text-xs', 'data-slot': 'account-inspector' },
+      h(
+        'div',
+        {
+          className: cn(cardSurfaceClass, 'flex items-start gap-2 text-[11px] text-[var(--warning)]'),
+          'data-slot': 'account-plaintext-warning',
+        },
+        h(Icon, { name: 'Shield', className: 'mt-0.5 size-3.5 shrink-0' }),
+        h('p', null, '账号插件数据以明文保存在本机插件库，仅放测试/低敏感账号；Agent 通道只返回打码提示。'),
+      ),
+      currentHost
+        ? h('span', { className: 'truncate font-mono text-[11px] text-muted-foreground' }, `当前站点：${currentHost}`)
+        : null,
+      error ? h('p', { className: 'text-destructive' }, error) : null,
+      sorted.length === 0
+        ? h('p', { className: 'text-muted-foreground' }, '还没有账号，可在全局「账号」页新增。')
+        : h(
+            'div',
+            { className: 'flex flex-col gap-2' },
+            ...sorted.slice(0, 12).map((account) => {
+              const matched = Boolean(
+                currentHost &&
+                hostOf(account.url) &&
+                (currentHost.includes(hostOf(account.url)) || hostOf(account.url).includes(currentHost)),
+              );
+              return h(
+                'div',
+                { key: account.id, className: cn(cardSurfaceClass, 'flex flex-col gap-1.5 py-2') },
+                h(
+                  'div',
+                  { className: 'flex items-center gap-1.5' },
+                  h('span', { className: 'truncate font-medium text-foreground' }, account.name),
+                  matched ? h(Badge, { variant: 'secondary', className: 'ml-auto shrink-0' }, '匹配当前站') : null,
+                ),
+                h(
+                  'span',
+                  { className: 'truncate font-mono text-[11px] text-muted-foreground' },
+                  account.usernameHint || account.username || '—',
+                ),
+                h(
+                  'div',
+                  { className: 'flex items-center gap-1.5 pt-0.5' },
+                  h(
+                    Button,
+                    {
+                      size: 'xs',
+                      disabled: !environmentId || busyId === account.id,
+                      onClick: () => void quickFill(account),
+                    },
+                    busyId === account.id ? '填充中…' : '一键直填',
+                  ),
+                  account.username
+                    ? h(
+                        Button,
+                        {
+                          size: 'xs',
+                          variant: 'ghost',
+                          onClick: () => void copy(account.username, '账号'),
+                        },
+                        '复制账号',
+                      )
+                    : null,
+                ),
+              );
+            }),
+          ),
+    );
+  }
+
   app.surfaces.railPage({ id: 'accounts', title: '账号', icon: 'User', path: 'accounts', component: AccountsPage });
+  app.surfaces.inspectorTab({ id: 'site-accounts', title: '账号', component: AccountsInspectorTab });
 }

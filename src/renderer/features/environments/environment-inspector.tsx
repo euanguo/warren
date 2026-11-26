@@ -185,7 +185,7 @@ export function EnvironmentInspector({
   return (
     <Tabs value={activeTab} onValueChange={onTabChange} className="h-full gap-0">
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
-        <TabsList variant="line" className="h-auto min-w-0 flex-1 gap-0.5">
+        <TabsList variant="line" className="h-auto min-w-0 flex-1 gap-0.5 overflow-x-auto [scrollbar-width:none]">
           <TabsTrigger value="events">事件</TabsTrigger>
           <TabsTrigger value="snapshot" disabled={!running}>
             快照
