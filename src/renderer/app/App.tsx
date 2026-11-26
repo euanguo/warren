@@ -414,7 +414,7 @@ export function App() {
         </div>
       </SidebarProvider>
 
-      <Toaster position="top-right" offset={{ top: 8, right: 12 }} />
+      <Toaster position="bottom-right" offset={{ bottom: 16, right: 16 }} />
     </TooltipProvider>
   );
 }

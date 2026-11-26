@@ -3,6 +3,7 @@ import { Icon, isIconName, type IconName } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Kbd } from '@/components/ui/kbd';
 import { Switch } from '@/components/ui/switch';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -380,6 +381,7 @@ interface CommandItem {
   icon: IconName;
   title: string;
   subtitle?: string;
+  shortcut?: string;
   keywords: string;
   run: () => Promise<void> | void;
 }
@@ -608,8 +610,8 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         if (surface.kind === 'railPage') {
           list.push({
             id: `page:${plugin.id}:${surface.id}`,
-            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
-            title: `打开「${surface.title}」`,
+            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'ExternalLink',
+            title: `打开「${surface.title}」管理页`,
             subtitle: `${plugin.name} · 全屏页`,
             keywords: `plugin page ${plugin.id} ${plugin.name} ${surface.title}`,
             run: async () => {
@@ -626,8 +628,8 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           list.push({
             id: `settings:plugin:${plugin.id}:${surface.id}`,
             icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
-            title: `设置 · ${plugin.name} · ${surface.title}`,
-            subtitle: '扩展配置',
+            title: `设置 · ${surface.title}`,
+            subtitle: `${plugin.name} · 扩展配置`,
             keywords: `settings plugin ${plugin.id} ${plugin.name} ${surface.title}`,
             run: async () => {
               await window.envApi.resolveOverlay({
@@ -641,9 +643,10 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         if (surface.kind === 'popover') {
           list.push({
             id: `popover:${plugin.id}:${surface.id}`,
-            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
-            title: `${plugin.name} · ${surface.title}`,
-            subtitle: surface.shortcut || '快捷浮窗',
+            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Sparkles',
+            title: `打开「${surface.title}」浮窗`,
+            subtitle: `${plugin.name} · 快捷浮窗`,
+            shortcut: surface.shortcut,
             keywords: `plugin popover quick ${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''}`,
             run: async () => {
               await window.envApi.resolveOverlay({
@@ -658,9 +661,9 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         if (surface.kind === 'inspectorTab') {
           list.push({
             id: `inspector:${plugin.id}:${surface.id}`,
-            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'PanelRight',
-            title: `工作台 · ${plugin.name} · ${surface.title}`,
-            subtitle: '随页工作台',
+            icon: 'PanelRight',
+            title: `展开「${surface.title}」随页侧栏`,
+            subtitle: `${plugin.name} · 工作台`,
             keywords: `plugin inspector tab ${plugin.id} ${plugin.name} ${surface.title}`,
             run: async () => {
               await window.envApi.resolveOverlay({
@@ -673,13 +676,13 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           continue;
         }
         if (surface.kind !== 'commandBarAction' || !surface.command) continue;
-        const iconName: IconName = surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug';
         list.push({
           id: `plugin:${plugin.id}:${surface.id}`,
-          icon: iconName,
-          title: `${plugin.name} · ${surface.title}`,
-          subtitle: surface.shortcut || surface.description || plugin.id,
-          keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin`,
+          icon: 'Zap',
+          title: surface.title,
+          subtitle: `${plugin.name} · 执行动作`,
+          shortcut: surface.shortcut,
+          keywords: `${plugin.id} ${plugin.name} ${surface.title} ${surface.description ?? ''} plugin command`,
           run: async () => {
             await window.envApi.pluginRun(plugin.id, surface.command!, current?.id);
             await window.envApi.resolveOverlay({ command: 'pluginRun', pluginId: plugin.id, action: surface.id });
@@ -750,9 +753,9 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           placeholder="搜索环境、操作、地址或设置…"
           className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
-        <span className="text-[11px] text-muted-foreground">Esc 关闭</span>
+        <Kbd className="text-[10px]">Esc</Kbd>
       </div>
-      <div className="max-h-[296px] overflow-y-auto p-1.5">
+      <div className="max-h-[320px] overflow-y-auto p-1.5">
         {filtered.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">没有匹配的命令</p>
         ) : (
@@ -771,9 +774,14 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
               <Icon name={item.icon} className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">{item.title}</span>
               {item.subtitle && <span className="shrink-0 text-xs text-muted-foreground">{item.subtitle}</span>}
+              {item.shortcut && <Kbd className="shrink-0 text-[10px]">{item.shortcut}</Kbd>}
             </button>
           ))
         )}
+      </div>
+      <div className="flex items-center justify-between border-t border-border/70 px-3.5 py-1.5 text-[11px] text-muted-foreground">
+        <span>↑↓ 选择 · ↵ 执行</span>
+        <span>{filtered.length} 项匹配</span>
       </div>
     </dialog>
   );
@@ -806,7 +814,12 @@ export function OverlayRoot() {
   if (!request) return null;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-4">
+    <div
+      className={cn(
+        'fixed inset-0 flex justify-center p-4',
+        request.kind === 'command-bar' ? 'items-start pt-[15vh]' : 'items-center',
+      )}
+    >
       <button
         type="button"
         aria-label="关闭浮层"

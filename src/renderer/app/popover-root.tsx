@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PluginBoundary } from '@/app/plugin-surfaces';
 import { Icon, isIconName, type IconName } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
+import { Kbd } from '@/components/ui/kbd';
 import { MenuLabel } from '@/components/ui/menu';
 import { Spinner } from '@/components/ui/spinner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -329,22 +330,34 @@ function PluginPopoverView({ props }: { props: Record<string, unknown> }) {
     closePopover();
   };
 
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || active.closest('[data-slot="plugin-popover-header"]')) {
+      hostRef.current?.focus({ preventScroll: true });
+    }
+  }, [pluginId, surfaceId]);
+
   return (
     <div
+      ref={hostRef}
+      tabIndex={-1}
       data-slot="plugin-popover-host"
       data-plugin-id={pluginId}
       data-surface-id={surfaceId}
       className={cn(
         elevatedMenuSurfaceClass,
-        'flex h-full flex-col overflow-hidden rounded-[var(--radius-menu)] text-xs text-foreground',
+        'flex h-full flex-col overflow-hidden rounded-[var(--radius-menu)] border-0 text-xs text-foreground shadow-none outline-none',
       )}
     >
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5">
+      <div
+        data-slot="plugin-popover-header"
+        className="flex shrink-0 items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5"
+      >
         <Icon name={iconName} className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{surface?.title ?? '插件快捷面板'}</span>
-        {surface?.shortcut && (
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{surface.shortcut}</span>
-        )}
+        {surface?.shortcut && <Kbd className="shrink-0 text-[10px]">{surface.shortcut}</Kbd>}
         {inspectorTab && (
           <IconButton
             variant="ghost"
@@ -427,7 +440,7 @@ export function PopoverRoot() {
 
   return (
     <TooltipProvider>
-      <div className="h-full w-full p-0.5">
+      <div className="h-full w-full">
         {state.id === 'address-suggest' && <AddressSuggestView props={state.props} />}
         {state.id === 'find-in-page' && <FindInPageView props={state.props} />}
         {state.id === 'downloads' && <DownloadsView props={state.props} />}

@@ -571,11 +571,11 @@ function normalizeTrafficEntry(id, item, input = {}) {
   return {
     source: 'whistle-live',
     entryId: String(id),
-    startTime: item && item.startTime,
-    endTime: item && item.endTime,
-    url: item && item.url,
+    startTime: item && item.startTime != null ? item.startTime : null,
+    endTime: item && item.endTime != null ? item.endTime : null,
+    url: item && item.url != null ? String(item.url) : '',
     method: req.method ?? null,
-    status: res.statusCode ?? null,
+    status: res.statusCode != null ? Number(res.statusCode) : null,
     requestHeaders,
     responseHeaders,
     requestBody: redact ? redactJson(reqDecoded.body) : reqDecoded.body,
@@ -589,22 +589,22 @@ function normalizeTrafficEntry(id, item, input = {}) {
     // A source item is either a raw Whistle record or an already-normalized
     // traffic entry. Keep both shapes usable so export can consume the same
     // data without re-fetching.
-    requestBodyEncoding: reqDecoded.encoding || item.requestBodyEncoding,
-    responseBodyEncoding: resDecoded.encoding || item.responseBodyEncoding,
-    requestBodyTruncated: reqDecoded.truncated || item.requestBodyTruncated,
-    responseBodyTruncated: resDecoded.truncated || item.responseBodyTruncated,
-    requestSize: req.size ?? item.requestSize,
-    responseSize: res.size ?? item.responseSize,
+    requestBodyEncoding: reqDecoded.encoding || item.requestBodyEncoding || null,
+    responseBodyEncoding: resDecoded.encoding || item.responseBodyEncoding || null,
+    requestBodyTruncated: Boolean(reqDecoded.truncated || item.requestBodyTruncated),
+    responseBodyTruncated: Boolean(resDecoded.truncated || item.responseBodyTruncated),
+    requestSize: req.size ?? item.requestSize ?? null,
+    responseSize: res.size ?? item.responseSize ?? null,
     requestId: requestIdOf(req, res, resDecoded.body),
     rules: item && item.rules ? item.rules : {},
     rulesHeaders: item && item.rulesHeaders ? item.rulesHeaders : {},
     matchedRules: extractMatchedRules(item && item.rules),
     timings: computeTimings(item),
     timing: {
-      dnsTime: item && item.dnsTime,
-      requestTime: item && item.requestTime,
-      responseTime: item && item.responseTime,
-      endTime: item && item.endTime,
+      dnsTime: item && item.dnsTime != null ? item.dnsTime : null,
+      requestTime: item && item.requestTime != null ? item.requestTime : null,
+      responseTime: item && item.responseTime != null ? item.responseTime : null,
+      endTime: item && item.endTime != null ? item.endTime : null,
     },
   };
 }
@@ -759,8 +759,8 @@ async function traffic(host, input) {
     cursor: {
       newIds: (data.data?.newIds || []).slice(0, 200),
       newIdsTotal: (data.data?.newIds || []).length,
-      lastId: data.data?.lastId,
-      endId: data.data?.endId,
+      lastId: data.data?.lastId ?? null,
+      endId: data.data?.endId ?? null,
     },
     next: {
       endId: data.data?.endId ?? null,
@@ -2402,7 +2402,13 @@ async function captureLink(host, input) {
   const w2 = await resolveW2(host);
   const api = agentApiFor(instance, w2);
   const name = String((input && input.name) || `warren-${instance.storage}-${Date.now()}`).trim();
-  const savedFilename = await api.network.saveSessions(sessions, name);
+  const savedRaw = await api.network.saveSessions(sessions, name);
+  const savedFilename =
+    typeof savedRaw === 'string'
+      ? savedRaw
+      : savedRaw && typeof savedRaw === 'object' && typeof savedRaw.filename === 'string'
+        ? savedRaw.filename
+        : null;
   const url = await api.network.createUrl(sessions);
 
   let opened = false;

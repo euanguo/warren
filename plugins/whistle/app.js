@@ -358,6 +358,7 @@ export default function register(app) {
     run,
     defaultBindEnvId = '',
     compact = false,
+    variant = 'default',
     triggerLabel = '新建实例',
     onCreated,
   }) {
@@ -402,7 +403,7 @@ export default function register(app) {
       null,
       h(
         Button,
-        { size: compact ? 'xs' : 'sm', onClick: () => handleOpenChange(true) },
+        { size: compact ? 'xs' : 'sm', variant, onClick: () => handleOpenChange(true) },
         h(Icon, { name: 'Plus', className: 'size-3.5' }),
         triggerLabel,
       ),
@@ -499,7 +500,10 @@ export default function register(app) {
     const protocolEntries = Object.entries(effective.protocols || {});
     return h(
       'div',
-      { className: cn(cardSurfaceClass, 'flex flex-col gap-2 text-xs'), 'data-slot': 'whistle-rule-test-result' },
+      {
+        className: cn(cardSurfaceClass, 'flex min-w-0 flex-col gap-2 overflow-hidden text-xs'),
+        'data-slot': 'whistle-rule-test-result',
+      },
       h(
         'div',
         { className: 'flex items-center justify-between gap-2' },
@@ -510,13 +514,13 @@ export default function register(app) {
         ? h('p', { className: 'text-muted-foreground' }, '当前启用规则组未命中该 URL（将走直连或上游代理）。')
         : h(
             'div',
-            { className: 'flex flex-col gap-1' },
+            { className: 'flex min-w-0 flex-col gap-1' },
             ...matched.map((item) =>
               h(
                 'div',
                 {
                   key: `${item.group}-${item.lineNumber}-${item.line}`,
-                  className: 'flex flex-col gap-0.5 rounded-[var(--radius-sm)] bg-muted/40 px-2 py-1',
+                  className: 'flex min-w-0 flex-col gap-0.5 rounded-[var(--radius-sm)] bg-muted/40 px-2 py-1',
                 },
                 h(
                   'div',
@@ -524,22 +528,56 @@ export default function register(app) {
                   h(Badge, { variant: item.selected ? 'secondary' : 'outline' }, `${item.group}#L${item.lineNumber}`),
                   !item.selected ? h('span', { className: 'text-[10px] text-[var(--warning)]' }, '未启用') : null,
                 ),
-                h('code', { className: 'break-all font-mono text-[11px] text-foreground' }, item.line),
+                h(
+                  'code',
+                  { className: 'break-words [overflow-wrap:anywhere] font-mono text-[11px] text-foreground' },
+                  item.line,
+                ),
               ),
             ),
           ),
       effective.hosts?.length || effective.urls?.length || protocolEntries.length
         ? h(
             'div',
-            { className: 'flex flex-wrap gap-1.5 border-t border-border pt-1.5 text-[11px] text-muted-foreground' },
+            {
+              className:
+                'flex min-w-0 flex-wrap gap-1.5 border-t border-border pt-1.5 text-[11px] text-muted-foreground',
+            },
             ...(effective.hosts || []).map((hostTarget) =>
-              h(Badge, { key: `h-${hostTarget}`, variant: 'outline' }, `Host → ${hostTarget}`),
+              h(
+                Badge,
+                {
+                  key: `h-${hostTarget}`,
+                  variant: 'outline',
+                  className: 'max-w-full justify-start',
+                  title: `Host → ${hostTarget}`,
+                },
+                h('span', { className: 'min-w-0 truncate' }, `Host → ${hostTarget}`),
+              ),
             ),
             ...(effective.urls || []).map((urlTarget) =>
-              h(Badge, { key: `u-${urlTarget}`, variant: 'outline' }, `URL → ${urlTarget}`),
+              h(
+                Badge,
+                {
+                  key: `u-${urlTarget}`,
+                  variant: 'outline',
+                  className: 'max-w-full justify-start',
+                  title: `URL → ${urlTarget}`,
+                },
+                h('span', { className: 'min-w-0 truncate' }, `URL → ${urlTarget}`),
+              ),
             ),
             ...protocolEntries.map(([proto, val]) =>
-              h(Badge, { key: `p-${proto}`, variant: 'outline' }, `${proto}://${val}`),
+              h(
+                Badge,
+                {
+                  key: `p-${proto}`,
+                  variant: 'outline',
+                  className: 'max-w-full justify-start font-mono',
+                  title: `${proto}://${val}`,
+                },
+                h('span', { className: 'min-w-0 truncate' }, `${proto}://${val}`),
+              ),
             ),
           )
         : null,
@@ -677,7 +715,7 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex flex-col gap-2 text-xs' },
+      { className: 'flex flex-1 flex-col gap-2 text-xs' },
       h(
         Field,
         null,
@@ -721,7 +759,7 @@ export default function register(app) {
       ),
       h(
         'div',
-        { className: 'flex items-center justify-between gap-2' },
+        { className: 'mt-auto flex items-center justify-between gap-2 pt-2' },
         h(
           'label',
           { className: 'flex items-center gap-1.5 text-xs text-muted-foreground' },
@@ -772,7 +810,7 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex flex-col gap-2 text-xs' },
+      { className: 'flex flex-1 flex-col gap-2 text-xs' },
       h(
         Field,
         null,
@@ -850,7 +888,7 @@ export default function register(app) {
           ),
       h(
         'div',
-        { className: 'flex flex-wrap items-center justify-between gap-2' },
+        { className: 'mt-auto flex flex-wrap items-center justify-between gap-2 pt-2' },
         h(
           'div',
           { className: 'flex flex-wrap items-center gap-3' },
@@ -910,7 +948,7 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex flex-col gap-2 text-xs' },
+      { className: 'flex flex-1 flex-col gap-2 text-xs' },
       h(
         Field,
         null,
@@ -995,7 +1033,7 @@ export default function register(app) {
             ),
       h(
         'div',
-        { className: 'flex justify-end pt-1' },
+        { className: 'mt-auto flex justify-end pt-2' },
         h(
           Button,
           { size: 'sm', disabled: submitting || !pattern.trim(), onClick: submit },
@@ -1014,12 +1052,12 @@ export default function register(app) {
     return h(
       'span',
       {
-        className: 'inline-flex items-center gap-1',
+        className: 'inline-flex items-center gap-1.5',
         'data-slot': 'whistle-status-badge',
       },
       h(Icon, {
         name: 'Globe',
-        className: cn('size-3.5', bound ? 'text-foreground' : 'text-muted-foreground'),
+        className: cn('size-3.5 shrink-0', bound ? 'text-foreground' : 'text-muted-foreground'),
       }),
       bound
         ? h(
@@ -1030,7 +1068,7 @@ export default function register(app) {
               'span',
               {
                 className: cn(
-                  'font-mono text-[11px] leading-none',
+                  'font-mono text-[11px] leading-none tabular-nums',
                   bound.alive ? 'text-foreground' : 'text-muted-foreground',
                 ),
               },
@@ -1253,6 +1291,8 @@ export default function register(app) {
                           Button,
                           {
                             size: 'xs',
+                            variant: 'outline',
+                            className: 'not-italic',
                             disabled: busy,
                             onClick: () =>
                               void run(() => rpc.call('open', { environmentId }), '打开 Whistle Web UI 失败').then(
@@ -1298,7 +1338,7 @@ export default function register(app) {
                     Button,
                     {
                       size: 'xs',
-                      variant: 'ghost',
+                      variant: 'outline',
                       disabled: busy,
                       onClick: () =>
                         void run(() => rpc.call('unbind', { environmentId }), '解绑失败', '已解除代理绑定'),
@@ -1344,21 +1384,23 @@ export default function register(app) {
                     activeIntents.length > 0
                       ? h(
                           Alert,
-                          { className: 'py-2 px-2.5' },
+                          { className: 'border-[var(--warning)]/35 bg-[var(--warning)]/10 px-2.5 py-2' },
                           h(Icon, { name: 'Zap', className: 'size-3.5 text-[var(--warning)]' }),
                           h(
                             AlertTitle,
-                            { className: 'text-xs' },
+                            { className: 'text-xs text-foreground' },
                             `临时调试生效中：${activeIntents.map((g) => g.name).join('、')}`,
                           ),
                           h(
                             AlertDescription,
-                            { className: 'mt-1' },
+                            { className: 'mt-1.5' },
                             h(
                               Button,
                               {
                                 size: 'xs',
-                                variant: 'destructive',
+                                variant: 'outline',
+                                className:
+                                  'border-border bg-background/90 text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground',
                                 disabled: busy,
                                 onClick: () =>
                                   void run(
@@ -1367,6 +1409,7 @@ export default function register(app) {
                                     '已清空所有临时调试规则',
                                   ),
                               },
+                              h(Icon, { name: 'Trash', className: 'size-3 text-destructive' }),
                               '一键清空所有临时调试规则',
                             ),
                           ),
@@ -1477,7 +1520,7 @@ export default function register(app) {
                             Button,
                             {
                               size: 'xs',
-                              variant: 'ghost',
+                              variant: 'outline',
                               onClick: () => {
                                 openPluginPage?.('proxy');
                                 closePopover?.();
@@ -1493,7 +1536,7 @@ export default function register(app) {
               bound.alive
                 ? h(
                     'div',
-                    { className: 'flex flex-col gap-1' },
+                    { className: 'flex flex-col gap-1 pb-3' },
                     h(
                       'span',
                       { className: 'text-[11px] font-medium text-muted-foreground' },
@@ -1787,7 +1830,7 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex flex-col gap-3 text-xs', 'data-slot': 'whistle-inspector' },
+      { className: 'flex flex-col gap-3 pb-12 text-xs', 'data-slot': 'whistle-inspector' },
       // 顶部状态卡
       h(
         'div',
@@ -1800,8 +1843,19 @@ export default function register(app) {
           h('span', { className: 'font-mono text-muted-foreground' }, `:${bound.port}`),
           h(
             Badge,
-            { variant: bound.alive ? 'secondary' : 'outline', className: 'ml-auto shrink-0' },
+            { variant: bound.alive ? 'secondary' : 'outline', className: 'shrink-0' },
             bound.alive ? '运行中' : '已停止',
+          ),
+          h(
+            Button,
+            {
+              size: 'xs',
+              variant: 'outline',
+              className: 'ml-auto shrink-0',
+              onClick: () => openPluginPage?.('proxy'),
+            },
+            h(Icon, { name: 'ExternalLink', className: 'size-3' }),
+            '工作台',
           ),
         ),
         bound.alive
@@ -1828,7 +1882,7 @@ export default function register(app) {
           : null,
         h(
           'div',
-          { className: 'flex flex-wrap items-center gap-1.5' },
+          { className: 'grid grid-cols-3 gap-1.5' },
           bound.alive
             ? h(
                 React.Fragment,
@@ -1837,6 +1891,8 @@ export default function register(app) {
                   Button,
                   {
                     size: 'xs',
+                    variant: 'outline',
+                    className: 'w-full not-italic',
                     disabled: busy,
                     onClick: () => void run(() => rpc.call('open', { environmentId }), '打开 Web UI 失败'),
                   },
@@ -1848,17 +1904,7 @@ export default function register(app) {
                   {
                     size: 'xs',
                     variant: 'outline',
-                    disabled: busy,
-                    onClick: () =>
-                      void run(() => rpc.call('stop', { storage: bound.storage }), '停止实例失败', '实例已停止'),
-                  },
-                  '停止',
-                ),
-                h(
-                  Button,
-                  {
-                    size: 'xs',
-                    variant: 'outline',
+                    className: 'w-full',
                     disabled: busy,
                     onClick: () =>
                       void run(
@@ -1869,24 +1915,50 @@ export default function register(app) {
                   },
                   '清 DNS',
                 ),
+                h(
+                  Button,
+                  {
+                    size: 'xs',
+                    variant: 'outline',
+                    className: 'w-full',
+                    disabled: busy,
+                    onClick: () =>
+                      void run(() => rpc.call('stop', { storage: bound.storage }), '停止实例失败', '实例已停止'),
+                  },
+                  '停止',
+                ),
               )
             : h(
                 Button,
                 {
                   size: 'xs',
+                  className: 'col-span-3 w-full',
                   disabled: busy,
                   onClick: () =>
                     void run(() => rpc.call('start', { storage: bound.storage }), '启动实例失败', '实例已启动'),
                 },
                 h(Icon, { name: 'Play', className: 'size-3' }),
-                '启动',
+                '启动实例',
               ),
-          activeIntents.length > 0
-            ? h(
+        ),
+        activeIntents.length > 0
+          ? h(
+              'div',
+              {
+                className:
+                  'flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/35 bg-[var(--warning)]/10 px-2 py-1.5 text-[11px]',
+              },
+              h(
+                'span',
+                { className: 'min-w-0 truncate text-foreground' },
+                `临时调试 (${activeIntents.length})：${activeIntents.map((g) => g.name).join('、')}`,
+              ),
+              h(
                 Button,
                 {
                   size: 'xs',
-                  variant: 'destructive',
+                  variant: 'outline',
+                  className: 'shrink-0 border-destructive/50 text-destructive hover:bg-destructive/15',
                   disabled: busy,
                   onClick: () =>
                     void run(
@@ -1895,11 +1967,10 @@ export default function register(app) {
                       '已清空临时调试规则',
                     ),
                 },
-                `清临时调试 (${activeIntents.length})`,
-              )
-            : null,
-          h(Button, { size: 'xs', variant: 'ghost', onClick: () => openPluginPage?.('proxy') }, '工作台'),
-        ),
+                '一键清空',
+              ),
+            )
+          : null,
       ),
 
       // 快捷 Mock / 故障注入折叠条
@@ -2080,9 +2151,14 @@ export default function register(app) {
                                       {
                                         key: `${entry.entryId}-mr-${i}-${mr.protocol}`,
                                         variant: 'outline',
-                                        className: 'text-[10px]',
+                                        className: 'max-w-full justify-start text-[10px]',
+                                        title: `${mr.protocol} · ${mr.matcher || mr.raw}`,
                                       },
-                                      `${mr.protocol} · ${mr.matcher || mr.raw}`,
+                                      h(
+                                        'span',
+                                        { className: 'min-w-0 truncate' },
+                                        `${mr.protocol} · ${mr.matcher || mr.raw}`,
+                                      ),
                                     ),
                                   ),
                                 )
@@ -2137,7 +2213,16 @@ export default function register(app) {
                 placeholder: url || 'https://api.example.com/v1/user',
                 className: 'min-w-0 flex-1 font-mono text-xs',
               }),
-              h(Button, { size: 'xs', onClick: () => void doRuleTest() }, '测试'),
+              h(
+                Button,
+                {
+                  size: 'xs',
+                  variant: 'outline',
+                  className: 'h-7 border-border/80 bg-surface-fog px-3 font-medium',
+                  onClick: () => void doRuleTest(),
+                },
+                '测试',
+              ),
             ),
             testResult ? h(RuleMatchResultView, { result: testResult }) : null,
           )
@@ -2293,6 +2378,7 @@ export default function register(app) {
             Button,
             {
               size: 'xs',
+              variant: 'outline',
               onClick: () => {
                 setNewGroupName('');
                 setNewGroupBody('');
@@ -2715,6 +2801,7 @@ export default function register(app) {
               Button,
               {
                 size: 'xs',
+                variant: 'outline',
                 onClick: () => {
                   setNewName('');
                   setNewBody('{\n  "ok": true\n}');
@@ -2722,7 +2809,7 @@ export default function register(app) {
                 },
               },
               h(Icon, { name: 'Plus', className: 'size-3' }),
-              '新建',
+              '新建 Value',
             ),
           ),
           h(Input, {
@@ -2744,8 +2831,12 @@ export default function register(app) {
                   h(
                     ListRowMain,
                     { onClick: () => setSelectedName(item.name) },
-                    h(ListRowLabel, null, h(ListRowLabelText, { className: 'font-mono text-xs' }, item.name)),
-                    h(ListRowMeta, null, formatBytes(item.size)),
+                    h(
+                      ListRowLabel,
+                      { className: 'min-w-0 flex-1' },
+                      h(ListRowLabelText, { className: 'font-mono text-xs' }, item.name),
+                    ),
+                    h(ListRowMeta, { className: 'shrink-0 whitespace-nowrap tabular-nums' }, formatBytes(item.size)),
                   ),
                 ),
               ),
@@ -3686,8 +3777,8 @@ export default function register(app) {
         h(Input, {
           value: statusFilter,
           onChange: (e) => setStatusFilter(e.target.value),
-          placeholder: '状态码如 500',
-          className: 'w-24 font-mono text-xs',
+          placeholder: '状态码 (如 500)',
+          className: 'w-32 font-mono text-xs',
         }),
         h(
           'div',
@@ -3711,7 +3802,12 @@ export default function register(app) {
           ),
           h(
             Button,
-            { size: 'xs', disabled: busy || liveEntries.length === 0, onClick: () => void doCaptureLink() },
+            {
+              size: 'xs',
+              variant: 'outline',
+              disabled: busy || liveEntries.length === 0,
+              onClick: () => void doCaptureLink(),
+            },
             h(Icon, { name: 'ExternalLink', className: 'size-3' }),
             '生成排障链接',
           ),
@@ -4140,36 +4236,48 @@ export default function register(app) {
               { className: 'grid grid-cols-1 gap-3 lg:grid-cols-3' },
               h(
                 Card,
-                { className: 'gap-3 py-3' },
+                { className: 'flex flex-col gap-3 py-3' },
                 h(
                   CardHeader,
                   { className: 'px-4 pb-0' },
                   h(CardTitle, { className: 'text-sm' }, '快速 Mock 接口'),
                   h(CardDescription, { className: 'text-xs' }, '写入 Value 并启用 warren-mock 组'),
                 ),
-                h(CardContent, { className: 'px-4' }, h(QuickMockForm, { storage: instance.storage, defaultUrl: '' })),
+                h(
+                  CardContent,
+                  { className: 'flex flex-1 flex-col px-4' },
+                  h(QuickMockForm, { storage: instance.storage, defaultUrl: '' }),
+                ),
               ),
               h(
                 Card,
-                { className: 'gap-3 py-3' },
+                { className: 'flex flex-col gap-3 py-3' },
                 h(
                   CardHeader,
                   { className: 'px-4 pb-0' },
                   h(CardTitle, { className: 'text-sm' }, '故障与限速注入'),
                   h(CardDescription, { className: 'text-xs' }, '延迟 / 限速 / disable://encoding|cache → warren-fault'),
                 ),
-                h(CardContent, { className: 'px-4' }, h(QuickFaultForm, { storage: instance.storage, defaultUrl: '' })),
+                h(
+                  CardContent,
+                  { className: 'flex flex-1 flex-col px-4' },
+                  h(QuickFaultForm, { storage: instance.storage, defaultUrl: '' }),
+                ),
               ),
               h(
                 Card,
-                { className: 'gap-3 py-3' },
+                { className: 'flex flex-col gap-3 py-3' },
                 h(
                   CardHeader,
                   { className: 'px-4 pb-0' },
                   h(CardTitle, { className: 'text-sm' }, '本地端口 / 目录映射'),
                   h(CardDescription, { className: 'text-xs' }, '线上地址映射本地服务 → warren-local'),
                 ),
-                h(CardContent, { className: 'px-4' }, h(MapLocalForm, { storage: instance.storage, defaultUrl: '' })),
+                h(
+                  CardContent,
+                  { className: 'flex flex-1 flex-col px-4' },
+                  h(MapLocalForm, { storage: instance.storage, defaultUrl: '' }),
+                ),
               ),
             ),
       ),
@@ -4229,7 +4337,7 @@ export default function register(app) {
               : null,
             h(
               Button,
-              { size: 'xs', onClick: () => setNonce((n) => n + 1) },
+              { size: 'xs', variant: 'outline', onClick: () => setNonce((n) => n + 1) },
               h(Icon, { name: 'Refresh', className: 'size-3' }),
               '重新体检',
             ),
@@ -4238,7 +4346,7 @@ export default function register(app) {
         doctorRes
           ? h(
               'div',
-              { className: 'grid grid-cols-2 gap-2 md:grid-cols-3' },
+              { className: 'grid grid-cols-2 gap-2 lg:grid-cols-4' },
               ...(doctorRes.checks || []).map((chk) =>
                 h(
                   'div',
@@ -4307,6 +4415,7 @@ export default function register(app) {
     );
 
     const effectiveBindEnv = bindEnvId || current?.environmentId || '';
+    const alreadyBoundCurrent = Boolean(effectiveBindEnv && current?.environmentId === effectiveBindEnv);
 
     return h(
       'div',
@@ -4326,11 +4435,10 @@ export default function register(app) {
             { className: 'flex min-w-0 items-center gap-1.5' },
             h(Icon, { name: 'Globe', className: 'size-4 shrink-0 text-foreground' }),
             h('span', { className: 'truncate text-sm font-medium' }, 'Whistle 代理'),
-            h(Badge, { variant: 'outline', className: 'shrink-0 font-mono text-[10px]' }, 'v2.10.15'),
           ),
           h(
             'div',
-            { className: 'flex items-center gap-1' },
+            { className: 'flex shrink-0 items-center gap-1' },
             h(
               IconButton,
               { size: 'icon-sm', title: '刷新实例列表', onClick: reload },
@@ -4341,6 +4449,7 @@ export default function register(app) {
               busy,
               run,
               compact: true,
+              variant: 'outline',
               triggerLabel: '新建',
               onCreated: (created) => created?.storage && setSelectedStorage(created.storage),
             }),
@@ -4457,8 +4566,9 @@ export default function register(app) {
                   Button,
                   {
                     size: 'xs',
+                    variant: alreadyBoundCurrent ? 'secondary' : 'default',
                     className: 'flex-1',
-                    disabled: busy || !effectiveBindEnv || !current.alive,
+                    disabled: busy || !effectiveBindEnv || !current.alive || alreadyBoundCurrent,
                     onClick: () =>
                       void run(
                         () => rpc.call('bind', { storage: current.storage, environmentId: effectiveBindEnv }),
@@ -4466,7 +4576,7 @@ export default function register(app) {
                         `已绑定到环境`,
                       ),
                   },
-                  '绑定环境',
+                  alreadyBoundCurrent ? '已绑定当前环境' : '绑定环境',
                 ),
                 current.environmentId
                   ? h(
@@ -4599,6 +4709,7 @@ export default function register(app) {
                               Button,
                               {
                                 size: 'xs',
+                                variant: 'outline',
                                 disabled: busy,
                                 onClick: () =>
                                   void run(
@@ -4766,7 +4877,7 @@ export default function register(app) {
     title: 'Whistle 代理快捷控制',
     icon: 'Globe',
     width: 380,
-    height: 460,
+    height: 492,
     component: QuickProxyPopover,
   });
   app.surfaces.statusBadge({

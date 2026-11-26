@@ -39,7 +39,6 @@
       "rpc.serve",
       "vault.fill",
       "ui.mount",
-      "environment.read",
       "browser.dom.read",
       "browser.navigate",
       "browser.input"
@@ -144,7 +143,6 @@
           "title": "一键填充当前页账号",
           "description": "自动匹配当前站点并填充账号密码",
           "icon": "Key",
-          "shortcut": "⇧⌘L",
           "command": "autoFill"
         }
       ],

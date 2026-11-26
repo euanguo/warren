@@ -243,10 +243,10 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
             <span className="font-medium text-foreground">Agent Skill 注入</span>
             <p className="truncate text-[11px] text-muted-foreground">{plugin.skill.summary}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2.5">
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={() => {
                 void window.envApi
                   .pluginReadSkill(plugin.id)
@@ -261,30 +261,60 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
                   });
               }}
             >
+              <Icon name="Code" className="size-3.5" />
               预览 Skill
             </Button>
-            <Switch
-              aria-label={`向 Agent 暴露 ${plugin.name} Skill`}
-              checked={plugin.skillExposed}
-              onCheckedChange={(checked) =>
-                void act(() => window.envApi.pluginSetSkillExposed(plugin.id, checked), '更新 Skill 暴露设置失败')
-              }
-            />
+            <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground select-none">
+              <span>{plugin.skillExposed ? '已注入' : '未注入'}</span>
+              <Switch
+                aria-label={`向 Agent 暴露 ${plugin.name} Skill`}
+                checked={plugin.skillExposed}
+                onCheckedChange={(checked) =>
+                  void act(() => window.envApi.pluginSetSkillExposed(plugin.id, checked), '更新 Skill 暴露设置失败')
+                }
+              />
+            </label>
           </div>
         </div>
       )}
 
       <Dialog open={skillOpen} onOpenChange={setSkillOpen}>
-        <DialogContent className="max-h-[82vh] max-w-2xl overflow-auto">
+        <DialogContent className="flex max-h-[84vh] flex-col gap-3 overflow-hidden sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{skillDoc?.pluginName ?? plugin.name} · Agent Skill 预览</DialogTitle>
             <DialogDescription>
               {skillDoc?.hasExplicitSkill
-                ? `来自插件包内 ${skillDoc.entry ?? 'SKILL.md'}（${skillDoc.bytes} 字节）。关闭上方开关可阻止其注入到外部编码 Agent。`
+                ? `来自插件包内 ${skillDoc.entry ?? 'SKILL.md'}（${skillDoc.bytes} 字节）。开启下方开关后，Warren 会在同步和输出 --skill 时自动注入此手册。`
                 : '该插件未提供显式 SKILL.md，当前为宿主按命令清单生成的兜底摘要。'}
             </DialogDescription>
           </DialogHeader>
-          <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-border bg-muted/30 p-3 font-mono text-[11px] leading-relaxed">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+            <label className="flex cursor-pointer items-center gap-2 text-foreground select-none">
+              <Switch
+                aria-label={`向外部编码 Agent 注入 ${plugin.name} Skill`}
+                checked={plugin.skillExposed}
+                onCheckedChange={(checked) =>
+                  void act(() => window.envApi.pluginSetSkillExposed(plugin.id, checked), '更新 Skill 暴露设置失败')
+                }
+              />
+              <span>{plugin.skillExposed ? '已向外部编码 Agent 注入此 Skill' : '当前已暂停向外部编码 Agent 注入'}</span>
+            </label>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={!skillDoc?.markdown}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(skillDoc?.markdown ?? '')
+                  .then(() => toast.success('已复制 Skill 全文'))
+                  .catch(() => toast.error('复制失败'));
+              }}
+            >
+              <Icon name="Copy" className="size-3.5" />
+              复制全文
+            </Button>
+          </div>
+          <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-border bg-muted/30 p-3.5 font-mono text-[11px] leading-relaxed">
             {skillDoc?.markdown ?? ''}
           </pre>
         </DialogContent>

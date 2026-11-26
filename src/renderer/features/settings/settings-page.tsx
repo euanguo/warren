@@ -226,7 +226,7 @@ export function SettingsPage({
 
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-6">
           {filteredSections.length === 0 ? (
-            <div className="flex max-w-2xl flex-col items-start gap-2 py-8">
+            <div className="mx-auto flex max-w-3xl flex-col items-start gap-2 py-8">
               <p className="text-sm font-medium">没有找到包含「{settingsQuery}」的设置项</p>
               <p className="text-xs text-muted-foreground">试试主题、DevTools、审批、Vault 或插件关键字。</p>
               <Button size="sm" variant="outline" onClick={() => setSettingsQuery('')}>
@@ -234,7 +234,7 @@ export function SettingsPage({
               </Button>
             </div>
           ) : (
-            <div className="flex max-w-2xl flex-col gap-4">
+            <div className="mx-auto flex max-w-3xl flex-col gap-4">
               {activeDescriptor && (
                 <div className="flex flex-col gap-1 border-b border-border pb-3">
                   <div className="flex items-center gap-2">

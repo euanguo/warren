@@ -95,7 +95,8 @@ export function AgentPanel() {
             <span>无已启用且暴露 Skill 的插件</span>
           ) : (
             enabledPluginSkills.map((p) => (
-              <Badge key={p.id} variant="outline" className="font-mono text-[10px]">
+              <Badge key={p.id} variant="secondary" className="gap-1 font-mono text-[10px]">
+                <Icon name="Plug" className="size-3 text-muted-foreground" />
                 {p.name} · v{p.version}
               </Badge>
             ))
@@ -128,7 +129,7 @@ export function AgentPanel() {
               </div>
               <Button
                 size="sm"
-                variant={skill.installed ? 'ghost' : 'default'}
+                variant={skill.installed ? 'outline' : 'default'}
                 disabled={installing === skill.id}
                 onClick={() => void install(skill.id)}
               >

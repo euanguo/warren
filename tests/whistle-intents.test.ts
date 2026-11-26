@@ -211,6 +211,15 @@ test('diffResponses 对比状态码、脱敏响应头与嵌套 JSON 增删改', 
   assert.deepEqual(diff.jsonDiff?.added, [{ path: 'addedKey', value: 42 }]);
   assert.deepEqual(diff.jsonDiff?.removed, [{ path: 'removedKey', value: true }]);
   assert.deepEqual(diff.jsonDiff?.changed, [{ path: 'user.name', from: 'a', to: 'b' }]);
+
+  // 回归：状态码字符串 '200' 与数字 200 应视作同一状态码
+  const sameStatus = diffResponses(
+    { status: '200', headers: {}, body: '{"ok":true}' },
+    { status: 200, headers: {}, body: '{"ok":true}' },
+  );
+  assert.equal(sameStatus.statusChanged, false);
+  assert.equal(sameStatus.changed, false);
+  assert.deepEqual(sameStatus.statusDiff, { from: 200, to: 200 });
 });
 
 test('buildCurlCommand 生成可复制 curl 且默认脱敏敏感头与正确单引号转义', () => {

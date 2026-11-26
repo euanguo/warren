@@ -589,8 +589,8 @@ export function EnvironmentAddressBar({
             }}
             onContextMenu={(event) => void openQuickSlotContextMenu(event, pop.pluginId)}
             className={cn(
-              'inline-flex h-7 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-1.5 text-xs text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground',
-              isActive && 'bg-surface-active text-foreground',
+              'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-border/60 bg-muted/40 px-2 text-xs text-foreground transition-colors hover:bg-surface-hover',
+              isActive && 'border-focus/60 bg-surface-active text-foreground',
             )}
           >
             {badge?.component ? (

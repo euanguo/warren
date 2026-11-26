@@ -44,10 +44,9 @@ export default function register(app) {
     IconButton,
     Input,
     ListRow,
-    ListRowActionButton,
-    ListRowActions,
     ListRowLabel,
     ListRowLabelText,
+    ListRowMain,
     ListRowMeta,
     ResizableHandle,
     ResizablePanel,
@@ -517,7 +516,7 @@ export default function register(app) {
             h(
               Button,
               {
-                size: 'xs',
+                size: 'sm',
                 disabled: !preview || busy,
                 onClick: () => onApply(preview),
               },
@@ -619,20 +618,20 @@ export default function register(app) {
     return h(
       'span',
       {
-        className: 'inline-flex items-center gap-1',
+        className: 'inline-flex items-center gap-1.5',
         'data-slot': 'account-match-badge',
         'data-match-count': String(count),
       },
       h(Icon, {
         name: 'Key',
-        className: cn('size-3.5 shrink-0', count > 0 ? 'text-[var(--theme-accent)]' : 'text-current'),
+        className: cn('size-3.5 shrink-0', count > 0 ? 'text-foreground' : 'text-muted-foreground'),
       }),
       count > 0
         ? h(
             'span',
             {
               className:
-                'inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--theme-accent)]/15 px-1 font-mono text-[10px] font-medium tabular-nums text-[var(--theme-accent)]',
+                'inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--theme-accent)]/20 px-1 font-mono text-[10px] font-semibold leading-none tabular-nums text-foreground',
             },
             count > 99 ? '99+' : String(count),
           )
@@ -998,10 +997,13 @@ export default function register(app) {
               )
             : h(
                 'div',
-                { className: 'flex flex-col gap-2' },
+                { className: 'flex flex-col gap-2 pb-2' },
                 ...matches.map((item, idx) => {
                   const account = item.account;
-                  const reasons = Array.isArray(item.reasons) ? item.reasons : [];
+                  const rawReasons = Array.isArray(item.reasons) ? item.reasons : [];
+                  // 命中精确站点或同主机时不再重复显示冗余的「同主域」
+                  const hasExact = rawReasons.includes('exact-origin') || rawReasons.includes('exact-host');
+                  const reasons = hasExact ? rawReasons.filter((r) => r !== 'same-domain') : rawReasons;
                   const isFocused = idx === activeIndex;
                   const filling = busyKey === `${account.id}:fill`;
                   const submitting = busyKey === `${account.id}:submit`;
@@ -1142,6 +1144,7 @@ export default function register(app) {
                         Button,
                         {
                           size: 'xs',
+                          variant: isFocused ? 'default' : 'secondary',
                           className: 'flex-1',
                           disabled: !environmentId || Boolean(busyKey),
                           onClick: () => void runFill(account, { submit: false }),
@@ -1152,7 +1155,7 @@ export default function register(app) {
                         Button,
                         {
                           size: 'xs',
-                          variant: 'secondary',
+                          variant: 'outline',
                           disabled: !environmentId || Boolean(busyKey),
                           onClick: () => void runFill(account, { submit: true }),
                         },
@@ -1365,7 +1368,7 @@ export default function register(app) {
 
     return h(
       'div',
-      { className: 'flex flex-col gap-3 text-xs', 'data-slot': 'account-inspector' },
+      { className: 'flex flex-col gap-3 pb-14 text-xs', 'data-slot': 'account-inspector' },
       h(PlaintextWarning, { compact: true }),
       h(
         'div',
@@ -1514,11 +1517,12 @@ export default function register(app) {
                     : null,
                   h(
                     'div',
-                    { className: 'flex flex-wrap items-center gap-1 pt-0.5' },
+                    { className: 'flex flex-wrap items-center gap-1.5 pt-0.5' },
                     h(
                       Button,
                       {
                         size: 'xs',
+                        variant: isSelectedTarget ? 'default' : 'secondary',
                         disabled: !environmentId || Boolean(busyKey),
                         onClick: () => void runFill(account, { submit: false }),
                       },
@@ -1528,22 +1532,24 @@ export default function register(app) {
                       Button,
                       {
                         size: 'xs',
-                        variant: 'secondary',
+                        variant: 'outline',
                         disabled: !environmentId || Boolean(busyKey),
                         onClick: () => void runFill(account, { submit: true }),
                       },
                       busyKey === `${account.id}:submit` ? '登录中…' : '填充并登录',
                     ),
-                    h(
-                      Button,
-                      {
-                        size: 'xs',
-                        variant: 'ghost',
-                        className: 'ml-auto',
-                        onClick: () => setTargetAccountId(String(account.id)),
-                      },
-                      isSelectedTarget ? '已选定绑定' : '设为绑定目标',
-                    ),
+                    isSelectedTarget
+                      ? h(Badge, { variant: 'secondary', className: 'ml-auto text-[10px]' }, '当前绑定目标')
+                      : h(
+                          Button,
+                          {
+                            size: 'xs',
+                            variant: 'outline',
+                            className: 'ml-auto',
+                            onClick: () => setTargetAccountId(String(account.id)),
+                          },
+                          '设为绑定目标',
+                        ),
                   ),
                 );
               }),
@@ -1699,7 +1705,8 @@ export default function register(app) {
                       h(
                         Button,
                         {
-                          size: 'sm',
+                          size: 'xs',
+                          className: 'h-7 px-2.5',
                           disabled: !targetAccountId || saveBusy,
                           onClick: () => void saveDetectedSelectors(),
                         },
@@ -3647,100 +3654,109 @@ export default function register(app) {
                   )
                 : h(
                     'div',
-                    { className: 'flex flex-col gap-0.5 p-2', 'data-slot': 'account-list' },
+                    { className: 'flex flex-col gap-1.5 p-2', 'data-slot': 'account-list' },
                     ...visibleAccounts.map((account) => {
                       const selected = mode !== 'create' && selectedId === account.id;
                       const accTags = tagsOf(account.tags);
                       return h(
-                        ListRow,
+                        'div',
                         {
                           key: account.id,
-                          selected,
-                          className: 'h-auto min-h-[var(--control-height-compact)] py-1.5',
                           'data-slot': 'account-card',
                           'data-id': String(account.id),
+                          'data-selected': selected ? 'true' : undefined,
+                          className: cn(
+                            'flex w-full items-start gap-1 rounded-[var(--control-radius)] border transition-colors',
+                            selected
+                              ? 'border-border bg-surface-selected'
+                              : 'border-transparent hover:bg-surface-hover',
+                          ),
                         },
                         h(
-                          ListRowMain,
+                          'button',
                           {
-                            className: 'items-start',
+                            type: 'button',
                             onClick: () => {
                               setSelectedId(account.id);
                               setMode('view');
                             },
+                            className:
+                              'flex min-w-0 flex-1 flex-col gap-1 rounded-[var(--control-radius)] px-2.5 py-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring',
                           },
                           h(
                             'div',
-                            { className: 'flex min-w-0 flex-1 flex-col gap-0.5' },
+                            { className: 'flex w-full items-center gap-1.5' },
+                            account.pinned
+                              ? h(Icon, { name: 'Zap', className: 'size-3 shrink-0 text-[var(--warning)]' })
+                              : null,
                             h(
-                              'div',
-                              { className: 'flex items-center gap-1.5' },
-                              account.pinned
-                                ? h(Icon, { name: 'Zap', className: 'size-3 shrink-0 text-[var(--warning)]' })
-                                : null,
-                              h(ListRowLabelText, { className: 'font-medium text-foreground' }, account.name),
-                              account.hasTotp
-                                ? h(
-                                    Badge,
-                                    {
-                                      variant: 'outline',
-                                      className:
-                                        'h-4 shrink-0 bg-[var(--theme-accent)]/12 px-1 text-[10px] text-[var(--theme-accent)]',
-                                    },
-                                    '2FA',
-                                  )
-                                : null,
+                              'span',
+                              { className: 'min-w-0 flex-1 truncate text-xs font-medium text-foreground' },
+                              account.name,
                             ),
-                            h(
-                              'div',
-                              { className: 'flex items-center gap-1.5 text-[11px] text-muted-foreground' },
-                              h('span', { className: 'truncate font-mono' }, account.username || '—'),
-                              account.useCount > 0
-                                ? h('span', { className: 'ml-auto shrink-0 tabular-nums' }, `${account.useCount}次`)
-                                : null,
-                            ),
-                            accTags.length > 0
+                            account.hasTotp
                               ? h(
-                                  'div',
-                                  { className: 'mt-0.5 flex flex-wrap gap-1' },
-                                  ...accTags
-                                    .slice(0, 2)
-                                    .map((t) =>
-                                      h(Badge, { key: t, variant: 'outline', className: 'h-4 px-1 text-[10px]' }, t),
-                                    ),
-                                  accTags.length > 2
-                                    ? h(
-                                        'span',
-                                        { className: 'text-[10px] text-muted-foreground' },
-                                        `+${accTags.length - 2}`,
-                                      )
-                                    : null,
+                                  Badge,
+                                  {
+                                    variant: 'outline',
+                                    className:
+                                      'h-4 shrink-0 bg-[var(--theme-accent)]/12 px-1 text-[10px] text-[var(--theme-accent)]',
+                                  },
+                                  '2FA',
                                 )
                               : null,
                           ),
+                          h(
+                            'div',
+                            { className: 'flex w-full items-center gap-1.5 text-[11px] text-muted-foreground' },
+                            h('span', { className: 'min-w-0 flex-1 truncate font-mono' }, account.username || '—'),
+                            account.useCount > 0
+                              ? h('span', { className: 'shrink-0 tabular-nums' }, `${account.useCount}次`)
+                              : null,
+                          ),
+                          accTags.length > 0
+                            ? h(
+                                'div',
+                                { className: 'flex flex-wrap gap-1 pt-0.5' },
+                                ...accTags
+                                  .slice(0, 2)
+                                  .map((t) =>
+                                    h(Badge, { key: t, variant: 'outline', className: 'h-4 px-1 text-[10px]' }, t),
+                                  ),
+                                accTags.length > 2
+                                  ? h(
+                                      'span',
+                                      { className: 'text-[10px] text-muted-foreground' },
+                                      `+${accTags.length - 2}`,
+                                    )
+                                  : null,
+                              )
+                            : null,
                         ),
                         filterMode === 'trash'
                           ? h(
-                              ListRowActions,
-                              { alwaysVisible: true },
+                              'div',
+                              { className: 'flex shrink-0 items-center gap-0.5 pr-1.5 pt-1.5' },
                               h(
-                                ListRowActionButton,
+                                IconButton,
                                 {
+                                  size: 'icon-xs',
                                   title: '恢复',
                                   'aria-label': '恢复',
                                   onClick: () => void handleRestore(account),
                                 },
-                                h(Icon, { name: 'RotateClockwise' }),
+                                h(Icon, { name: 'RotateClockwise', className: 'size-3.5' }),
                               ),
                               h(
-                                ListRowActionButton,
+                                IconButton,
                                 {
-                                  tone: 'destructive',
+                                  size: 'icon-xs',
+                                  className: 'text-destructive hover:text-destructive',
                                   title: '彻底删除',
                                   'aria-label': '彻底删除',
                                   onClick: () => setPurgingTarget(account),
                                 },
-                                h(Icon, { name: 'Trash' }),
+                                h(Icon, { name: 'Trash', className: 'size-3.5' }),
                               ),
                             )
                           : null,
@@ -3904,8 +3920,8 @@ export default function register(app) {
     title: '快捷填充账号',
     icon: 'Key',
     shortcut: '⇧⌘L',
-    width: 376,
-    height: 440,
+    width: 380,
+    height: 492,
     component: QuickAutofillPopover,
   });
 

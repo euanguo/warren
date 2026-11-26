@@ -589,8 +589,8 @@ function walkJsonDiff(a, b, prefix, out, includeSensitive, depth = 0) {
 /** 对比原始响应与重放响应（状态码 / 响应头 / JSON 字段 diff）。 */
 export function diffResponses(original = {}, replayed = {}, options = {}) {
   const includeSensitive = options.includeSensitive === true;
-  const origStatus = original.status ?? null;
-  const nextStatus = replayed.status ?? null;
+  const origStatus = original.status != null && original.status !== '' ? Number(original.status) : null;
+  const nextStatus = replayed.status != null && replayed.status !== '' ? Number(replayed.status) : null;
   const statusChanged = origStatus !== nextStatus;
 
   const origHeaders = normalizeHeaderMap(original.headers, includeSensitive);
