@@ -122,7 +122,30 @@
         {
           "kind": "inspectorTab",
           "id": "site-accounts",
-          "title": "账号"
+          "title": "账号",
+          "icon": "Key"
+        },
+        {
+          "kind": "popover",
+          "id": "quick-autofill",
+          "title": "快捷填充账号",
+          "icon": "Key",
+          "shortcut": "⇧⌘L"
+        },
+        {
+          "kind": "statusBadge",
+          "id": "match-badge",
+          "title": "当前页匹配账号",
+          "icon": "Key"
+        },
+        {
+          "kind": "commandBarAction",
+          "id": "quick-fill",
+          "title": "一键填充当前页账号",
+          "description": "自动匹配当前站点并填充账号密码",
+          "icon": "Key",
+          "shortcut": "⇧⌘L",
+          "command": "autoFill"
         }
       ],
       "rpc": [
