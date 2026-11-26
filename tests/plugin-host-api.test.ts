@@ -21,7 +21,10 @@ function deps(overrides: { granted?: string[]; list?: unknown[]; get?: unknown; 
 }
 
 test('宿主只读白名单里没有写路径、secret 路径和插件数据路径', () => {
-  assert.deepEqual([...PLUGIN_HOST_READ_METHODS], ['environment.list', 'environment.get', 'browser.info']);
+  assert.deepEqual(
+    [...PLUGIN_HOST_READ_METHODS],
+    ['environment.list', 'environment.get', 'environment.activeContext', 'browser.info'],
+  );
   for (const forbidden of [
     'settings.get',
     'vault.listRefs',

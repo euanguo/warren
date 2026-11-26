@@ -15,6 +15,7 @@ import type {
   PluginContributes,
   PluginRuntime,
   PluginSettingDescriptor,
+  PluginSkillDecl,
   PluginSurfaceDecl,
   PluginSurfaceKind,
 } from '../../shared/types.ts';
@@ -41,6 +42,8 @@ export interface PluginPackage {
   /** 插件前端 ESM */
   app?: string;
   icon?: string;
+  /** 可选插件 Skill 声明（包内 SKILL.md 及参考文档） */
+  skill?: PluginSkillDecl;
   engines?: { warren?: string };
   permissions: Permission[];
   contributes: PluginContributes;
@@ -231,6 +234,75 @@ function normalizeRpc(raw: unknown, errors: string[]): string[] {
   return methods;
 }
 
+function normalizeSkill(raw: unknown, errors: string[]): PluginSkillDecl | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw === 'string') {
+    const entry = raw.trim();
+    if (!isSafeRelativePath(entry)) {
+      errors.push(`warren.skill 必须是包内相对路径: ${JSON.stringify(raw)}`);
+      return undefined;
+    }
+    return { entry };
+  }
+  const value = objectAt(raw);
+  if (!value) {
+    errors.push('warren.skill 必须是相对路径字符串或 { entry, summary?, triggers?, references? } 对象');
+    return undefined;
+  }
+  const entry = typeof value.entry === 'string' ? value.entry.trim() : '';
+  if (!isSafeRelativePath(entry)) {
+    errors.push(`warren.skill.entry 必须是包内相对路径: ${JSON.stringify(value.entry)}`);
+    return undefined;
+  }
+  let summary: string | undefined;
+  if (value.summary !== undefined) {
+    if (typeof value.summary !== 'string') {
+      errors.push('warren.skill.summary 必须是字符串');
+    } else {
+      const trimmed = value.summary.trim();
+      if (trimmed.length > 240) errors.push('warren.skill.summary 不能超过 240 个字符');
+      else if (trimmed) summary = trimmed;
+    }
+  }
+  let triggers: string[] | undefined;
+  if (value.triggers !== undefined) {
+    if (!Array.isArray(value.triggers)) {
+      errors.push('warren.skill.triggers 必须是字符串数组');
+    } else {
+      const cleaned = value.triggers
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (cleaned.length > 16) errors.push('warren.skill.triggers 最多 16 项');
+      else if (cleaned.length) triggers = [...new Set(cleaned)];
+    }
+  }
+  let references: string[] | undefined;
+  if (value.references !== undefined) {
+    if (!Array.isArray(value.references)) {
+      errors.push('warren.skill.references 必须是相对路径字符串数组');
+    } else if (value.references.length > 8) {
+      errors.push('warren.skill.references 最多 8 个文件');
+    } else {
+      const valid: string[] = [];
+      for (const item of value.references) {
+        if (typeof item !== 'string' || !isSafeRelativePath(item.trim())) {
+          errors.push(`warren.skill.references 路径非法: ${JSON.stringify(item)}`);
+          continue;
+        }
+        valid.push(item.trim());
+      }
+      if (valid.length) references = [...new Set(valid)];
+    }
+  }
+  return {
+    entry,
+    ...(summary ? { summary } : {}),
+    ...(triggers ? { triggers } : {}),
+    ...(references ? { references } : {}),
+  };
+}
+
 /** 校验一个完整 package.json。 */
 export function validatePluginPackage(raw: unknown): PackageValidation {
   const errors: string[] = [];
@@ -282,6 +354,8 @@ export function validatePluginPackage(raw: unknown): PackageValidation {
 
   const icon = str('icon');
   if (icon && !isSafeRelativePath(icon)) errors.push(`warren.icon 必须是包内相对路径: ${JSON.stringify(icon)}`);
+
+  const skill = normalizeSkill(warren.skill, errors);
 
   const enginesRaw = warren.engines;
   let engines: { warren?: string } | undefined;
@@ -347,6 +421,7 @@ export function validatePluginPackage(raw: unknown): PackageValidation {
       host: runtime === 'host' ? host : undefined,
       app: app || undefined,
       icon: icon || undefined,
+      skill,
       engines,
       permissions,
       contributes,

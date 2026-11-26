@@ -8,7 +8,15 @@
  * 4. 只要插件被 `disable`、`reload` 或底层子进程崩溃 `exit`，一次性清空该插件全部订阅与待投递队列。
  */
 
-export const PLUGIN_EVENT_TYPES = ['nav.committed', 'lease.changed', 'tab.created', 'env.status', 'net.hit'] as const;
+export const PLUGIN_EVENT_TYPES = [
+  'nav.committed',
+  'lease.changed',
+  'tab.created',
+  'tab.activated',
+  'space.switched',
+  'env.status',
+  'net.hit',
+] as const;
 
 export type PluginBusEventType = (typeof PLUGIN_EVENT_TYPES)[number];
 

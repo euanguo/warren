@@ -19,6 +19,8 @@ export interface PluginState {
   enabled: string[];
   granted: Record<string, Permission[]>;
   installs: Record<string, PluginInstallRecord>;
+  /** 按插件控制是否自动注入 Skill（默认 true，显式 false 时不向 Agent 暴露）。 */
+  skillExposed?: Record<string, boolean>;
 }
 
 /** 每个插件保留的日志条数（以前是「文件超过 512KB 截到 200 行」，现在是条数水位）。 */
@@ -63,6 +65,11 @@ export async function loadPluginState(db: DatabaseSync): Promise<PluginState> {
       source: String(row.source ?? ''),
       resolved: String(row.resolved ?? ''),
     };
+    const exposed = row.skill_exposed === undefined || row.skill_exposed === null ? true : Boolean(row.skill_exposed);
+    if (!exposed) {
+      state.skillExposed ??= {};
+      state.skillExposed[id] = false;
+    }
   }
   return state;
 }
@@ -74,10 +81,11 @@ export function savePluginState(db: DatabaseSync, state: PluginState): void {
     db.exec('DELETE FROM plugins');
     const insert = db.prepare(
       `INSERT OR REPLACE INTO plugins
-         (id, enabled, granted, digest, version, package_name, source, resolved, installed_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, enabled, granted, digest, version, package_name, source, resolved, skill_exposed, installed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const [id, install] of Object.entries(state.installs)) {
+      const exposed = state.skillExposed?.[id] === false ? 0 : 1;
       insert.run(
         id,
         state.enabled.includes(id) ? 1 : 0,
@@ -87,6 +95,7 @@ export function savePluginState(db: DatabaseSync, state: PluginState): void {
         install.packageName ?? '',
         install.source ?? '',
         install.resolved ?? '',
+        exposed,
         install.installedAt ?? now,
         now,
       );

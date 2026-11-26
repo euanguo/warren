@@ -20,6 +20,8 @@ export interface RpcDeps {
   vault: VaultStore;
   saveVault: () => Promise<void>;
   plugins: PluginHost;
+  skillSourceDir?: string;
+  homeDir?: string;
 }
 
 export class RpcServer {
@@ -34,6 +36,8 @@ export class RpcServer {
       vault: deps.vault,
       saveVault: deps.saveVault,
       plugins: deps.plugins,
+      skillSourceDir: deps.skillSourceDir,
+      homeDir: deps.homeDir,
       isPackaged: app.isPackaged,
       allowWindowCommands: process.env.WARREN_ALLOW_WINDOW_COMMANDS === '1',
       quit: () => app.quit(),

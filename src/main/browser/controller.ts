@@ -54,6 +54,7 @@ import { checkTargetState, readTargetProperty, type InspectProp, type InspectSta
 import { applyEmulationSetting, type EmulationSetting } from './ops/emulation.ts';
 import { callWebMcpTool, listWebMcpTools } from './ops/webmcp.ts';
 import { auditAccessibility, collectVitals, inspectReactTree, printPdf, type PdfOptions } from './ops/diagnostics.ts';
+import { detectLoginFields as runDetectLoginFields } from './login-fields.ts';
 import {
   awaitLoad,
   readyState,
@@ -662,6 +663,11 @@ export class BrowserController {
   /** 诊断用：把目标的点击点和「页面自己算的点」并排返回（跨源 iframe 坐标换算的验收口）。 */
   async probePoint(target: TargetInput): ReturnType<typeof probePoint> {
     return probePoint(this.#page(), target);
+  }
+
+  /** 在隔离世界中扫描当前页（含 Shadow DOM 与跨源 iframe）的登录输入框与提交按钮。 */
+  async detectLoginFields(): ReturnType<typeof runDetectLoginFields> {
+    return runDetectLoginFields(this.#page());
   }
 
   /**

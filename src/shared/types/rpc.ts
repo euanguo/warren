@@ -19,7 +19,13 @@ import type {
   TabState,
   UrlHistoryEntry,
 } from './environment.ts';
-import type { InstalledPlugin, PluginLogEntry, PluginRpcResponse, PluginSignal } from './plugin.ts';
+import type {
+  InstalledPlugin,
+  PluginLogEntry,
+  PluginRpcResponse,
+  PluginSignal,
+  PluginSkillDocument,
+} from './plugin.ts';
 import type {
   AgentSkillStatus,
   AppSettings,
@@ -200,8 +206,10 @@ export interface EnvApi {
   openDataDir(): Promise<{ opened: boolean }>;
   /** 自带 Skill 在各个 agent 目录里的安装状态（见 src/main/agent-integration.ts）。 */
   agentSkills(): Promise<AgentSkillStatus[]>;
-  /** 把自带 Skill 装进指定的 agent 目录。返回落盘路径。 */
-  agentInstallSkill(targetId: string): Promise<{ path: string }>;
+  /** 把自带 Skill（含已启用插件 Skill）装进指定的 agent 目录。返回落盘路径。 */
+  agentInstallSkill(targetId: string): Promise<{ path: string; sha256?: string }>;
+  /** 刷新所有已安装但过期的 Agent Skill 目录。 */
+  agentRefreshSkills(): Promise<Array<{ id: string; path: string; sha256: string }>>;
   plugins(): Promise<InstalledPlugin[]>;
   pluginEnable(id: string): Promise<InstalledPlugin>;
   pluginDisable(id: string): Promise<void>;
@@ -210,6 +218,8 @@ export interface EnvApi {
   pluginReload(id: string): Promise<InstalledPlugin>;
   pluginLogs(id: string, limit?: number): Promise<PluginLogEntry[]>;
   pluginConfigSet(id: string, key: string, value: string): Promise<InstalledPlugin>;
+  pluginSetSkillExposed(id: string, exposed: boolean): Promise<InstalledPlugin>;
+  pluginReadSkill(id: string): Promise<PluginSkillDocument>;
   /** 调插件后端的方法（白名单在清单的 contributes.rpc 里）。 */
   pluginRpc(id: string, method: string, input?: unknown): Promise<PluginRpcResponse>;
   /**

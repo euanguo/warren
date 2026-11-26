@@ -9,7 +9,7 @@ import type { Store } from '../store';
 import type { VaultStore } from '../vault/store';
 import { pluginAutoApproves } from '../domain/approval.ts';
 import { createHandlers, dispatchHostCall, type HostHandler } from './api/index.ts';
-import { currentEnvironmentId, currentLeaseId, runWithPluginContext } from './call-context.ts';
+import { currentCaller, currentEnvironmentId, currentLeaseId, runWithPluginContext } from './call-context.ts';
 import type { PluginEventBus } from './event-bus.ts';
 import { hashPluginDir, pluginError } from './installer.ts';
 import { tierOf, type Permission, type PluginPackage } from './package.ts';
@@ -279,6 +279,7 @@ export class PluginLifecycle {
       const handlers = createHandlers({
         pluginId: id,
         currentEnvironmentId,
+        currentCaller,
         require: (permission) => this.requirePermission(id, permission),
         manager: this.#deps.manager,
         vault: this.#deps.vault,
@@ -320,8 +321,9 @@ export class PluginLifecycle {
           log,
           onCrash,
           onHostCall: (callPath, args, context) =>
-            runWithPluginContext({ pluginId: id, environmentId: context.environmentId, leaseId: context.leaseId }, () =>
-              dispatchHostCall(handlers, callPath, args),
+            runWithPluginContext(
+              { pluginId: id, environmentId: context.environmentId, leaseId: context.leaseId, caller: context.caller },
+              () => dispatchHostCall(handlers, callPath, args),
             ),
         });
       } else {
@@ -337,8 +339,9 @@ export class PluginLifecycle {
           log,
           onCrash,
           onHostCall: (callPath, args, context) =>
-            runWithPluginContext({ pluginId: id, environmentId: context.environmentId, leaseId: context.leaseId }, () =>
-              dispatchHostCall(handlers, callPath, args),
+            runWithPluginContext(
+              { pluginId: id, environmentId: context.environmentId, leaseId: context.leaseId, caller: context.caller },
+              () => dispatchHostCall(handlers, callPath, args),
             ),
         });
       }

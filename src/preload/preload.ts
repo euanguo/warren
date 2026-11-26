@@ -146,6 +146,7 @@ const api = {
   openDataDir: () => ipcRenderer.invoke('system:openDataDir'),
   agentSkills: () => ipcRenderer.invoke('agent:skills'),
   agentInstallSkill: (targetId: string) => ipcRenderer.invoke('agent:installSkill', targetId),
+  agentRefreshSkills: () => ipcRenderer.invoke('agent:refreshSkills'),
   plugins: () => ipcRenderer.invoke('plugin:list'),
   pluginEnable: (id: string) => ipcRenderer.invoke('plugin:enable', id),
   pluginDisable: (id: string) => ipcRenderer.invoke('plugin:disable', id),
@@ -155,6 +156,8 @@ const api = {
   pluginReload: (id: string) => ipcRenderer.invoke('plugin:reload', id),
   pluginLogs: (id: string, limit?: number) => ipcRenderer.invoke('plugin:logs', id, limit),
   pluginConfigSet: (id: string, key: string, value: string) => ipcRenderer.invoke('plugin:configSet', id, key, value),
+  pluginSetSkillExposed: (id: string, exposed: boolean) => ipcRenderer.invoke('plugin:setSkillExposed', id, exposed),
+  pluginReadSkill: (id: string) => ipcRenderer.invoke('plugin:readSkill', id),
   pluginRpc: (id: string, method: string, input?: unknown) => ipcRenderer.invoke('plugin:rpc', id, method, input),
   pluginHostRead: (id: string, method: string, environmentId?: string, args?: unknown[]) =>
     ipcRenderer.invoke('plugin:hostRead', id, method, environmentId, args),

@@ -405,3 +405,37 @@ export interface CookieSummary {
   session: boolean;
   expirationDate?: number;
 }
+
+export type LoginFieldKind = 'username' | 'password' | 'totp' | 'submit';
+
+export type LoginStepKind = 'single' | 'username-only' | 'password-only' | 'totp-only' | 'none';
+
+/** 隔离世界探测到的登录相关控件（只含定位与元数据，不含输入值）。 */
+export interface DetectedLoginField {
+  kind: LoginFieldKind;
+  selector: string;
+  /** 可直接喂给 `controller.fill` / `controller.click` / `fillSecret` 的目标。 */
+  target: TargetInput;
+  confidence: number;
+  label?: string;
+  autocomplete?: string;
+  inputType?: string;
+  frameId?: string;
+  inShadow?: boolean;
+  inSameOriginFrame?: boolean;
+  inCrossOriginFrame?: boolean;
+  rect: { x: number; y: number; width: number; height: number };
+}
+
+export interface DetectedLoginFieldsResult {
+  url: string;
+  host: string;
+  step: LoginStepKind;
+  fields: {
+    username?: DetectedLoginField;
+    password?: DetectedLoginField;
+    totp?: DetectedLoginField;
+    submit?: DetectedLoginField;
+  };
+  candidates: DetectedLoginField[];
+}

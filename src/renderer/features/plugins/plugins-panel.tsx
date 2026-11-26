@@ -3,13 +3,15 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/icons';
 import { cardSurfaceClass } from '@/theme/surface';
 import { cn } from '@/lib/utils';
 import { PERMISSION_TIERS } from '@shared/permissions';
-import type { InstalledPlugin, PluginLogEntry, PluginSettingValue } from '@shared/types';
+import type { InstalledPlugin, PluginLogEntry, PluginSettingValue, PluginSkillDocument } from '@shared/types';
 
 type FilterMode = 'all' | 'running' | 'pending' | 'error' | 'host';
 
@@ -139,6 +141,8 @@ function SettingField({
 function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged: () => void }) {
   const [logs, setLogs] = useState<PluginLogEntry[] | undefined>();
   const [logFilter, setLogFilter] = useState('');
+  const [skillDoc, setSkillDoc] = useState<PluginSkillDocument | null>(null);
+  const [skillOpen, setSkillOpen] = useState(false);
 
   const act = async (action: () => Promise<unknown>, failure: string) => {
     try {
@@ -173,6 +177,14 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
             <Badge variant="outline" className={statusTone(plugin.status)}>
               {STATUS_LABEL[plugin.status]}
             </Badge>
+            {plugin.skill && (
+              <Badge
+                variant="outline"
+                title={plugin.skill.hasExplicitSkill ? '插件自带 SKILL.md' : '由命令清单自动生成的 Skill 摘要'}
+              >
+                {plugin.skill.hasExplicitSkill ? '自带 Skill' : '自动 Skill'}
+              </Badge>
+            )}
           </div>
           {plugin.description && <p className="mt-1 text-xs text-muted-foreground">{plugin.description}</p>}
           {plugin.statusDetail && <p className="mt-1 text-[11px] text-destructive">{plugin.statusDetail}</p>}
@@ -224,6 +236,59 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
           <span key={permission}>{tierBadge(permission, plugin.needsConfirmation.includes(permission))}</span>
         ))}
       </div>
+
+      {plugin.skill && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-border/70 px-2.5 py-1.5 text-xs">
+          <div className="min-w-0 flex-1">
+            <span className="font-medium text-foreground">Agent Skill 注入</span>
+            <p className="truncate text-[11px] text-muted-foreground">{plugin.skill.summary}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                void window.envApi
+                  .pluginReadSkill(plugin.id)
+                  .then((doc) => {
+                    setSkillDoc(doc);
+                    setSkillOpen(true);
+                  })
+                  .catch((error) => {
+                    toast.error('读取 Skill 失败', {
+                      description: error instanceof Error ? error.message : String(error),
+                    });
+                  });
+              }}
+            >
+              预览 Skill
+            </Button>
+            <Switch
+              aria-label={`向 Agent 暴露 ${plugin.name} Skill`}
+              checked={plugin.skillExposed}
+              onCheckedChange={(checked) =>
+                void act(() => window.envApi.pluginSetSkillExposed(plugin.id, checked), '更新 Skill 暴露设置失败')
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      <Dialog open={skillOpen} onOpenChange={setSkillOpen}>
+        <DialogContent className="max-h-[82vh] max-w-2xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>{skillDoc?.pluginName ?? plugin.name} · Agent Skill 预览</DialogTitle>
+            <DialogDescription>
+              {skillDoc?.hasExplicitSkill
+                ? `来自插件包内 ${skillDoc.entry ?? 'SKILL.md'}（${skillDoc.bytes} 字节）。关闭上方开关可阻止其注入到外部编码 Agent。`
+                : '该插件未提供显式 SKILL.md，当前为宿主按命令清单生成的兜底摘要。'}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-border bg-muted/30 p-3 font-mono text-[11px] leading-relaxed">
+            {skillDoc?.markdown ?? ''}
+          </pre>
+        </DialogContent>
+      </Dialog>
 
       {plugin.needsConfirmation.length > 0 && (
         <Alert>

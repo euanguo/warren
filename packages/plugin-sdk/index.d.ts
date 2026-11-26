@@ -34,7 +34,8 @@ export interface PluginSurfaceDecl {
   path?: string;
 }
 
-export type PluginBusEventType = 'nav.committed' | 'lease.changed' | 'tab.created' | 'env.status' | 'net.hit';
+export type PluginBusEventType =
+  'nav.committed' | 'lease.changed' | 'tab.created' | 'tab.activated' | 'space.switched' | 'env.status' | 'net.hit';
 
 export interface PluginEventFilter {
   environmentId?: string;
@@ -55,6 +56,13 @@ export interface PluginContributes {
   rpc: string[];
 }
 
+export interface WarrenSkillMetadata {
+  entry: string;
+  summary?: string;
+  triggers?: string[];
+  references?: string[];
+}
+
 export interface WarrenPackageMetadata {
   id: string;
   name: string;
@@ -64,6 +72,7 @@ export interface WarrenPackageMetadata {
   host?: string;
   app?: string;
   icon?: string;
+  skill?: string | WarrenSkillMetadata;
   engines?: { warren?: string };
   permissions: string[];
   contributes: PluginContributes;
@@ -123,6 +132,18 @@ export interface PluginHost {
   browser: {
     url(): Promise<string>;
     title(): Promise<string>;
+    info(environmentId?: string, options?: { space?: 'person' | 'agent' }): Promise<{ url: string; title: string }>;
+    openTab(
+      url: string,
+      options?: { environmentId?: string; space?: 'person' | 'agent'; activate?: boolean },
+    ): Promise<unknown>;
+    detectLoginFields(environmentId?: string, options?: { space?: 'person' | 'agent' }): Promise<unknown>;
+    fillSecret(
+      environmentId: string,
+      target: unknown,
+      value: string,
+      options?: { space?: 'person' | 'agent'; allowedDomains?: string[] },
+    ): Promise<{ filled: boolean }>;
   };
 }
 
@@ -132,6 +153,7 @@ export interface PluginContext<I = unknown> {
   command?: string;
   input?: I;
   leaseId?: string;
+  caller?: 'ui' | 'agent';
   host: PluginHost;
 }
 

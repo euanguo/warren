@@ -81,8 +81,10 @@ export interface AgentSkillStatus {
   /** 装到哪儿（绝对路径，界面上要显示给人看） */
   path: string;
   installed: boolean;
-  /** 与内置 SKILL.md 的 SHA-256 是否一致 */
+  /** 与当前合成版 SKILL.md（含已启用插件）的 SHA-256 是否一致 */
   upToDate?: boolean;
   /** 已安装版本的 SHA-256 摘要 */
   sha256?: string;
+  /** 当前已注入的启用插件 Skill 列表 */
+  enabledPlugins?: Array<{ id: string; name: string; version: string; skillSha: string }>;
 }

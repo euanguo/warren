@@ -22,7 +22,10 @@ test('PluginEventBus：事件类型白名单、按环境/类型过滤与 sanitiz
     delivered.push({ pluginId, subId, event });
   });
 
-  assert.deepEqual([...PLUGIN_EVENT_TYPES], ['nav.committed', 'lease.changed', 'tab.created', 'env.status', 'net.hit']);
+  assert.deepEqual(
+    [...PLUGIN_EVENT_TYPES],
+    ['nav.committed', 'lease.changed', 'tab.created', 'tab.activated', 'space.switched', 'env.status', 'net.hit'],
+  );
   assert.throws(
     () => bus.subscribe('p1', { types: ['cookie.steal' as never] }),
     (error: Error & { code?: string }) => error.code === 'PLUGIN_BAD_REQUEST',

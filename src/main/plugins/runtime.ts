@@ -13,6 +13,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { forkWorkerProcess, type WorkerProcess } from './worker-process.ts';
+import type { PluginRpcCaller } from '../../shared/types.ts';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -38,6 +39,8 @@ export interface PluginInvocationContext {
   pluginId: string;
   environmentId?: string;
   leaseId?: string;
+  /** 权威调用方（由主进程在派发时登记，子进程不可伪造）。 */
+  caller?: PluginRpcCaller;
 }
 
 export interface RuntimeOptions {
@@ -853,7 +856,8 @@ abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
       if (payload.kind === 'rpc') ctx.input = payload.input;
       const environmentId = typeof ctx.environmentId === 'string' ? ctx.environmentId : undefined;
       const leaseId = typeof ctx.leaseId === 'string' ? ctx.leaseId : undefined;
-      this.#invocations.set(id, { pluginId: this.#pluginId, environmentId, leaseId });
+      const caller: PluginRpcCaller = ctx.caller === 'ui' ? 'ui' : 'agent';
+      this.#invocations.set(id, { pluginId: this.#pluginId, environmentId, leaseId, caller });
       child.postMessage({ ...payload, id, ctx: this.#context(ctx) });
     });
   }

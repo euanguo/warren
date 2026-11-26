@@ -20,7 +20,13 @@ import { pluginAutoApproves } from '../domain/approval.ts';
 import type { PluginState } from './registry.ts';
 import { PluginSettings } from './settings.ts';
 import { cleanupPreparedPlugin, movePreparedPlugin, preparePluginSource } from './source.ts';
-import type { InstalledPlugin, PluginSettingDescriptor, PluginStatus } from '../../shared/types.ts';
+import { loadPluginSkillEntry, type PluginSkillEntry } from '../skills/composer.ts';
+import type {
+  InstalledPlugin,
+  PluginSettingDescriptor,
+  PluginSkillDocument,
+  PluginStatus,
+} from '../../shared/types.ts';
 
 /** 插件目录里的运行时数据：算摘要、卸载清理时按这个区分「代码」和「数据」 */
 export const RUNTIME_FILES = new Set(['data.db', 'data.db-wal', 'data.db-shm']);
@@ -118,6 +124,9 @@ export class PluginInstaller {
     const granted = state.granted[pkg.id] ?? [];
     const settings = await this.settingsFor(pkg.id, pkg);
     const status = this.#deps.statusOf(pkg.id);
+    const enabled = state.enabled.includes(pkg.id);
+    const skillExposed = state.skillExposed?.[pkg.id] !== false;
+    const skillEntry = await loadPluginSkillEntry(dir, pkg, { enabled, digest, skillExposed });
     return {
       id: pkg.id,
       packageName: pkg.packageName,
@@ -136,7 +145,18 @@ export class PluginInstaller {
       needsConfirmation: pluginAutoApproves(this.#deps.store.appSettings())
         ? []
         : needsUserConfirmation(pkg.permissions).filter((p) => !granted.includes(p)),
-      enabled: state.enabled.includes(pkg.id),
+      enabled,
+      skillExposed,
+      skill: {
+        ...(skillEntry.entry ? { entry: skillEntry.entry } : {}),
+        summary: skillEntry.summary,
+        triggers: skillEntry.triggers,
+        references: skillEntry.references.map((item) => item.relativePath),
+        hasExplicitSkill: skillEntry.hasExplicitSkill,
+        exposed: skillExposed,
+        bytes: skillEntry.bytes,
+        sha256: skillEntry.skillSha,
+      },
       status: status.status,
       statusDetail: status.detail,
       contributes: pkg.contributes,
@@ -313,6 +333,7 @@ export class PluginInstaller {
     state.enabled = state.enabled.filter((entry) => entry !== id);
     delete state.granted[id];
     delete state.installs[id];
+    if (state.skillExposed) delete state.skillExposed[id];
     this.#deps.deleteStatus(id);
     await this.#deps.saveState();
     this.#deps.onChange();
@@ -355,5 +376,64 @@ export class PluginInstaller {
 
   async settingDescriptors(id: string): Promise<PluginSettingDescriptor[]> {
     return (await this.readPackage(id)).contributes.settings;
+  }
+
+  async setSkillExposed(id: string, exposed: boolean): Promise<InstalledPlugin> {
+    await this.readPackage(id);
+    const state = this.#deps.getState();
+    state.skillExposed ??= {};
+    state.skillExposed[id] = Boolean(exposed);
+    await this.#deps.saveState();
+    this.#deps.onChange();
+    return this.one(id);
+  }
+
+  async readSkill(id: string): Promise<PluginSkillDocument> {
+    const pkg = await this.readPackage(id);
+    const state = this.#deps.getState();
+    const dir = this.dirFor(id);
+    const enabled = state.enabled.includes(id);
+    const skillExposed = state.skillExposed?.[id] !== false;
+    const digest = state.installs[id]?.digest ?? '';
+    const entry = await loadPluginSkillEntry(dir, pkg, { enabled, digest, skillExposed });
+    return {
+      pluginId: pkg.id,
+      pluginName: pkg.name,
+      version: pkg.version,
+      ...(entry.entry ? { entry: entry.entry } : {}),
+      summary: entry.summary,
+      triggers: entry.triggers,
+      references: entry.references.map((item) => item.relativePath),
+      hasExplicitSkill: entry.hasExplicitSkill,
+      exposed: skillExposed,
+      bytes: entry.bytes,
+      sha256: entry.skillSha,
+      markdown: entry.markdown,
+    };
+  }
+
+  async listSkillEntries(): Promise<PluginSkillEntry[]> {
+    let entries: string[] = [];
+    try {
+      entries = (await readdir(this.#deps.root, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map((entry) => entry.name);
+    } catch {
+      return [];
+    }
+    const state = this.#deps.getState();
+    const out: PluginSkillEntry[] = [];
+    for (const id of entries) {
+      try {
+        const pkg = await this.readPackage(id);
+        const enabled = state.enabled.includes(id);
+        const skillExposed = state.skillExposed?.[id] !== false;
+        const digest = state.installs[id]?.digest ?? '';
+        out.push(await loadPluginSkillEntry(this.dirFor(id), pkg, { enabled, digest, skillExposed }));
+      } catch {
+        // 损坏目录跳过，不影响其它插件 Skill 合成
+      }
+    }
+    return out;
   }
 }

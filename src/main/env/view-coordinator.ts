@@ -335,7 +335,14 @@ export class EnvViewCoordinator {
       ),
     );
     this.#afterTabChange(id);
-    return tabs.item(tab.id);
+    const item = tabs.item(tab.id);
+    this.#deps.emitBusEvent('tab.activated', id, {
+      tabId: tab.id,
+      space,
+      url: redactBusUrl(item.url),
+      title: item.title,
+    });
+    return item;
   }
 
   closeTab(id: string, space: SpaceId, ref: TabRef): void {
@@ -385,6 +392,11 @@ export class EnvViewCoordinator {
       this.#layers.setVisible('devtools', this.#viewVisible && this.#viewportReady && this.#devtools.isOpen());
       this.#deps.syncShield(id);
     }
+    this.#deps.emitBusEvent('space.switched', id, {
+      space,
+      activeTabId: spaces[space].activeId ?? '',
+      url: redactBusUrl(spaces[space].active()?.state.url ?? ''),
+    });
     this.#deps.onChange();
   }
 
