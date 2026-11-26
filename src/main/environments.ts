@@ -25,6 +25,7 @@ import type {
   NavigationState,
   PluginBusEvent,
   PluginBusEventType,
+  AppSettings,
   SpaceId,
   TabRef,
   ViewportPresetId,
@@ -484,6 +485,26 @@ export class EnvironmentManager {
   }
   hasActiveAgentLease(): boolean {
     return this.#leases.hasActiveAgentLease();
+  }
+
+  /** 将最新应用级设置同步到各运行期协作者，使设置修改即刻生效。 */
+  applySettings(settings: AppSettings, options: { respectEnvOverrides?: boolean } = {}): void {
+    const useEnv = Boolean(options.respectEnvOverrides);
+    this.#lifecycle.setLimits({
+      maxRunning: useEnv && process.env.WARREN_MAX_RUNNING !== undefined ? undefined : settings.maxRunning,
+      idleMinutes: useEnv && process.env.WARREN_IDLE_MS !== undefined ? undefined : settings.idleHibernateMinutes,
+    });
+    if (!useEnv || process.env.WARREN_LEASE_TTL_MS === undefined) {
+      this.#leases.setLeaseTtlMs(settings.leaseTtlMs);
+    }
+    if (settings.showControlPill !== undefined) {
+      this.#leases.setShowControlPill(settings.showControlPill);
+    }
+    this.#views.setDefaultPreferences({
+      dock: settings.devtoolsDefaultDock,
+      defaultViewport: settings.devtoolsDefaultViewport,
+      pageBorderRadius: settings.pageBorderRadius,
+    });
   }
 
   // ── 内部装配 ───────────────────────────────────────────────────────

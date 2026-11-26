@@ -40,7 +40,9 @@ export type TabManagerLike = Pick<
   'showing' | 'viewVisible' | 'activeId' | 'attachBelow' | 'detachBelow' | 'resolveRef' | 'controller' | 'active'
 >;
 
-export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setVisible' | 'setBounds' | 'destroy'>;
+export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setVisible' | 'setBounds' | 'destroy'> & {
+  setShowControlPill?: (show: boolean) => void;
+};
 
 export interface LeaseCoordinatorDeps {
   getEnvironment: (id: string) => Environment | undefined;
@@ -77,9 +79,26 @@ export class LeaseCoordinator {
   #deps: LeaseCoordinatorDeps;
   #leases = new Map<string, LeaseHandle>();
   #shields = new Map<string, ShieldLike>();
+  #ttlOverrideMs?: number;
+  #showControlPill = true;
 
   constructor(deps: LeaseCoordinatorDeps) {
     this.#deps = deps;
+  }
+
+  setLeaseTtlMs(ms?: number): void {
+    if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
+      this.#ttlOverrideMs = Math.max(30_000, Math.min(Math.floor(ms), MAX_LEASE_TTL_MS));
+      return;
+    }
+    this.#ttlOverrideMs = undefined;
+  }
+
+  setShowControlPill(show: boolean): void {
+    this.#showControlPill = show;
+    for (const shield of this.#shields.values()) {
+      shield.setShowControlPill?.(show);
+    }
   }
 
   rawLease(id: string): LeaseHandle | undefined {
@@ -181,6 +200,7 @@ export class LeaseCoordinator {
       this.#shields.set(id, shield);
     }
     if (!shield) return;
+    shield.setShowControlPill?.(this.#showControlPill);
     const lease = this.#leases.get(id);
     // 遮罩只盖**正在显示的那个**环境：agent 持着别的环境的 lease 时，
     // 不该把当前显示的页面盖住（人看到的是「AI 在操作」，但 AI 在别处）。
@@ -453,6 +473,7 @@ export class LeaseCoordinator {
   }
 
   #ttl(): number {
+    if (this.#ttlOverrideMs !== undefined) return this.#ttlOverrideMs;
     return this.#deps.leaseTtlMs ? this.#deps.leaseTtlMs() : leaseTtlMs();
   }
 }

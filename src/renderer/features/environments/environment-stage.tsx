@@ -8,6 +8,7 @@ import { EnvironmentAddressBar } from './environment-address-bar';
 import { EnvironmentInspector } from './environment-inspector';
 import type { PluginInspectorTab } from '@/lib/plugin-runtime';
 import { WarrenMark } from '@/components/warren-mark';
+import { setInspectorOpen, setInspectorTab, useNavigationState } from '@/state/navigation-store';
 import type {
   ConsoleEntry,
   CookieSummary,
@@ -56,7 +57,6 @@ interface Props {
 
 const INSPECTOR_WIDTH = { default: 360, min: 260, max: 720 };
 const INSPECTOR_WIDTH_KEY = 'warren.inspector.width';
-const INSPECTOR_TAB_KEY = 'warren.inspector.tab';
 const INSPECTOR_TABS = ['events', 'snapshot', 'console', 'network', 'rules', 'storage'] as const;
 
 export function EnvironmentStage({
@@ -117,12 +117,9 @@ export function EnvironmentStage({
 
   const inspectorPanelRef = usePanelRef();
   const inspectorElementRef = useRef<HTMLDivElement>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const { inspectorOpen, inspectorTab } = useNavigationState();
   const inspectorTabIds = [...INSPECTOR_TABS, ...pluginTabs.map((tab) => `plugin:${tab.pluginId}:${tab.id}`)];
-  const [inspectorTab, setInspectorTab] = useState(() => {
-    const saved = localStorage.getItem(INSPECTOR_TAB_KEY);
-    return saved && inspectorTabIds.includes(saved) ? saved : 'events';
-  });
+  const activeInspectorTab = inspectorTabIds.includes(inspectorTab) ? inspectorTab : 'events';
   const [inspectorWidth, setInspectorWidth] = useState(() => {
     const saved = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY));
     return Number.isFinite(saved) && saved > 0
@@ -233,10 +230,6 @@ export function EnvironmentStage({
       props: { envId: current.id, space: activeSpaceId },
     });
   }, [current, running, activeSpaceId, stageRef]);
-
-  useEffect(() => {
-    localStorage.setItem(INSPECTOR_TAB_KEY, inspectorTab);
-  }, [inspectorTab]);
 
   useEffect(() => {
     return window.envApi.onBrowserShortcut((shortcut) => {
@@ -475,7 +468,7 @@ export function EnvironmentStage({
             netRules={netRules}
             netHits={netHits}
             onNetRuleToggle={(ruleId, enabled) => current && onNetRuleToggle(current.id, ruleId, enabled)}
-            activeTab={inspectorTab}
+            activeTab={activeInspectorTab}
             onTabChange={(tab) => {
               setInspectorTab(tab);
               if (tab === 'storage' && current) onReadCookies(current.id);

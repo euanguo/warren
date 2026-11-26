@@ -192,6 +192,23 @@ export class EnvLifecycle {
     return this.#maxRunning;
   }
 
+  setLimits(limits: { maxRunning?: number; idleMinutes?: number }): void {
+    if (limits.maxRunning !== undefined && Number.isFinite(limits.maxRunning)) {
+      this.#maxRunning = Math.max(0, Math.min(32, Math.floor(limits.maxRunning)));
+    }
+    if (limits.idleMinutes !== undefined && Number.isFinite(limits.idleMinutes)) {
+      const nextIdleMs = Math.max(0, Math.min(240, Math.floor(limits.idleMinutes))) * 60_000;
+      this.#idleMs = nextIdleMs;
+      if (nextIdleMs > 0 && !this.#sweepTimer) {
+        this.#sweepTimer = setInterval(() => this.sweepIdle(), DORMANT_SWEEP_MS);
+        this.#sweepTimer.unref?.();
+      } else if (nextIdleMs <= 0 && this.#sweepTimer) {
+        clearInterval(this.#sweepTimer);
+        this.#sweepTimer = undefined;
+      }
+    }
+  }
+
   get runningCount(): number {
     return this.#spaces.size;
   }

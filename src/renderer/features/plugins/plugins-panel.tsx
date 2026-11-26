@@ -1,24 +1,27 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Icon } from '@/components/icons';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Icon } from '@/components/icons';
 import { cardSurfaceClass, controlFieldCompactClass } from '@/theme/surface';
 import { cn } from '@/lib/utils';
 import { PERMISSION_TIERS } from '@shared/permissions';
 import type { InstalledPlugin, PluginLogEntry, PluginSettingValue } from '@shared/types';
 
+type FilterMode = 'all' | 'running' | 'pending' | 'error' | 'host';
+
 function tierBadge(permission: string) {
   const tier = PERMISSION_TIERS[permission] ?? 'denied';
   if (tier === 'granted') return <Badge variant="secondary">{permission}</Badge>;
-  if (tier === 'confirm')
+  if (tier === 'confirm') {
     return (
       <Badge variant="outline" className="border-[var(--warning)]/50 text-[var(--warning)]">
-        {permission}
+        {permission} · 确认
       </Badge>
     );
+  }
   return (
     <Badge variant="outline" className="border-destructive/50 text-destructive">
       {permission} · 禁止
@@ -33,10 +36,9 @@ const STATUS_LABEL: Record<InstalledPlugin['status'], string> = {
   'needs-configuration': '待配置',
 };
 
-/** 徽章只写「跑在哪」；这条 title 和面板顶部那段说明一起，把「不是沙箱」说清楚。 */
 const RUNTIME_HINT: Record<InstalledPlugin['runtime'], string> = {
-  sandbox: '同进程运行：只挡误用和越权 API 调用，不是安全沙箱',
-  host: '独立进程运行：有完整的 Node 能力（读写文件、起子进程）',
+  sandbox: '受限 VM 子进程：可超时强杀并拦截越权 API 调用，不是 OS 安全沙箱',
+  host: '独立 Node 宿主进程：拥有完整的 Node 能力（读写文件、起子进程）',
 };
 
 function statusTone(status: InstalledPlugin['status']): string {
@@ -56,7 +58,8 @@ function SettingField({
   setting: PluginSettingValue;
   onSaved: () => void;
 }) {
-  const [draft, setDraft] = useState('');
+  const isSecret = setting.type === 'secret';
+  const [draft, setDraft] = useState(isSecret ? '' : String(setting.value ?? ''));
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
@@ -75,19 +78,12 @@ function SettingField({
     }
   };
 
-  const placeholder =
-    setting.type === 'secret'
-      ? setting.configured
-        ? '已配置（输入新值可覆盖）'
-        : '未配置'
-      : String(setting.value ?? '');
-
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-muted-foreground">
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-28 shrink-0 text-muted-foreground" title={setting.description}>
         {setting.label}
-        {setting.type === 'secret' && ' · 存进 Vault'}
       </span>
+
       {setting.options ? (
         <select
           className={cn(controlFieldCompactClass, 'text-xs')}
@@ -103,51 +99,57 @@ function SettingField({
           ))}
         </select>
       ) : (
-        <div className="flex items-center gap-1">
-          <Input
-            className="h-7 text-xs"
-            type={setting.type === 'secret' ? 'password' : 'text'}
-            value={draft}
-            placeholder={placeholder}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <Button size="sm" variant="outline" disabled={busy || !draft} onClick={() => void save()}>
-            保存
-          </Button>
-        </div>
+        <Input
+          type={isSecret ? 'password' : 'text'}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={isSecret ? (setting.configured ? '已配置（输入以覆盖）' : '未配置') : ''}
+          className="h-7 flex-1 text-xs"
+        />
       )}
-      {setting.description && <span className="text-[10px] text-muted-foreground">{setting.description}</span>}
-    </label>
+
+      {!setting.options && (
+        <Button size="sm" variant="ghost" disabled={busy || (!draft && isSecret)} onClick={() => void save()}>
+          保存
+        </Button>
+      )}
+    </div>
   );
 }
 
 function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged: () => void }) {
   const [logs, setLogs] = useState<PluginLogEntry[] | undefined>();
+  const [logFilter, setLogFilter] = useState('');
 
   const act = async (action: () => Promise<unknown>, failure: string) => {
     try {
       await action();
       onChanged();
     } catch (error) {
-      toast.error(failure, { description: error instanceof Error ? error.message : String(error) });
+      toast.error(failure, {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
-  const surfaces = plugin.contributes.surfaces.map((surface) => `${surface.kind}/${surface.id}`);
+  const surfaces = plugin.contributes.surfaces.map((surface) => surface.title);
+  const filteredLogs = useMemo(() => {
+    if (!logs) return [];
+    const q = logFilter.trim().toLowerCase();
+    if (!q) return logs;
+    return logs.filter((entry) => entry.message.toLowerCase().includes(q) || entry.level.toLowerCase().includes(q));
+  }, [logs, logFilter]);
 
   return (
-    <div className={cn(cardSurfaceClass, 'flex flex-col gap-3')}>
-      <div className="flex items-start gap-2">
-        <div className="flex min-w-0 flex-col">
-          <div className="flex items-center gap-2">
+    <div className={cn(cardSurfaceClass, 'flex flex-col gap-3')} data-plugin={plugin.id}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-sm font-medium">{plugin.name}</span>
             <span className="text-[10px] text-muted-foreground">v{plugin.version}</span>
-            {/*
-              不能写「沙箱」：sandbox 运行时**不是安全边界**（挡误用不挡恶意，见 AGENTS 硬约束 1），
-              而「沙箱」这三个字就是在暗示它是。这里只描述它**跑在哪**，说明写在面板顶部那条提示里。
-            */}
+            {/* 不写「沙箱」以免暗示 OS 安全沙箱，只描述真实进程模型（见 AGENTS 硬约束 1）。 */}
             <Badge variant="outline" title={RUNTIME_HINT[plugin.runtime]}>
-              {plugin.runtime === 'host' ? '独立进程' : '同进程'}
+              {plugin.runtime === 'host' ? 'Node 宿主进程' : '受限 VM 进程'}
             </Badge>
             <Badge variant="outline" className={statusTone(plugin.status)}>
               {STATUS_LABEL[plugin.status]}
@@ -155,32 +157,22 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
           </div>
           {plugin.description && <p className="mt-1 text-xs text-muted-foreground">{plugin.description}</p>}
           {plugin.statusDetail && <p className="mt-1 text-[11px] text-destructive">{plugin.statusDetail}</p>}
-          {surfaces.length > 0 && <p className="mt-1 text-[10px] text-muted-foreground">界面：{surfaces.join('、')}</p>}
-          <p className="mt-1 truncate text-[10px] text-muted-foreground" title={plugin.dir}>
-            {plugin.dir}
-          </p>
-          {plugin.source && (
-            <p className="truncate text-[10px] text-muted-foreground" title={plugin.source}>
-              {plugin.packageName} · {plugin.source}
-              {plugin.resolved ? ` · ${plugin.resolved}` : ''}
-            </p>
+          {surfaces.length > 0 && (
+            <p className="mt-1 text-[10px] text-muted-foreground">挂载界面：{surfaces.join('、')}</p>
           )}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+
+        <div className="flex shrink-0 items-center gap-1">
           {plugin.enabled ? (
             <Button
               size="sm"
-              variant="outline"
+              variant="ghost"
               onClick={() => void act(() => window.envApi.pluginDisable(plugin.id), '停用失败')}
             >
               停用
             </Button>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void act(() => window.envApi.pluginEnable(plugin.id), '启用失败')}
-            >
+            <Button size="sm" onClick={() => void act(() => window.envApi.pluginEnable(plugin.id), '启用失败')}>
               启用
             </Button>
           )}
@@ -197,17 +189,18 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
             onClick={() => {
               if (logs) {
                 setLogs(undefined);
+                setLogFilter('');
                 return;
               }
-              void window.envApi.pluginLogs(plugin.id, 50).then(setLogs);
+              void window.envApi.pluginLogs(plugin.id, 100).then(setLogs);
             }}
           >
-            <Icon name="List" />
+            <Icon name="Code" />
           </IconButton>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {plugin.permissions.map((permission) => (
           <span key={permission}>{tierBadge(permission)}</span>
         ))}
@@ -236,7 +229,7 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
       )}
 
       {plugin.settings.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 border-t border-border pt-2">
           {plugin.settings.map((setting) => (
             <SettingField key={setting.key} plugin={plugin} setting={setting} onSaved={onChanged} />
           ))}
@@ -244,17 +237,36 @@ function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onChanged:
       )}
 
       {logs && (
-        <pre className="max-h-40 overflow-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-2 text-[10px] leading-relaxed">
-          {logs.length
-            ? logs.map((entry) => `${entry.at.slice(11, 19)} ${entry.level.toUpperCase()} ${entry.message}`).join('\n')
-            : '（还没有日志）'}
-        </pre>
+        <div className="flex flex-col gap-2 border-t border-border pt-2">
+          <div className="flex items-center gap-2">
+            <Input
+              value={logFilter}
+              onChange={(event) => setLogFilter(event.target.value)}
+              placeholder="过滤插件日志…"
+              className="h-7 flex-1 text-xs"
+            />
+            <IconButton
+              title="刷新日志"
+              aria-label="刷新日志"
+              onClick={() => void window.envApi.pluginLogs(plugin.id, 100).then(setLogs)}
+            >
+              <Icon name="Refresh" />
+            </IconButton>
+          </div>
+          <pre className="max-h-44 overflow-auto rounded-[var(--radius-md)] border border-border bg-muted/30 p-2 font-mono text-[10px] leading-relaxed">
+            {filteredLogs.length
+              ? filteredLogs
+                  .map((entry) => `${entry.at.slice(11, 19)} ${entry.level.toUpperCase()} ${entry.message}`)
+                  .join('\n')
+              : '（没有匹配的日志条目）'}
+          </pre>
+        </div>
       )}
     </div>
   );
 }
 
-/** 设置里的「插件」一页。 */
+/** 设置里的「插件管理」页：支持状态过滤、子进程边界提示与日志检索。 */
 export function PluginsPanel({
   onChanged,
   plugins,
@@ -265,54 +277,69 @@ export function PluginsPanel({
   pluginErrors: Array<{ pluginId: string; message: string }>;
 }) {
   const [source, setSource] = useState('');
-  // 列表就是 props：装 / 停 / 卸之后由父组件重取（main 侧每次变更都会发 `state:changed`），
-  // 这里不再自己存一份副本——两份真相源必然会漂。
+  const [filter, setFilter] = useState<FilterMode>('all');
+  const [query, setQuery] = useState('');
+
   const act = async (action: () => Promise<unknown>, failure: string) => {
     try {
       await action();
+      setSource('');
       onChanged();
     } catch (error) {
-      toast.error(failure, { description: error instanceof Error ? error.message : String(error) });
+      toast.error(failure, {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
+  const counts = useMemo(() => {
+    return {
+      all: plugins.length,
+      running: plugins.filter((p) => p.status === 'running').length,
+      pending: plugins.filter((p) => p.needsConfirmation.length > 0 || p.status === 'needs-configuration').length,
+      error: plugins.filter((p) => p.status === 'error').length,
+      host: plugins.filter((p) => p.runtime === 'host').length,
+    };
+  }, [plugins]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return plugins.filter((plugin) => {
+      if (filter === 'running' && plugin.status !== 'running') return false;
+      if (filter === 'pending' && plugin.needsConfirmation.length === 0 && plugin.status !== 'needs-configuration') {
+        return false;
+      }
+      if (filter === 'error' && plugin.status !== 'error') return false;
+      if (filter === 'host' && plugin.runtime !== 'host') return false;
+      if (!q) return true;
+      return `${plugin.id} ${plugin.name} ${plugin.description ?? ''}`.toLowerCase().includes(q);
+    });
+  }, [plugins, filter, query]);
+
+  const filterChips: Array<{ id: FilterMode; label: string; count: number }> = [
+    { id: 'all', label: '全部', count: counts.all },
+    { id: 'running', label: '运行中', count: counts.running },
+    { id: 'pending', label: '待授权/配置', count: counts.pending },
+    { id: 'error', label: '异常', count: counts.error },
+    { id: 'host', label: 'Node 宿主', count: counts.host },
+  ];
+
   return (
-    <div className="flex flex-col gap-3" data-slot="plugins-panel">
-      {pluginErrors.length > 0 && (
-        <Alert>
-          <AlertTitle>有插件没能加载界面</AlertTitle>
-          <AlertDescription>
-            {pluginErrors.map((error) => (
-              <p key={`${error.pluginId}:${error.message}`} className="text-xs">
-                {error.pluginId}：{error.message}
-              </p>
-            ))}
-          </AlertDescription>
+    <div className="flex flex-col gap-4">
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        插件均在可终止子进程中执行：受限 VM 进程只拦截越权 API 调用，并非 OS 安全沙箱；声明{' '}
+        <code className="font-mono">host</code> 的插件拥有完整 Node 权限。只安装你信任的包。
+      </p>
+
+      {pluginErrors.map((err) => (
+        <Alert key={err.pluginId} variant="destructive">
+          <AlertTitle>插件前端加载失败：{err.pluginId}</AlertTitle>
+          <AlertDescription>{err.message}</AlertDescription>
         </Alert>
-      )}
+      ))}
 
-      {/*
-        硬约束 1：插件不是安全沙箱，UI 上不能含糊、也不能谎称沙箱。
-        这段话就放在安装按钮正上方——用户点「安装…」之前会看到它。
-      */}
-      <Alert>
-        <AlertTitle>插件是半可信代码，不是沙箱</AlertTitle>
-        <AlertDescription>
-          <p className="text-xs">
-            「同进程」的插件跑在核心进程里：只挡误用和越权 API 调用，<strong>不挡恶意代码</strong>，
-            它能看见你在应用界面里看到的内容。
-          </p>
-          <p className="mt-1 text-xs">
-            「独立进程」的插件有完整的 Node 能力（读写文件、起子进程）。新装的插件默认停用，
-            启用前会列出它声明的每一项能力，需要确认的要你点「全部批准」。
-          </p>
-        </AlertDescription>
-      </Alert>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium">已安装</span>
+      <div className="flex items-center gap-2">
         <Input
-          className="ml-auto min-w-64 max-w-xl flex-1"
           value={source}
           placeholder="path:plugins/account-manager / npm:warren-plugin-whistle@^0.3.0 / git:..."
           onChange={(event) => setSource(event.target.value)}
@@ -334,9 +361,34 @@ export function PluginsPanel({
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1">
+          {filterChips.map((chip) => (
+            <Button
+              key={chip.id}
+              size="sm"
+              variant={filter === chip.id ? 'secondary' : 'ghost'}
+              onClick={() => setFilter(chip.id)}
+            >
+              {chip.label} ({chip.count})
+            </Button>
+          ))}
+        </div>
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="筛选已装插件…"
+          className="h-7 w-44 text-xs"
+        />
+      </div>
+
       {plugins.length === 0 && <p className="text-xs text-muted-foreground">还没有装插件。</p>}
-      {plugins.map((plugin) => (
-        <PluginCard key={plugin.id} plugin={plugin} onChanged={() => void act(async () => undefined, '刷新失败')} />
+      {plugins.length > 0 && filtered.length === 0 && (
+        <p className="text-xs text-muted-foreground">当前筛选条件下没有匹配的插件。</p>
+      )}
+
+      {filtered.map((plugin) => (
+        <PluginCard key={plugin.id} plugin={plugin} onChanged={onChanged} />
       ))}
     </div>
   );

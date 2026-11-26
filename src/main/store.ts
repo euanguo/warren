@@ -676,6 +676,12 @@ export class Store {
     return rows.map(rowToUrlHistory);
   }
 
+  /** 清空跨环境地址输入历史。 */
+  clearUrlHistory(): number {
+    const result = this.#database.prepare('DELETE FROM url_history').run();
+    return Number(result.changes ?? 0);
+  }
+
   // ---------------------------------------------------------------- 按域偏好
 
   domainPref(envId: string, origin: string): DomainPref | undefined {
@@ -752,6 +758,13 @@ export class Store {
       viewportPreset: nextPreset,
       updatedAt,
     };
+  }
+
+  removeDomainPref(envId: string, origin: string): boolean {
+    const result = this.#database
+      .prepare('DELETE FROM domain_prefs WHERE env_id = ? AND origin = ?')
+      .run(envId, origin);
+    return Number(result.changes ?? 0) > 0;
   }
 
   // ---------------------------------------------------------------- 事件

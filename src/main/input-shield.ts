@@ -1,11 +1,14 @@
 import { WebContentsView } from 'electron';
 import type { WindowLayerManager } from './ui/layer-manager.ts';
 
-function buildShieldHtml(callerLabel: string): string {
+function buildShieldHtml(callerLabel: string, showControlPill: boolean): string {
   const safe = callerLabel.replace(
     /[<>&"]/g,
     (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[ch] ?? ch,
   );
+  const pillHtml = showControlPill
+    ? `<div id="pill"><span id="dot"></span><span><b>${safe}</b> 正在操作</span><a id="takeover" href="warren-action://takeover">接管</a></div>`
+    : '';
   return `<!doctype html>
 <html><head><meta charset="utf-8"><style>
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
@@ -26,7 +29,7 @@ function buildShieldHtml(callerLabel: string): string {
   a#takeover:hover{background:rgba(88,166,255,.3)}
 </style></head><body>
   <div id="catch"></div>
-  <div id="pill"><span id="dot"></span><span><b>${safe}</b> 正在操作</span><a id="takeover" href="warren-action://takeover">接管</a></div>
+  ${pillHtml}
 </body></html>`;
 }
 
@@ -39,10 +42,12 @@ export class InputShield {
   #visible = true;
   #layers?: WindowLayerManager;
   #callerLabel = 'Agent';
+  #showControlPill = true;
   #onTakeover?: () => void;
 
-  constructor(options: { layers?: WindowLayerManager; onTakeover?: () => void } = {}) {
+  constructor(options: { layers?: WindowLayerManager; showControlPill?: boolean; onTakeover?: () => void } = {}) {
     this.#layers = options.layers;
+    this.#showControlPill = options.showControlPill ?? true;
     this.#onTakeover = options.onTakeover;
     this.#view = new WebContentsView({
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
@@ -72,10 +77,16 @@ export class InputShield {
     this.#reloadHtml();
   }
 
+  setShowControlPill(show: boolean): void {
+    if (this.#showControlPill === show) return;
+    this.#showControlPill = show;
+    this.#reloadHtml();
+  }
+
   #reloadHtml(): void {
     if (this.#view.webContents.isDestroyed()) return;
     void this.#view.webContents.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(buildShieldHtml(this.#callerLabel))}`,
+      `data:text/html;charset=utf-8,${encodeURIComponent(buildShieldHtml(this.#callerLabel, this.#showControlPill))}`,
     );
   }
 

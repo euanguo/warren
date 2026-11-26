@@ -46,7 +46,31 @@ test('库里读出来的脏值退回默认，不抛', () => {
   assert.deepEqual(toAppSettings({}), DEFAULT_APP_SETTINGS);
   assert.deepEqual(toAppSettings({ controlPolicy: 'yes', pluginPolicy: 'nope' }), DEFAULT_APP_SETTINGS);
   assert.deepEqual(toAppSettings({ controlPolicy: 'auto', pluginPolicy: 'auto' }), {
+    ...DEFAULT_APP_SETTINGS,
     controlPolicy: 'auto',
     pluginPolicy: 'auto',
   });
+});
+
+test('扩展设置键支持读写归一化且数值被边界夹紧', () => {
+  const parsed = toAppSettings({
+    theme: 'light',
+    compactTopbar: 'true',
+    pageBorderRadius: 'false',
+    devtoolsDefaultDock: 'bottom',
+    devtoolsDefaultViewport: 'mobile-390',
+    maxRunning: '999',
+    idleHibernateMinutes: '-5',
+    leaseTtlMs: '5000',
+    showControlPill: '0',
+  });
+  assert.equal(parsed.theme, 'light');
+  assert.equal(parsed.compactTopbar, true);
+  assert.equal(parsed.pageBorderRadius, false);
+  assert.equal(parsed.devtoolsDefaultDock, 'bottom');
+  assert.equal(parsed.devtoolsDefaultViewport, 'mobile-390');
+  assert.equal(parsed.maxRunning, 32);
+  assert.equal(parsed.idleHibernateMinutes, 0);
+  assert.equal(parsed.leaseTtlMs, 30_000);
+  assert.equal(parsed.showControlPill, false);
 });

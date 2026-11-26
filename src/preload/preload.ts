@@ -136,7 +136,14 @@ const api = {
     return () => ipcRenderer.removeListener('browser:shortcut', listener);
   },
   vault: () => ipcRenderer.invoke('vault:list'),
+  vaultAdd: (input: { provider: string; label: string; username?: string; password?: string; token?: string }) =>
+    ipcRenderer.invoke('vault:add', input),
   vaultRemove: (ref: string) => ipcRenderer.invoke('vault:remove', ref),
+  domainPrefs: (envId?: string) => ipcRenderer.invoke('browser:domainPrefs', envId),
+  clearDomainPref: (envId: string, origin: string) => ipcRenderer.invoke('browser:clearDomainPref', envId, origin),
+  clearUrlHistory: () => ipcRenderer.invoke('system:clearUrlHistory'),
+  systemDoctor: () => ipcRenderer.invoke('system:doctor'),
+  openDataDir: () => ipcRenderer.invoke('system:openDataDir'),
   agentSkills: () => ipcRenderer.invoke('agent:skills'),
   agentInstallSkill: (targetId: string) => ipcRenderer.invoke('agent:installSkill', targetId),
   plugins: () => ipcRenderer.invoke('plugin:list'),
@@ -168,6 +175,16 @@ const api = {
     const listener = () => callback();
     ipcRenderer.on('state:changed', listener);
     return () => ipcRenderer.removeListener('state:changed', listener);
+  },
+  onEnvDelta: (callback: (payload: { reason?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { reason?: string }) => callback(payload ?? {});
+    ipcRenderer.on('env:delta', listener);
+    return () => ipcRenderer.removeListener('env:delta', listener);
+  },
+  onPluginChanged: (callback: (payload: { reason?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { reason?: string }) => callback(payload ?? {});
+    ipcRenderer.on('plugin:changed', listener);
+    return () => ipcRenderer.removeListener('plugin:changed', listener);
   },
 };
 

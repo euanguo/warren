@@ -24,6 +24,8 @@ export class WindowLayerManager {
     this.#pageRadius = Math.max(0, Math.round(radius));
     const pageView = this.#model.get('page').view;
     if (pageView) this.#applyBorderRadius(pageView, this.#pageRadius);
+    const devtoolsView = this.#model.get('devtools').view;
+    if (devtoolsView) this.#applyBorderRadius(devtoolsView, this.#pageRadius);
   }
 
   setSlot(

@@ -77,6 +77,7 @@ export class EnvViewCoordinator {
   #selected?: string;
   #viewVisible = true;
   #presets = new Map<string, ViewportPresetId>();
+  #defaultViewport: ViewportPresetId = 'auto';
 
   constructor(deps: ViewCoordinatorDeps) {
     this.#deps = deps;
@@ -507,6 +508,11 @@ export class EnvViewCoordinator {
     if (pref && Math.abs(pref.zoomFactor - 1) > 0.001) {
       wc.setZoomFactor(pref.zoomFactor);
     }
+    const targetPreset = pref?.viewportPreset ?? (this.#defaultViewport !== 'auto' ? this.#defaultViewport : undefined);
+    if (targetPreset) {
+      const controller = this.#deps.getSpaceManager(id, tab.space)?.controllerFor(tab.id);
+      if (controller) void controller.setViewportPreset(targetPreset).catch(() => {});
+    }
   }
 
   async setViewportPreset(id: string, space: SpaceId, preset: ViewportPresetId): Promise<{ preset: ViewportPresetId }> {
@@ -531,7 +537,19 @@ export class EnvViewCoordinator {
       const saved = this.#deps.store.domainPref(id, origin)?.viewportPreset;
       if (saved) return { preset: saved };
     }
-    return { preset: this.#presets.get(`${id}:${space}`) ?? 'auto' };
+    return { preset: this.#presets.get(`${id}:${space}`) ?? this.#defaultViewport };
+  }
+
+  setDefaultPreferences(options: {
+    dock?: DevToolsDockMode;
+    defaultViewport?: ViewportPresetId;
+    pageBorderRadius?: boolean;
+  }): void {
+    if (options.dock) this.#devtools.setDefaultDock(options.dock);
+    if (options.defaultViewport) this.#defaultViewport = options.defaultViewport;
+    if (typeof options.pageBorderRadius === 'boolean') {
+      this.#layers.setPageRadius(options.pageBorderRadius ? 8 : 0);
+    }
   }
 
   downloads(id?: string): DownloadItemInfo[] {

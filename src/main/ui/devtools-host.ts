@@ -49,6 +49,13 @@ export class DevToolsHost {
     this.#layoutActive();
   }
 
+  /** 更新默认停靠方向；若当前未开启任何 DevTools 则同步切过去，不影响正在使用中的会话。 */
+  setDefaultDock(mode: DevToolsDockMode): void {
+    if (this.isOpen() || this.#dockMode === mode) return;
+    this.#dockMode = mode;
+    this.#onStateChanged();
+  }
+
   setDockConfig(mode: DevToolsDockMode, size?: number): void {
     const prevMode = this.#dockMode;
     this.#dockMode = mode;

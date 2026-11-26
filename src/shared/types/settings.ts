@@ -17,8 +17,13 @@ export type ApprovalMode = 'inherit' | 'ask' | 'auto';
  */
 export type ControlPolicy = 'ask' | 'agent-created' | 'auto';
 
+import type { DevToolsDockMode } from './ui.ts';
+import type { ViewportPresetId } from './browser.ts';
+
 /** 插件能力确认策略。`auto` = confirm 层的权限视同已授予。 */
 export type PluginPolicy = 'ask' | 'auto';
+
+export type ThemePreference = 'dark' | 'light' | 'system';
 
 /**
  * 应用级设置。
@@ -29,6 +34,32 @@ export type PluginPolicy = 'ask' | 'auto';
 export interface AppSettings {
   controlPolicy: ControlPolicy;
   pluginPolicy: PluginPolicy;
+  theme?: ThemePreference;
+  compactTopbar?: boolean;
+  pageBorderRadius?: boolean;
+  devtoolsDefaultDock?: DevToolsDockMode;
+  devtoolsDefaultViewport?: ViewportPresetId;
+  maxRunning?: number;
+  idleHibernateMinutes?: number;
+  leaseTtlMs?: number;
+  showControlPill?: boolean;
+}
+
+export interface SystemDiagnosticCheck {
+  id: string;
+  label: string;
+  status: 'ok' | 'warn' | 'error';
+  detail: string;
+}
+
+export interface SystemDiagnosticsReport {
+  generatedAt: string;
+  appVersion: string;
+  electronVersion: string;
+  nodeVersion: string;
+  platform: string;
+  dataDir: string;
+  checks: SystemDiagnosticCheck[];
 }
 
 /** Vault 对外只给这个摘要，没有读取明文的通道。 */

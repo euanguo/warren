@@ -36,6 +36,7 @@ function makeTabState(id: string, space: SpaceId, url: string, over: Partial<Tab
 function makeFakeShield(): ShieldLike & {
   label?: string;
   visible: boolean;
+  showPill: boolean;
   bounds?: { x: number; y: number; width: number; height: number };
   destroyed: boolean;
   onTakeover?: () => void;
@@ -43,12 +44,16 @@ function makeFakeShield(): ShieldLike & {
   return {
     attached: false,
     visible: true,
+    showPill: true,
     destroyed: false,
     setCallerLabel(label?: string) {
       this.label = label;
     },
     setVisible(visible: boolean) {
       this.visible = visible;
+    },
+    setShowControlPill(show: boolean) {
+      this.showPill = show;
     },
     setBounds(bounds: { x: number; y: number; width: number; height: number }) {
       this.bounds = bounds;
@@ -641,4 +646,56 @@ test('EnvLifecycle：EnvironmentSpaces 与 shared/types 扩充导出正确', () 
   assert.equal(kinds.length, 8);
   assert.equal(surface.shortcut, 'Mod+K');
   assert.equal(filter.types?.length, 5);
+});
+
+test('LeaseCoordinator：运行期调整租约时长与控制胶囊显隐', () => {
+  const configs = new Map<string, EnvironmentConfig>([
+    ['alpha', createEnvironmentConfig({ id: 'alpha', storagePath: '/tmp/alpha', createdBy: 'human' })],
+  ]);
+  const spaceManagers = new Map<string, ReturnType<typeof makeFakeTabManager>>([
+    ['alpha:person', makeFakeTabManager('person', { showing: false })],
+    ['alpha:agent', makeFakeTabManager('agent', { showing: true })],
+  ]);
+  let shield: ReturnType<typeof makeFakeShield> | undefined;
+  const now = 50_000;
+  const coordinator = new LeaseCoordinator({
+    getEnvironment: (id) => {
+      const cfg = configs.get(id);
+      return cfg ? toEnvironment(cfg, { owner: 'none' }) : undefined;
+    },
+    getConfig: (id) => configs.get(id),
+    getControlPolicy: () => 'ask',
+    getSpaceManager: (id, space = 'agent') => spaceManagers.get(`${id}:${space}`),
+    getSelectedId: () => 'alpha',
+    getActiveSpace: () => 'agent',
+    getViewVisible: () => true,
+    getPageBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    getViewportSize: () => ({ width: 800, height: 600 }),
+    selectSpaceView: () => {},
+    restoreDisplayedFocus: () => {},
+    touch: () => {},
+    recordEvent: () => {},
+    onChange: () => {},
+    emitBusEvent: () => {},
+    createShield: () => {
+      shield = makeFakeShield();
+      return shield;
+    },
+    attachAndRaiseShield: (s) => {
+      (s as { attached: boolean }).attached = true;
+    },
+    detachShield: (s) => {
+      (s as { attached: boolean }).attached = false;
+    },
+    now: () => now,
+  });
+
+  coordinator.syncShield('alpha', { createIfMissing: true });
+  coordinator.setLeaseTtlMs(120_000);
+  const lease = coordinator.acquire('alpha', 'agent', 'Codex', 'agent');
+  assert.equal(lease.expiresAt, now + 120_000);
+  assert.equal(shield?.showPill, true);
+
+  coordinator.setShowControlPill(false);
+  assert.equal(shield?.showPill, false);
 });

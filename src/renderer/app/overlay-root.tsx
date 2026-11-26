@@ -4,9 +4,10 @@ import { Button, IconButton } from '@/components/ui/button';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { elevatedDialogSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
-import type { Environment, InstalledPlugin, OverlayRequest } from '@shared/types';
+import type { Environment, Group, InstalledPlugin, OverlayRequest } from '@shared/types';
 
 const DEFAULT_START_URL = 'https://example.com';
 
@@ -383,9 +384,65 @@ interface CommandItem {
   run: () => Promise<void> | void;
 }
 
+function looksLikeUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^localhost(:\d+)?(\/.*)?$/i.test(trimmed)) return `http://${trimmed}`;
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/.*)?$/i.test(trimmed)) return `https://${trimmed}`;
+  return null;
+}
+
+const SETTINGS_COMMANDS: Array<{ section: string; title: string; subtitle: string; icon: IconName; keywords: string }> =
+  [
+    {
+      section: 'general',
+      title: '设置 · 通用与外观',
+      subtitle: '主题 / 紧凑顶栏 / 圆角 / 数据目录',
+      icon: 'Sliders',
+      keywords: 'general appearance theme dark light system waiguan zhuti',
+    },
+    {
+      section: 'browser',
+      title: '设置 · 浏览器与 DevTools',
+      subtitle: '默认停靠位 / 视口 / 并发上限 / 休眠 / 按域偏好',
+      icon: 'Code',
+      keywords: 'browser devtools dock viewport hibernate maxrunning domain liulanqi',
+    },
+    {
+      section: 'agent',
+      title: '设置 · Agent 与审批',
+      subtitle: 'CLI / Skill / 控制权审批 / Lease TTL / 胶囊',
+      icon: 'Robot',
+      keywords: 'agent cli skill approval control lease ttl shenpi',
+    },
+    {
+      section: 'vault',
+      title: '设置 · 凭据与安全边界',
+      subtitle: 'Keychain / 代理凭据录入 / 安全说明',
+      icon: 'Key',
+      keywords: 'vault credentials password proxy anquan pingju',
+    },
+    {
+      section: 'plugins',
+      title: '设置 · 插件管理',
+      subtitle: '启停 / 权限矩阵 / 隔离日志 / 安装',
+      icon: 'Plug',
+      keywords: 'plugins permissions install logs chajian',
+    },
+    {
+      section: 'diagnostics',
+      title: '设置 · 诊断与关于',
+      subtitle: '系统自检 Doctor / 清理历史 / 版本信息',
+      icon: 'Activity',
+      keywords: 'diagnostics doctor sqlite rpc version about zhenduan',
+    },
+  ];
+
 function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [envs, setEnvs] = useState<Environment[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState(0);
@@ -393,20 +450,57 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    void Promise.all([window.envApi.list(), window.envApi.selected(), window.envApi.plugins()]).then(
-      ([list, cur, pluginList]) => {
-        setEnvs(list);
-        setSelectedId(cur);
-        setPlugins(pluginList);
-      },
-    );
+    void Promise.all([
+      window.envApi.list(),
+      window.envApi.groups(),
+      window.envApi.selected(),
+      window.envApi.plugins(),
+    ]).then(([list, groupList, cur, pluginList]) => {
+      setEnvs(list);
+      setGroups(groupList);
+      setSelectedId(cur);
+      setPlugins(pluginList);
+    });
     return () => cancelAnimationFrame(frame);
   }, []);
 
   const current = envs.find((env) => env.id === selectedId);
+  const parsedUrl = looksLikeUrl(query);
 
   const items = useMemo<CommandItem[]>(() => {
     const list: CommandItem[] = [];
+    if (parsedUrl && current) {
+      const space = current.activeSpaceId ?? 'person';
+      list.push(
+        {
+          id: `url:new-tab:${parsedUrl}`,
+          icon: 'Plus',
+          title: `在「${current.name}」新标签打开 ${parsedUrl}`,
+          subtitle: space === 'agent' ? 'Agent Space' : '我的空间',
+          keywords: `${query} url open new tab`,
+          run: async () => {
+            if (current.status !== 'running') await window.envApi.start(current.id);
+            await window.envApi.tabCreate(current.id, space, parsedUrl, true);
+            await window.envApi.resolveOverlay({ command: 'openUrl', url: parsedUrl });
+          },
+        },
+        ...(current.status === 'running'
+          ? [
+              {
+                id: `url:goto:${parsedUrl}`,
+                icon: 'Globe' as IconName,
+                title: `当前标签前往 ${parsedUrl}`,
+                subtitle: current.name,
+                keywords: `${query} url goto navigate`,
+                run: async () => {
+                  await window.envApi.humanNavigate(current.id, space, { kind: 'goto', url: parsedUrl });
+                  await window.envApi.resolveOverlay({ command: 'navigate', url: parsedUrl });
+                },
+              },
+            ]
+          : []),
+      );
+    }
     for (const env of envs) {
       list.push({
         id: `select:${env.id}`,
@@ -418,6 +512,22 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
           if (env.status !== 'running') await window.envApi.start(env.id);
           await window.envApi.select(env.id);
           await window.envApi.resolveOverlay({ command: 'select', envId: env.id });
+        },
+      });
+    }
+    for (const group of groups) {
+      const firstEnv = envs.find((env) => env.groupId === group.id);
+      if (!firstEnv) continue;
+      list.push({
+        id: `group:${group.id}`,
+        icon: 'Folder',
+        title: `进入分组：${group.name}`,
+        subtitle: `切换至「${firstEnv.name}」`,
+        keywords: `${group.name} group fenzu`,
+        run: async () => {
+          if (firstEnv.status !== 'running') await window.envApi.start(firstEnv.id);
+          await window.envApi.select(firstEnv.id);
+          await window.envApi.resolveOverlay({ command: 'select', envId: firstEnv.id });
         },
       });
     }
@@ -457,11 +567,60 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
             await window.envApi.resolveOverlay({ command: 'devtools' });
           },
         },
+        {
+          id: 'action:devtools-right',
+          icon: 'DockRight',
+          title: 'DevTools 右侧停靠',
+          subtitle: current.name,
+          keywords: 'devtools dock right panel youce',
+          run: async () => {
+            await window.envApi.openDevTools(current.id, space, 'right');
+            await window.envApi.resolveOverlay({ command: 'devtools' });
+          },
+        },
+        {
+          id: 'action:devtools-bottom',
+          icon: 'DockBottom',
+          title: 'DevTools 底部停靠',
+          subtitle: current.name,
+          keywords: 'devtools dock bottom dibu',
+          run: async () => {
+            await window.envApi.openDevTools(current.id, space, 'bottom');
+            await window.envApi.resolveOverlay({ command: 'devtools' });
+          },
+        },
+        {
+          id: 'action:devtools-detach',
+          icon: 'ExternalWindow',
+          title: 'DevTools 独立窗口',
+          subtitle: current.name,
+          keywords: 'devtools detach window duli',
+          run: async () => {
+            await window.envApi.openDevTools(current.id, space, 'detach');
+            await window.envApi.resolveOverlay({ command: 'devtools' });
+          },
+        },
       );
     }
     for (const plugin of plugins) {
       if (!plugin.enabled) continue;
       for (const surface of plugin.contributes.surfaces) {
+        if (surface.kind === 'settingsSection') {
+          list.push({
+            id: `settings:plugin:${plugin.id}:${surface.id}`,
+            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
+            title: `设置 · ${plugin.name} · ${surface.title}`,
+            subtitle: '扩展配置',
+            keywords: `settings plugin ${plugin.id} ${plugin.name} ${surface.title}`,
+            run: async () => {
+              await window.envApi.resolveOverlay({
+                command: 'openSettings',
+                section: `plugin:${plugin.id}:${surface.id}`,
+              });
+            },
+          });
+          continue;
+        }
         if (surface.kind !== 'commandBarAction' || !surface.command) continue;
         const iconName: IconName = surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug';
         list.push({
@@ -478,18 +637,20 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
         });
       }
     }
-    list.push({
-      id: 'action:settings',
-      icon: 'Settings',
-      title: '打开设置中心',
-      subtitle: '偏好 / 审批 / 插件',
-      keywords: 'settings preferences shezhi',
-      run: async () => {
-        await window.envApi.resolveOverlay({ command: 'openSettings' });
-      },
-    });
+    for (const item of SETTINGS_COMMANDS) {
+      list.push({
+        id: `settings:${item.section}`,
+        icon: item.icon,
+        title: item.title,
+        subtitle: item.subtitle,
+        keywords: item.keywords,
+        run: async () => {
+          await window.envApi.resolveOverlay({ command: 'openSettings', section: item.section });
+        },
+      });
+    }
     return list;
-  }, [envs, plugins, current]);
+  }, [envs, groups, plugins, current, parsedUrl, query]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -573,6 +734,7 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
  * 常驻预热在 WindowLayerManager 最顶层 `'overlay'` 槽位，弹窗零延迟且不藏底层网页。
  */
 export function OverlayRoot() {
+  useStandaloneThemeSync();
   const [request, setRequest] = useState<OverlayRequest | null>(null);
 
   useEffect(() => {

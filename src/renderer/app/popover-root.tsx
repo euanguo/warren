@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
 import { MenuLabel } from '@/components/ui/menu';
+import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { elevatedMenuSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
 import type { DownloadItemInfo, FindInPageResult, SpaceId, UrlHistoryEntry, ViewportPresetId } from '@shared/types';
@@ -171,7 +172,12 @@ function DownloadsView({ props }: { props: Record<string, unknown> }) {
   useEffect(() => {
     const pull = () => void window.envApi.downloads(envId).then(setItems);
     pull();
-    return window.envApi.onStateChanged(pull);
+    const unsubDelta = window.envApi.onEnvDelta(pull);
+    const unsubState = window.envApi.onStateChanged(pull);
+    return () => {
+      unsubDelta();
+      unsubState();
+    };
   }, [envId]);
 
   return (
@@ -287,6 +293,7 @@ function ViewportView({ props }: { props: Record<string, unknown> }) {
  * 依托操作系统 `parent` 子窗，直接凌驾于 `WebContentsView` 与主窗之上，绝不遮挡/节流页面。
  */
 export function PopoverRoot() {
+  useStandaloneThemeSync();
   const [state, setState] = useState<PopoverStatePayload | null>(null);
 
   useEffect(() => {

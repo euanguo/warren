@@ -15,6 +15,7 @@ interface Props {
   /** 设置页此刻占着 stage —— 底部的 ⚙ 要显示成选中态。 */
   settingsActive: boolean;
   onOpenSettings: () => void;
+  onOpenCommandBar?: () => void;
   destinations: RailDestination[];
 }
 
@@ -29,7 +30,7 @@ interface Props {
  *
  * **☰ 不在这里**：它在标题行（见 `app-titlebar.tsx`）。rail 只做路由切换。
  */
-export function AppRail({ settingsActive, onOpenSettings, destinations }: Props) {
+export function AppRail({ settingsActive, onOpenSettings, onOpenCommandBar, destinations }: Props) {
   return (
     <nav
       aria-label="主导航"
@@ -49,8 +50,11 @@ export function AppRail({ settingsActive, onOpenSettings, destinations }: Props)
         ))}
       </div>
 
-      {/* 底部固定区：设置入口 + 品牌标记。不参与滚动，所以不会挤掉上面的导航。 */}
+      {/* 底部固定区：命令栏入口 + 设置入口 + 品牌标记。不参与滚动，所以不会挤掉上面的导航。 */}
       <div className="flex w-full shrink-0 flex-col items-center gap-[var(--rail-gap)]">
+        {onOpenCommandBar && (
+          <RailButton label="命令栏 (⌘K)" icon="Command" active={false} onSelect={onOpenCommandBar} />
+        )}
         <RailButton label="设置" icon="Settings" active={settingsActive} onSelect={onOpenSettings} />
         <WarrenMark className="size-5 opacity-90" />
       </div>

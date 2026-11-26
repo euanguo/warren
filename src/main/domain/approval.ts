@@ -6,13 +6,50 @@
  *
  * 见 docs/APPROVAL-EMBED-MEMORY-PLAN.md §3。
  */
-import type { AppSettings, ApprovalMode, ControlPolicy, Creator, PluginPolicy } from '../../shared/types';
+import type {
+  AppSettings,
+  ApprovalMode,
+  ControlPolicy,
+  Creator,
+  DevToolsDockMode,
+  PluginPolicy,
+  ThemePreference,
+  ViewportPresetId,
+} from '../../shared/types';
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { controlPolicy: 'ask', pluginPolicy: 'ask' };
+export const DEFAULT_APP_SETTINGS: Required<AppSettings> = {
+  controlPolicy: 'ask',
+  pluginPolicy: 'ask',
+  theme: 'dark',
+  compactTopbar: false,
+  pageBorderRadius: true,
+  devtoolsDefaultDock: 'right',
+  devtoolsDefaultViewport: 'auto',
+  maxRunning: 8,
+  idleHibernateMinutes: 10,
+  leaseTtlMs: 60_000,
+  showControlPill: true,
+};
 
 const CONTROL_POLICIES: readonly ControlPolicy[] = ['ask', 'agent-created', 'auto'];
 const PLUGIN_POLICIES: readonly PluginPolicy[] = ['ask', 'auto'];
 const APPROVAL_MODES: readonly ApprovalMode[] = ['inherit', 'ask', 'auto'];
+const THEMES: readonly ThemePreference[] = ['dark', 'light', 'system'];
+const DOCKS: readonly DevToolsDockMode[] = ['right', 'bottom', 'detach'];
+const VIEWPORTS: readonly ViewportPresetId[] = ['auto', 'desktop-1440', 'laptop-1280', 'mobile-390'];
+
+function boolPref(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  return fallback;
+}
+
+function intPref(raw: string | undefined, fallback: number, min: number, max: number): number {
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+}
 
 export function isControlPolicy(value: unknown): value is ControlPolicy {
   return typeof value === 'string' && (CONTROL_POLICIES as readonly string[]).includes(value);
@@ -31,6 +68,25 @@ export function toAppSettings(raw: Record<string, string | undefined>): AppSetti
   return {
     controlPolicy: isControlPolicy(raw.controlPolicy) ? raw.controlPolicy : DEFAULT_APP_SETTINGS.controlPolicy,
     pluginPolicy: isPluginPolicy(raw.pluginPolicy) ? raw.pluginPolicy : DEFAULT_APP_SETTINGS.pluginPolicy,
+    theme:
+      typeof raw.theme === 'string' && (THEMES as readonly string[]).includes(raw.theme)
+        ? (raw.theme as ThemePreference)
+        : DEFAULT_APP_SETTINGS.theme,
+    compactTopbar: boolPref(raw.compactTopbar, DEFAULT_APP_SETTINGS.compactTopbar),
+    pageBorderRadius: boolPref(raw.pageBorderRadius, DEFAULT_APP_SETTINGS.pageBorderRadius),
+    devtoolsDefaultDock:
+      typeof raw.devtoolsDefaultDock === 'string' && (DOCKS as readonly string[]).includes(raw.devtoolsDefaultDock)
+        ? (raw.devtoolsDefaultDock as DevToolsDockMode)
+        : DEFAULT_APP_SETTINGS.devtoolsDefaultDock,
+    devtoolsDefaultViewport:
+      typeof raw.devtoolsDefaultViewport === 'string' &&
+      (VIEWPORTS as readonly string[]).includes(raw.devtoolsDefaultViewport)
+        ? (raw.devtoolsDefaultViewport as ViewportPresetId)
+        : DEFAULT_APP_SETTINGS.devtoolsDefaultViewport,
+    maxRunning: intPref(raw.maxRunning, DEFAULT_APP_SETTINGS.maxRunning, 0, 32),
+    idleHibernateMinutes: intPref(raw.idleHibernateMinutes, DEFAULT_APP_SETTINGS.idleHibernateMinutes, 0, 240),
+    leaseTtlMs: intPref(raw.leaseTtlMs, DEFAULT_APP_SETTINGS.leaseTtlMs, 30_000, 600_000),
+    showControlPill: boolPref(raw.showControlPill, DEFAULT_APP_SETTINGS.showControlPill),
   };
 }
 

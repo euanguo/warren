@@ -9,9 +9,24 @@ import type {
   SnapshotResult,
   ViewportPresetId,
 } from './browser.ts';
-import type { Environment, EventRecord, Group, SpaceId, TabRef, TabState, UrlHistoryEntry } from './environment.ts';
+import type {
+  DomainPref,
+  Environment,
+  EventRecord,
+  Group,
+  SpaceId,
+  TabRef,
+  TabState,
+  UrlHistoryEntry,
+} from './environment.ts';
 import type { InstalledPlugin, PluginLogEntry, PluginRpcResponse, PluginSignal } from './plugin.ts';
-import type { AgentSkillStatus, AppSettings, ApprovalMode, CredentialSummary } from './settings.ts';
+import type {
+  AgentSkillStatus,
+  AppSettings,
+  ApprovalMode,
+  CredentialSummary,
+  SystemDiagnosticsReport,
+} from './settings.ts';
 import type {
   BrowserShortcut,
   DevToolsDockMode,
@@ -145,7 +160,7 @@ export interface EnvApi {
   onPopoverDismissed(callback: (payload: { id: string; reason: string }) => void): () => void;
   onBrowserShortcut(callback: (shortcut: BrowserShortcut) => void): () => void;
   spaceSelect(id: string, space: SpaceId): Promise<void>;
-  tabCreate(id: string, space: SpaceId, url?: string): Promise<TabState>;
+  tabCreate(id: string, space: SpaceId, url?: string, activate?: boolean): Promise<TabState>;
   tabSelect(id: string, space: SpaceId, ref: TabRef): Promise<TabState>;
   tabClose(id: string, space: SpaceId, ref: TabRef): Promise<void>;
   /** 关掉除这个标签以外的全部（右键菜单「关闭其他」）。 */
@@ -159,7 +174,19 @@ export interface EnvApi {
   /** 静音开关。不是页面内容变更，所以不受控制权限制。 */
   tabMute(id: string, space: SpaceId, ref: TabRef, muted: boolean): Promise<TabState>;
   vault(): Promise<{ available: boolean; credentials: CredentialSummary[] }>;
+  vaultAdd(input: {
+    provider: string;
+    label: string;
+    username?: string;
+    password?: string;
+    token?: string;
+  }): Promise<CredentialSummary>;
   vaultRemove(ref: string): Promise<{ removed: boolean }>;
+  domainPrefs(envId?: string): Promise<DomainPref[]>;
+  clearDomainPref(envId: string, origin: string): Promise<{ removed: boolean }>;
+  clearUrlHistory(): Promise<{ cleared: number }>;
+  systemDoctor(): Promise<SystemDiagnosticsReport>;
+  openDataDir(): Promise<{ opened: boolean }>;
   /** 自带 Skill 在各个 agent 目录里的安装状态（见 src/main/agent-integration.ts）。 */
   agentSkills(): Promise<AgentSkillStatus[]>;
   /** 把自带 Skill 装进指定的 agent 目录。返回落盘路径。 */
@@ -202,4 +229,6 @@ export interface EnvApi {
    */
   setViewVisible(visible: boolean): Promise<void>;
   onStateChanged(cb: () => void): () => void;
+  onEnvDelta(cb: (payload: { reason?: string }) => void): () => void;
+  onPluginChanged(cb: (payload: { reason?: string }) => void): () => void;
 }

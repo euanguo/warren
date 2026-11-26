@@ -427,8 +427,17 @@ test('按域偏好：保存缩放与视口预设并在删环境时连带清理',
     store.setDomainPref('b', 'https://example.com', { zoomFactor: 0.9 });
     assert.equal(store.listDomainPrefs('a').length, 1);
 
+    assert.equal(store.removeDomainPref('b', 'https://example.com'), true);
+    assert.equal(store.removeDomainPref('b', 'https://example.com'), false);
+    assert.equal(store.domainPref('b', 'https://example.com'), undefined);
+
+    store.recordUrlHistory('https://example.com/a');
+    store.recordUrlHistory('https://example.com/b');
+    assert.equal(store.searchUrlHistory('example.com').length, 2);
+    assert.equal(store.clearUrlHistory(), 2);
+    assert.equal(store.searchUrlHistory('example.com').length, 0);
+
     await store.remove('a');
     assert.equal(store.domainPref('a', 'https://example.com'), undefined);
-    assert.equal(store.domainPref('b', 'https://example.com')?.zoomFactor, 0.9);
   });
 });

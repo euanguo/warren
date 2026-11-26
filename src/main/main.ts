@@ -20,7 +20,8 @@ import { EnvironmentManager } from './environments';
 import { closeDatabases } from './db';
 import { PluginHost } from './plugins/host';
 import type { Permission } from './plugins/package.ts';
-import { RpcServer } from './rpc';
+import { RpcServer, RUNTIME_FILE, SOCKET_PATH } from './rpc';
+import { collectSystemDiagnostics } from './system-doctor.ts';
 import { Store } from './store';
 import { makeEvent } from './domain/environment';
 import { SafeStorageEncryptor } from './vault/electron-encryptor';
@@ -137,6 +138,20 @@ function broadcastStateChanged(): void {
   window?.webContents.send('state:changed');
   overlayHost?.webContents.send('state:changed');
   popoverHost?.broadcast('state:changed');
+}
+
+function broadcastEnvDelta(reason?: string): void {
+  const payload = reason ? { reason } : {};
+  window?.webContents.send('env:delta', payload);
+  overlayHost?.webContents.send('env:delta', payload);
+  popoverHost?.broadcast('env:delta', payload);
+}
+
+function broadcastPluginChanged(reason?: string): void {
+  const payload = reason ? { reason } : {};
+  window?.webContents.send('plugin:changed', payload);
+  overlayHost?.webContents.send('plugin:changed', payload);
+  popoverHost?.broadcast('plugin:changed', payload);
 }
 
 async function loadVault(): Promise<void> {
@@ -336,7 +351,10 @@ function registerIpc(): void {
   handleShell('settings:get', () => store.appSettings());
   handle('settings:set', (patch: Partial<AppSettings>) => {
     const next = store.setAppSettings(patch);
-    store.record(makeEvent('settings.updated', `审批策略更新: ${JSON.stringify(patch)}`, 'human'));
+    manager?.applySettings(next);
+    store.record(makeEvent('settings.updated', `应用设置更新: ${JSON.stringify(patch)}`, 'human'));
+    broadcastEnvDelta('settings');
+    broadcastPluginChanged('settings');
     broadcastStateChanged();
     return next;
   });
@@ -470,6 +488,53 @@ function registerIpc(): void {
 
   // Vault 只暴露「有哪些凭据」和「填进页面」；没有 reveal 通道
   handle('vault:list', () => ({ available: vault.available, credentials: vault.list() }));
+  handle(
+    'vault:add',
+    async (input: { provider: string; label: string; username?: string; password?: string; token?: string }) => {
+      const secret: { username?: string; password?: string; token?: string } = {};
+      if (input.username?.trim()) secret.username = input.username.trim();
+      if (input.password) secret.password = input.password;
+      if (input.token?.trim()) secret.token = input.token.trim();
+      const summary = vault.add({
+        provider: input.provider.trim(),
+        label: input.label.trim() || input.provider.trim(),
+        secret,
+      });
+      await saveVault();
+      store.record(makeEvent('vault.added', `新增凭据 ${summary.provider}（${summary.label}）`, 'human'));
+      broadcastStateChanged();
+      return summary;
+    },
+  );
+  handle('browser:domainPrefs', (envId?: string) => store.listDomainPrefs(envId));
+  handle('browser:clearDomainPref', (envId: string, origin: string) => {
+    const removed = store.removeDomainPref(envId, origin);
+    if (removed) {
+      broadcastEnvDelta('domainPrefs');
+      broadcastStateChanged();
+    }
+    return { removed };
+  });
+  handle('system:clearUrlHistory', () => ({ cleared: store.clearUrlHistory() }));
+  handle('system:openDataDir', async () => {
+    const err = await shell.openPath(paths.home);
+    return { opened: err === '' };
+  });
+  handle('system:doctor', () =>
+    collectSystemDiagnostics({
+      appVersion: app.getVersion(),
+      dataDir: paths.home,
+      coreDir,
+      socketPath: SOCKET_PATH,
+      runtimeFile: RUNTIME_FILE,
+      skillSourceDir: skillSourceDir(),
+      db: store.database,
+      store,
+      manager,
+      vault,
+      plugins,
+    }),
+  );
 
   // 自带 Skill 的安装（见 src/main/agent-integration.ts）
   handle('agent:skills', () => skillStatus(os.homedir(), skillSourceDir()));
@@ -477,12 +542,14 @@ function registerIpc(): void {
   handle('vault:remove', async (ref: string) => {
     const removed = vault.remove(ref);
     await saveVault();
+    broadcastStateChanged();
     return { removed };
   });
 
   // 插件的启停 / 重载会改变 rail 与设置分节，动完必须让渲染层重新取一遍
   const pluginsChanged = async <T>(action: () => Promise<T>): Promise<T> => {
     const result = await action();
+    broadcastPluginChanged('plugins');
     broadcastStateChanged();
     return result;
   };
@@ -632,8 +699,9 @@ app.whenReady().then(async () => {
     }
   });
 
+  const initialSettings = store.appSettings();
   window = createWindow();
-  layers = new WindowLayerManager(window, 8);
+  layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 8);
   const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
       const devUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -670,6 +738,7 @@ app.whenReady().then(async () => {
     store,
     window,
     () => {
+      broadcastEnvDelta();
       broadcastStateChanged();
       syncPowerSaveBlocker();
     },
@@ -680,10 +749,14 @@ app.whenReady().then(async () => {
         window?.webContents.send('browser:findResult', result);
         popoverHost?.broadcast('browser:findResult', result);
       },
-      onDownloadsChanged: () => broadcastStateChanged(),
+      onDownloadsChanged: () => {
+        broadcastEnvDelta('downloads');
+        broadcastStateChanged();
+      },
       onBusEvent: (event) => plugins?.dispatchEvent(event),
     },
   );
+  manager.applySettings(initialSettings, { respectEnvOverrides: true });
 
   plugins = new PluginHost({
     root: path.join(coreDir, 'plugins'),
@@ -697,7 +770,10 @@ app.whenReady().then(async () => {
       window?.webContents.send('plugin:signal', { pluginId, channel, payload });
     },
     // CLI / agent 改的插件状态也要让界面知道，否则 rail 与设置分节会停在旧清单
-    onChange: () => broadcastStateChanged(),
+    onChange: () => {
+      broadcastPluginChanged();
+      broadcastStateChanged();
+    },
   });
   await plugins.load();
 
