@@ -83,6 +83,9 @@ export class EnvironmentManager {
       onChange,
       onTargetUrl: options.onTargetUrl,
       onFindResult: options.onFindResult,
+      onVisualAction: (id, space, action) => {
+        if (space === 'agent') this.#leases.showVisualAction(id, action);
+      },
       emitBusEvent: (type, envId, payload) => this.#emitBusEvent(type, envId, payload),
       attachTabTelemetry: (envId, tabId, wc) => this.#sessions.attachTabTelemetry(envId, tabId, wc),
       detachTabTelemetry: (tabId) => this.#sessions.detachTabTelemetry(tabId),

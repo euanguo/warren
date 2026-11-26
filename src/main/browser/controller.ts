@@ -39,7 +39,7 @@ import {
   highlightElement,
   resolveTarget,
 } from './page-helpers.ts';
-import type { PageContext, PendingSink } from './ctx.ts';
+import type { PageContext, PendingSink, VisualActionEvent } from './ctx.ts';
 import { checkTargetState, readTargetProperty, type InspectProp, type InspectState } from './ops/inspector.ts';
 import {
   awaitLoad,
@@ -118,6 +118,7 @@ interface Ctx {
   noteActivity: () => void;
   downloadById: (id: string) => { item: Electron.DownloadItem; url: string; filename: string; path: string } | null;
   record: (type: string, message: string) => void;
+  onVisualAction?: (action: VisualActionEvent) => void;
 }
 
 /** 选择器遍历在页面内的返回值。`error` 有值 = 求值失败，`errorKind` 说明是不是语法错。 */
@@ -213,6 +214,7 @@ export class BrowserController {
       noteActivity: ctx?.noteActivity ?? (() => {}),
       downloadById: ctx?.downloadById ?? (() => null),
       record: ctx?.record ?? (() => {}),
+      onVisualAction: ctx?.onVisualAction,
     };
     /*
      * 主 frame 一开始导航就丢掉跨源子会话。
@@ -253,6 +255,7 @@ export class BrowserController {
       tabIndex: this.#ctx.tabIndex,
       lastActivityAt: this.#ctx.lastActivityAt,
       record: this.#ctx.record,
+      onVisualAction: this.#ctx.onVisualAction,
     };
     return this.#pageCtx;
   }

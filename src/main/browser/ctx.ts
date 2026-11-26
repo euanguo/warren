@@ -26,6 +26,14 @@ export interface PendingSink {
   receiptSince(since: number): ActionReceipt;
 }
 
+export interface VisualActionEvent {
+  kind: 'click' | 'fill' | 'hover' | 'move';
+  x: number;
+  y: number;
+  rect?: { x: number; y: number; width: number; height: number };
+  label?: string;
+}
+
 export interface PageContext {
   wc: WebContents;
   /** 发 CDP 命令（会话已 attach）。 */
@@ -54,6 +62,8 @@ export interface PageContext {
   tabIndex: () => number;
   lastActivityAt: () => number;
   record: (type: string, message: string) => void;
+  /** 可选：上报 AI 动作在主 frame 视口内的坐标与控件框，供透明遮罩渲染轨迹动画（绝不携带输入明文）。 */
+  onVisualAction?: (action: VisualActionEvent) => void;
 }
 
 export interface AxFrame {
