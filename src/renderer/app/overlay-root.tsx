@@ -605,6 +605,23 @@ function CommandBarCard({ initialQuery = '' }: { initialQuery?: string }) {
     for (const plugin of plugins) {
       if (!plugin.enabled) continue;
       for (const surface of plugin.contributes.surfaces) {
+        if (surface.kind === 'railPage') {
+          list.push({
+            id: `page:${plugin.id}:${surface.id}`,
+            icon: surface.icon && isIconName(surface.icon) ? surface.icon : 'Plug',
+            title: `打开「${surface.title}」`,
+            subtitle: `${plugin.name} · 全屏页`,
+            keywords: `plugin page ${plugin.id} ${plugin.name} ${surface.title}`,
+            run: async () => {
+              await window.envApi.resolveOverlay({
+                command: 'openPluginPage',
+                pluginId: plugin.id,
+                surfaceId: surface.id,
+              });
+            },
+          });
+          continue;
+        }
         if (surface.kind === 'settingsSection') {
           list.push({
             id: `settings:plugin:${plugin.id}:${surface.id}`,

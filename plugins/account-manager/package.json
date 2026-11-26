@@ -18,6 +18,7 @@
       "warren": ">=0.1.0"
     },
     "permissions": [
+      "environment.read",
       "storage.write",
       "rpc.serve",
       "vault.fill",
@@ -57,6 +58,11 @@
           "title": "账号",
           "icon": "User",
           "path": "accounts"
+        },
+        {
+          "kind": "inspectorTab",
+          "id": "site-accounts",
+          "title": "账号"
         }
       ],
       "rpc": [

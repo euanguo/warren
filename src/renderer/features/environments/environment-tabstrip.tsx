@@ -105,7 +105,7 @@ export function EnvironmentTabstrip({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
-      <SurfaceTabStrip aria-label="标签" className="flex-initial">
+      <SurfaceTabStrip aria-label="标签" className="flex-initial [app-region:no-drag] [-webkit-app-region:no-drag]">
         {tabs.map((tab, index) => {
           const label = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : '新标签页');
           return (
@@ -134,7 +134,11 @@ export function EnvironmentTabstrip({
               onDragEnd={endDrag}
               onContextMenu={(event) => void openTabMenu(event, tab, index, label)}
               className={cn(
-                'flex shrink-0 rounded-[var(--control-radius)]',
+                'relative flex max-w-[180px] shrink-0 items-center rounded-[var(--control-radius)]',
+                tab.id !== activeTabId &&
+                  index < tabs.length - 1 &&
+                  tabs[index + 1]?.id !== activeTabId &&
+                  'after:pointer-events-none after:absolute after:right-0 after:h-3.5 after:w-px after:bg-border/70',
                 dragging && dragIndex === index && 'opacity-40',
                 dragging && dropIndex === index && dragIndex !== index
                   ? 'shadow-[inset_2px_0_0_0_var(--theme-accent)]'
@@ -142,6 +146,7 @@ export function EnvironmentTabstrip({
               )}
             >
               <SurfaceTab
+                className="max-w-[180px]"
                 label={label}
                 title={tab.url || label}
                 active={tab.id === activeTabId}
@@ -175,7 +180,13 @@ export function EnvironmentTabstrip({
           );
         })}
       </SurfaceTabStrip>
-      <IconButton variant="ghost" title="新建标签" disabled={disabled || locked} onClick={onCreate}>
+      <IconButton
+        variant="ghost"
+        title="新建标签 (⌘T)"
+        disabled={disabled || locked}
+        onClick={onCreate}
+        className="[app-region:no-drag] [-webkit-app-region:no-drag]"
+      >
         <Icon name="Plus" />
       </IconButton>
     </div>

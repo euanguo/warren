@@ -12,6 +12,7 @@ import {
 import type { X509Certificate } from 'node:crypto';
 import { buildPageContextMenu } from '../browser-context-menu.ts';
 import { BrowserController } from '../browser/controller.ts';
+import type { VisualActionEvent } from '../browser/ctx.ts';
 import { getDownloadPath, listDownloads } from '../browser/downloads.ts';
 import type { EnvPending } from '../browser/pending.ts';
 import { makeEvent } from '../domain/environment.ts';
@@ -53,6 +54,7 @@ export interface ViewCoordinatorDeps {
   onChange: () => void;
   onTargetUrl?: (payload: { envId: string; url: string }) => void;
   onFindResult?: (result: FindInPageResult) => void;
+  onVisualAction?: (id: string, space: SpaceId, action: VisualActionEvent) => void;
   emitBusEvent: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
   attachTabTelemetry: (envId: string, tabId: string, wc: Electron.WebContents) => void;
   detachTabTelemetry: (tabId: string) => void;
@@ -105,6 +107,7 @@ export class EnvViewCoordinator {
             contextIsolation: true,
             sandbox: true,
             nodeIntegration: false,
+            backgroundThrottling: false,
           },
         }),
       () => !this.#window.isDestroyed() && this.#window.isFocused(),
@@ -237,6 +240,7 @@ export class EnvViewCoordinator {
           record: (type, message) => {
             this.#deps.store.record(makeEvent(type, message, 'agent', id));
           },
+          onVisualAction: (action) => this.#deps.onVisualAction?.(id, space, action),
         });
         controller.attach();
         return controller;
@@ -603,7 +607,7 @@ export class EnvViewCoordinator {
     if (options.dock) this.#devtools.setDefaultDock(options.dock);
     if (options.defaultViewport) this.#defaultViewport = options.defaultViewport;
     if (typeof options.pageBorderRadius === 'boolean') {
-      this.#layers.setPageRadius(options.pageBorderRadius ? 8 : 0);
+      this.#layers.setPageRadius(options.pageBorderRadius ? 6 : 0);
     }
   }
 

@@ -7,7 +7,7 @@ import { LeaseCoordinator, type LeaseHandle } from './env/lease-coordinator.ts';
 import { EnvLifecycle, SPACE_IDS } from './env/lifecycle.ts';
 import { EnvSessionFactory } from './env/session-factory.ts';
 import { EnvViewCoordinator } from './env/view-coordinator.ts';
-import { InputShield } from './input-shield.ts';
+import { InputShield, type ShieldTheme } from './input-shield.ts';
 import type { Store } from './store.ts';
 import { newTabUrl, type TabListItem } from './tabs.ts';
 import type { ConsoleEntry, NetworkEntry } from './telemetry.ts';
@@ -83,6 +83,9 @@ export class EnvironmentManager {
       onChange,
       onTargetUrl: options.onTargetUrl,
       onFindResult: options.onFindResult,
+      onVisualAction: (id, space, action) => {
+        if (space === 'agent') this.#leases.showVisualAction(id, action);
+      },
       emitBusEvent: (type, envId, payload) => this.#emitBusEvent(type, envId, payload),
       attachTabTelemetry: (envId, tabId, wc) => this.#sessions.attachTabTelemetry(envId, tabId, wc),
       detachTabTelemetry: (tabId) => this.#sessions.detachTabTelemetry(tabId),
@@ -490,6 +493,11 @@ export class EnvironmentManager {
   }
   hasActiveAgentLease(): boolean {
     return this.#leases.hasActiveAgentLease();
+  }
+
+  /** 同步透明护盾主题（暗色 / 浅色）。 */
+  setShieldTheme(theme: ShieldTheme): void {
+    this.#leases.setShieldTheme(theme);
   }
 
   /** 将最新应用级设置同步到各运行期协作者，使设置修改即刻生效。 */

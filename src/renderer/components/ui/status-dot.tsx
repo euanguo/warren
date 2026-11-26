@@ -9,6 +9,7 @@ const toneClass = {
   error: "text-[var(--destructive)]",
   success: "text-[var(--success)]",
   warning: "text-[var(--warning)]",
+  info: "text-[var(--info)]",
   idle: "text-muted-foreground/40",
 } as const
 

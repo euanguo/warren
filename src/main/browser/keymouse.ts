@@ -36,6 +36,20 @@ export async function mouseClick(
     buttons: 0,
     pointerType: 'mouse',
   });
+  if (ctx.onVisualAction) {
+    try {
+      const rawZoom = typeof ctx.wc.getZoomFactor === 'function' ? ctx.wc.getZoomFactor() : 1;
+      const zoom = Number.isFinite(rawZoom) && rawZoom > 0 ? rawZoom : 1;
+      ctx.onVisualAction({
+        kind: 'click',
+        x: Math.round(x * zoom),
+        y: Math.round(y * zoom),
+        ...(opts.label ? { label: opts.label.slice(0, 48) } : {}),
+      });
+    } catch {
+      // ignore
+    }
+  }
   await ctx.sendInput('Input.dispatchMouseEvent', {
     type: 'mousePressed',
     x,
@@ -77,6 +91,20 @@ export async function mouseMove(
   });
   lastMouse.x = x;
   lastMouse.y = y;
+  if (ctx.onVisualAction) {
+    try {
+      const rawZoom = typeof ctx.wc.getZoomFactor === 'function' ? ctx.wc.getZoomFactor() : 1;
+      const zoom = Number.isFinite(rawZoom) && rawZoom > 0 ? rawZoom : 1;
+      ctx.onVisualAction({
+        kind: 'move',
+        x: Math.round(x * zoom),
+        y: Math.round(y * zoom),
+        ...(opts.label ? { label: opts.label.slice(0, 48) } : {}),
+      });
+    } catch {
+      // ignore
+    }
+  }
   if (opts.label) ctx.record('browser.action', `移鼠 ${opts.label} @${x | 0},${y | 0}`);
   return { x, y };
 }

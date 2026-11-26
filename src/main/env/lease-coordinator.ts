@@ -1,6 +1,6 @@
 import { controlModeFor } from '../domain/approval.ts';
 import { diagnoseLease, leaseDenialError, renewLease, revokedReason } from '../domain/environment.ts';
-import type { InputShield } from '../input-shield.ts';
+import type { InputShield, ShieldMode, ShieldTheme, ShieldVisualAction } from '../input-shield.ts';
 import type { TabManager } from '../tabs.ts';
 import type {
   ControlOwner,
@@ -42,6 +42,9 @@ export type TabManagerLike = Pick<
 
 export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setVisible' | 'setBounds' | 'destroy'> & {
   setShowControlPill?: (show: boolean) => void;
+  setMode?: (mode: ShieldMode) => void;
+  setTheme?: (theme: ShieldTheme) => void;
+  showAction?: (action: ShieldVisualAction) => void;
 };
 
 export interface LeaseCoordinatorDeps {
@@ -81,6 +84,7 @@ export class LeaseCoordinator {
   #shields = new Map<string, ShieldLike>();
   #ttlOverrideMs?: number;
   #showControlPill = true;
+  #shieldTheme: ShieldTheme = 'dark';
 
   constructor(deps: LeaseCoordinatorDeps) {
     this.#deps = deps;
@@ -98,6 +102,13 @@ export class LeaseCoordinator {
     this.#showControlPill = show;
     for (const shield of this.#shields.values()) {
       shield.setShowControlPill?.(show);
+    }
+  }
+
+  setShieldTheme(theme: ShieldTheme): void {
+    this.#shieldTheme = theme;
+    for (const shield of this.#shields.values()) {
+      shield.setTheme?.(theme);
     }
   }
 
@@ -201,6 +212,7 @@ export class LeaseCoordinator {
     }
     if (!shield) return;
     shield.setShowControlPill?.(this.#showControlPill);
+    shield.setTheme?.(this.#shieldTheme);
     const lease = this.#leases.get(id);
     // 遮罩只盖**正在显示的那个**环境：agent 持着别的环境的 lease 时，
     // 不该把当前显示的页面盖住（人看到的是「AI 在操作」，但 AI 在别处）。
@@ -209,13 +221,26 @@ export class LeaseCoordinator {
     );
     const active = this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent' && !humanOwnsAgent;
     if (active) {
-      const caller = lease && lease.space === 'agent' && lease.owner === 'agent' ? lease.label : undefined;
+      const agentControlling = Boolean(
+        lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
+      );
+      const caller = agentControlling ? lease?.label : undefined;
+      shield.setMode?.(agentControlling ? 'agent' : 'idle');
       shield.setCallerLabel(caller);
       shield.setVisible(this.#deps.getViewVisible());
       this.#deps.attachAndRaiseShield(shield, this.#deps.getPageBounds());
     } else {
+      shield.setMode?.('idle');
       this.#deps.detachShield(shield);
     }
+  }
+
+  /** 将 AI 正在执行的视口坐标/控件矩形同步给当前可见的透明遮罩层绘制轨迹动画。 */
+  showVisualAction(id: string, action: ShieldVisualAction): void {
+    if (this.#deps.getSelectedId() !== id) return;
+    if (this.#deps.getActiveSpace(id) !== 'agent') return;
+    if (!this.#deps.getViewVisible() || !this.isAgentControlling(id)) return;
+    this.#shields.get(id)?.showAction?.(action);
   }
 
   acquire(id: string, owner: 'agent' | 'human', label?: string, space: SpaceId = 'agent'): LeaseHandle {

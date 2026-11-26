@@ -49,7 +49,7 @@ import {
   resolveTarget,
   scrollIntoView,
 } from './page-helpers.ts';
-import type { PageContext, PendingSink } from './ctx.ts';
+import type { PageContext, PendingSink, VisualActionEvent } from './ctx.ts';
 import { checkTargetState, readTargetProperty, type InspectProp, type InspectState } from './ops/inspector.ts';
 import { applyEmulationSetting, type EmulationSetting } from './ops/emulation.ts';
 import { callWebMcpTool, listWebMcpTools } from './ops/webmcp.ts';
@@ -137,6 +137,7 @@ interface Ctx {
   noteActivity: () => void;
   downloadById: (id: string) => { item: Electron.DownloadItem; url: string; filename: string; path: string } | null;
   record: (type: string, message: string) => void;
+  onVisualAction?: (action: VisualActionEvent) => void;
 }
 
 /** 选择器遍历在页面内的返回值。`error` 有值 = 求值失败，`errorKind` 说明是不是语法错。 */
@@ -238,6 +239,7 @@ export class BrowserController {
       noteActivity: ctx?.noteActivity ?? (() => {}),
       downloadById: ctx?.downloadById ?? (() => null),
       record: ctx?.record ?? (() => {}),
+      onVisualAction: ctx?.onVisualAction,
     };
     wc.on('did-start-navigation', ((_event: unknown, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
       if (!isMainFrame) return;
@@ -270,6 +272,7 @@ export class BrowserController {
       lastNavigationError: this.#ctx.lastNavigationError,
       activeFrameId: () => this.#activeFrameId,
       record: this.#ctx.record,
+      onVisualAction: this.#ctx.onVisualAction,
     };
     return this.#pageCtx;
   }

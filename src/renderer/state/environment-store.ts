@@ -123,4 +123,13 @@ export const environmentActions = {
     runAction(() => window.envApi.tabMute(id, space, ref, muted), '切换静音失败'),
   navigate: (id: string, space: SpaceId, action: NavigationAction) =>
     runAction(() => window.envApi.humanNavigate(id, space, action), '导航失败'),
+  startAndNavigate: (id: string, space: SpaceId, url: string) =>
+    runAction(async () => {
+      await window.envApi.start(id);
+      try {
+        await window.envApi.humanNavigate(id, space, { kind: 'goto', url });
+      } catch {
+        await window.envApi.tabCreate(id, space, url, true);
+      }
+    }, '启动并打开地址失败'),
 };

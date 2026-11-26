@@ -890,8 +890,8 @@ export default function register(app) {
         h('span', { className: 'text-sm font-medium' }, '代理实例'),
         h(
           'span',
-          { className: 'text-xs text-muted-foreground' },
-          `${instances.filter((item) => item.alive).length}/${instances.length} 在跑 · ${w2}`,
+          { className: 'text-xs text-muted-foreground', title: w2 },
+          `${instances.filter((item) => item.alive).length}/${instances.length} 在跑 · ${w2.startsWith('bundled:') ? '内置 Whistle' : w2}`,
         ),
         h(Button, { variant: 'ghost', className: 'ml-auto', onClick: load }, '刷新'),
         h(NewInstanceDialog, { environments, busy, run, onCreated: () => setSelected(null) }),
@@ -945,6 +945,195 @@ export default function register(app) {
     );
   }
 
+  function WhistleInspectorTab({ environmentId }) {
+    const { instances, busy, load, run } = useInstances();
+    const [rulesData, setRulesData] = useState(null);
+    const [profile, setProfile] = useState(null);
+    const bound = instances.find((item) => item.environmentId === environmentId);
+
+    const loadBoundDetails = useCallback(() => {
+      if (!bound || !bound.alive) {
+        setRulesData(null);
+        setProfile(null);
+        return;
+      }
+      app.rpc
+        .call('rules', { storage: bound.storage })
+        .then(setRulesData)
+        .catch(() => setRulesData(null));
+      app.rpc
+        .call('profileGet', { storage: bound.storage })
+        .then((res) => setProfile(res?.profile ?? null))
+        .catch(() => setProfile(null));
+    }, [bound]);
+
+    useEffect(() => {
+      loadBoundDetails();
+    }, [loadBoundDetails]);
+
+    if (!environmentId) {
+      return h('p', { className: 'text-xs text-muted-foreground' }, '先选择一个运行中的环境。');
+    }
+
+    if (!bound) {
+      return h(
+        'div',
+        { className: 'flex flex-col gap-2.5 text-xs', 'data-slot': 'whistle-inspector' },
+        h(
+          'div',
+          { className: cn(cardSurfaceClass, 'flex flex-col gap-1.5 py-2.5') },
+          h(
+            'div',
+            { className: 'flex items-center gap-1.5 font-medium text-foreground' },
+            h(Icon, { name: 'Globe', className: 'size-3.5 text-muted-foreground' }),
+            h('span', null, '当前环境未绑定 Whistle 代理实例'),
+          ),
+          h(
+            'p',
+            { className: 'text-[11px] leading-relaxed text-muted-foreground' },
+            instances.length > 0
+              ? '可从下方快捷绑定已有实例，自动配置代理并信任根证书。'
+              : '可在顶栏切至全局「代理」页新建独立实例并绑定到此环境。',
+          ),
+        ),
+        instances.length > 0
+          ? h(
+              'div',
+              { className: 'flex flex-col gap-1.5' },
+              h('span', { className: 'text-[11px] text-muted-foreground' }, '快捷绑定已有实例：'),
+              ...instances.slice(0, 5).map((inst) =>
+                h(
+                  'div',
+                  {
+                    key: inst.storage,
+                    className: cn(cardSurfaceClass, 'flex items-center justify-between gap-2 py-1.5'),
+                  },
+                  h('span', { className: 'truncate font-mono' }, `${inst.storage} :${inst.port}`),
+                  h(
+                    Button,
+                    {
+                      size: 'xs',
+                      variant: 'outline',
+                      disabled: busy,
+                      onClick: () =>
+                        run(() => app.rpc.call('bind', { storage: inst.storage, environmentId }), '绑定实例失败').then(
+                          load,
+                        ),
+                    },
+                    '绑定',
+                  ),
+                ),
+              ),
+            )
+          : null,
+      );
+    }
+
+    const groups = Array.isArray(rulesData?.groups) ? rulesData.groups : [];
+    return h(
+      'div',
+      { className: 'flex flex-col gap-2.5 text-xs', 'data-slot': 'whistle-inspector' },
+      h(
+        'div',
+        { className: cn(cardSurfaceClass, 'flex flex-col gap-2') },
+        h(
+          'div',
+          { className: 'flex items-center gap-1.5' },
+          h('span', { className: 'truncate font-medium' }, bound.storage),
+          h('span', { className: 'font-mono text-muted-foreground' }, `:${bound.port}`),
+          h(
+            Badge,
+            { variant: bound.alive ? 'secondary' : 'outline', className: 'ml-auto shrink-0' },
+            bound.alive ? '运行中' : '已停止',
+          ),
+        ),
+        profile
+          ? h(
+              'span',
+              { className: 'truncate font-mono text-[11px] text-muted-foreground' },
+              `当前预设：${profile.presetId} r${profile.revision}`,
+            )
+          : null,
+        h(
+          'div',
+          { className: 'flex flex-wrap items-center gap-1.5' },
+          bound.alive
+            ? h(
+                Button,
+                {
+                  size: 'xs',
+                  disabled: busy,
+                  onClick: () => run(() => app.rpc.call('open', { environmentId }), '打开 Whistle 面板失败'),
+                },
+                '打开 Web UI',
+              )
+            : h(
+                Button,
+                {
+                  size: 'xs',
+                  disabled: busy,
+                  onClick: () =>
+                    run(() => app.rpc.call('start', { storage: bound.storage }), '启动实例失败').then(loadBoundDetails),
+                },
+                '启动实例',
+              ),
+          h(
+            Button,
+            {
+              size: 'xs',
+              variant: 'ghost',
+              disabled: busy,
+              onClick: () => {
+                load();
+                loadBoundDetails();
+              },
+            },
+            '刷新',
+          ),
+        ),
+      ),
+      bound.alive
+        ? h(
+            'div',
+            { className: 'flex flex-col gap-1.5' },
+            h('span', { className: 'text-[11px] font-medium text-muted-foreground' }, `规则组（${groups.length}）`),
+            groups.length === 0
+              ? h('p', { className: 'text-muted-foreground' }, '暂无规则组。')
+              : h(
+                  'div',
+                  { className: 'flex flex-col gap-1.5' },
+                  ...groups.map((grp) =>
+                    h(
+                      'div',
+                      {
+                        key: grp.name,
+                        className: cn(cardSurfaceClass, 'flex items-center justify-between gap-2 py-1.5'),
+                      },
+                      h('span', { className: 'truncate font-mono' }, grp.name),
+                      h(Switch, {
+                        checked: Boolean(grp.selected),
+                        disabled: busy,
+                        'aria-label': `切换规则组 ${grp.name}`,
+                        onCheckedChange: (checked) =>
+                          void run(
+                            () =>
+                              app.rpc.call('ruleToggle', {
+                                storage: bound.storage,
+                                name: grp.name,
+                                enabled: Boolean(checked),
+                              }),
+                            '切换规则组失败',
+                          ).then(loadBoundDetails),
+                      }),
+                    ),
+                  ),
+                ),
+          )
+        : null,
+    );
+  }
+
   app.surfaces.railPage({ id: 'proxy', title: '代理', icon: 'Globe', path: 'proxy', component: ProxyPage });
+  app.surfaces.inspectorTab({ id: 'env-proxy', title: '代理', component: WhistleInspectorTab });
   app.surfaces.settingsSection({ id: 'about', title: 'Whistle 使用说明', component: AboutSection });
 }

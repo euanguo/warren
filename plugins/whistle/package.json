@@ -196,6 +196,11 @@
           "path": "proxy"
         },
         {
+          "kind": "inspectorTab",
+          "id": "env-proxy",
+          "title": "代理"
+        },
+        {
           "kind": "settingsSection",
           "id": "about",
           "title": "Whistle 使用说明"

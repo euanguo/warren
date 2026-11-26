@@ -6,33 +6,35 @@ import type { EnvironmentSpace, SpaceId } from '@shared/types';
 interface Props {
   spaces: EnvironmentSpace[];
   activeSpaceId: SpaceId;
+  leaseLabel?: string;
   onSelect: (space: SpaceId) => void;
 }
 
 function agentTone(space?: EnvironmentSpace): StatusDotTone {
-  if (space?.owner === 'agent') return 'warning';
+  if (space?.owner === 'agent') return 'info';
   if (space?.owner === 'human') return 'success';
   return 'idle';
 }
 
 /** Space 是 Environment 里的控制分组，不是另一个 Environment。 */
-export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, onSelect }: Props) {
+export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, onSelect }: Props) {
   if (!spaces.length) return null;
   const agent = spaces.find((space) => space.id === 'agent');
   return (
     <div
       data-slot="space-switcher"
-      className="my-0.5 flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-muted/30 p-0.5"
+      className="flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-muted/30 p-0.5"
     >
       {spaces.map((space) => {
         const active = space.id === activeSpaceId;
+        const agentRunning = space.id === 'agent' && space.owner === 'agent';
         const agentState =
           space.id === 'agent'
             ? space.owner === 'agent'
-              ? 'AI 操作中'
+              ? `${leaseLabel || 'AI'} 操作中${active ? '' : ' · 点击查看'}`
               : space.owner === 'human'
                 ? '你接管中'
-                : '空闲'
+                : 'Agent 空间空闲（只读）'
             : '';
         return (
           <Button
@@ -45,7 +47,9 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, onSelect }: Pr
             onClick={() => onSelect(space.id)}
             title={agentState || space.label}
           >
-            {space.id === 'agent' && <StatusDot tone={agentTone(agent)} />}
+            {space.id === 'agent' && (
+              <StatusDot tone={agentTone(agent)} className={cn(agentRunning && 'animate-pulse')} />
+            )}
             {space.id === 'person' ? '我的' : 'Agent'}
             <span className="font-mono text-[10px] text-muted-foreground">{space.tabs.length}</span>
           </Button>

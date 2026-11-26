@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/icons';
-import { Button, IconButton } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/button';
 import {
   Sidebar,
   SidebarContent,
@@ -106,30 +106,31 @@ export function EnvironmentSidebar({
 
   return (
     <Sidebar collapsible="none" className="h-full w-full min-w-0" data-collapsed="false">
-      <div className="flex h-[var(--shell-chrome-row-height)] shrink-0 items-center px-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start"
-          onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
-        >
-          <Icon name="Plus" />
-          <span className="truncate">新建环境</span>
-        </Button>
-      </div>
-
-      <SidebarHeader className="pt-0">
-        <div className="relative">
-          <Icon
-            name="Search"
-            className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
-          />
-          <SidebarInput
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索环境…"
-            className="pl-7"
-          />
+      <SidebarHeader className="flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center border-b border-divider px-2 py-0">
+        <div className="flex w-full items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Icon
+              name="Search"
+              className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <SidebarInput
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索环境…"
+              aria-label="搜索环境"
+              className="h-[var(--control-height-icon)] pl-7 text-xs"
+            />
+          </div>
+          <IconButton
+            variant="secondary"
+            data-slot="sidebar-create-env"
+            title="新建环境"
+            aria-label="新建环境"
+            className="border border-border/80"
+            onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
+          >
+            <Icon name="Plus" />
+          </IconButton>
         </div>
       </SidebarHeader>
 

@@ -40,6 +40,40 @@ function tname(target: TargetInput): string {
   return typeof target === 'string' ? target : JSON.stringify(target).slice(0, 60);
 }
 
+/** 换算当前页面缩放比并向透明遮罩层播报动作位置（安全静默，永不中断主操作）。 */
+function emitVisualAction(
+  ctx: PageContext,
+  kind: 'click' | 'fill' | 'hover',
+  x: number,
+  y: number,
+  rect?: { x: number; y: number; width: number; height: number },
+  label?: string,
+): void {
+  if (!ctx.onVisualAction) return;
+  try {
+    const rawZoom = typeof ctx.wc.getZoomFactor === 'function' ? ctx.wc.getZoomFactor() : 1;
+    const zoom = Number.isFinite(rawZoom) && rawZoom > 0 ? rawZoom : 1;
+    ctx.onVisualAction({
+      kind,
+      x: Math.round(x * zoom),
+      y: Math.round(y * zoom),
+      ...(rect
+        ? {
+            rect: {
+              x: Math.round(rect.x * zoom),
+              y: Math.round(rect.y * zoom),
+              width: Math.round(rect.width * zoom),
+              height: Math.round(rect.height * zoom),
+            },
+          }
+        : {}),
+      ...(label ? { label: label.slice(0, 48) } : {}),
+    });
+  } catch {
+    // 动画播报层永不影响真实操作
+  }
+}
+
 /**
  * 是否开启贝塞尔曲线鼠标移动：
  * - 显式传入 `opts.humanize` 时优先听调用方；
@@ -106,7 +140,10 @@ export async function click(
         requiredStates(opts.clickCount === 2 ? 'dblclick' : 'click'),
         sessionId,
       );
-      const { x, y } = await boxCenter(ctx, backendNodeId, opts.position, sessionId);
+      const rect = await boxRect(ctx, backendNodeId, sessionId);
+      const x = opts.position ? rect.x + opts.position.x : rect.x + rect.width / 2;
+      const y = opts.position ? rect.y + opts.position.y : rect.y + rect.height / 2;
+      emitVisualAction(ctx, 'click', x, y, rect, opts.label ?? tname(target));
       const urlBefore = ctx.wc.getURL();
       const navigated = opts.noWaitAfter
         ? Promise.resolve<NavigationReceipt>('none')
@@ -219,7 +256,10 @@ export async function hover(
       const skipScroll = retry === 0 && (await isVisibleFloatingFlyout(ctx, backendNodeId, sessionId));
       if (!skipScroll) await scrollIntoView(ctx, backendNodeId, retry, sessionId);
       await checkActionable(ctx, backendNodeId, requiredStates('hover'), sessionId);
-      const { x, y } = await boxCenter(ctx, backendNodeId, opts.position, sessionId);
+      const rect = await boxRect(ctx, backendNodeId, sessionId);
+      const x = opts.position ? rect.x + opts.position.x : rect.x + rect.width / 2;
+      const y = opts.position ? rect.y + opts.position.y : rect.y + rect.height / 2;
+      emitVisualAction(ctx, 'hover', x, y, rect, opts.label ?? tname(target));
       await moveAlongPath(ctx, { x, y }, opts.humanize);
       if (opts.label) ctx.record('browser.action', `悬停 ${opts.label} @${x | 0},${y | 0}`);
       return { x, y, ...receipt(ctx, since) };
@@ -588,6 +628,18 @@ export async function fill(
       })();
       if (!isLabelWrapper) {
         await checkActionable(ctx, backendNodeId, requiredStates('fill'), sessionId);
+      }
+      const fillRect = await boxRect(ctx, backendNodeId, sessionId).catch(() => undefined);
+      if (fillRect) {
+        // 严禁把填进去的 value 放进 label，避免密码/凭据明文出现在遮罩层
+        emitVisualAction(
+          ctx,
+          'fill',
+          fillRect.x + fillRect.width / 2,
+          fillRect.y + fillRect.height / 2,
+          fillRect,
+          `fill ${tname(target)}`,
+        );
       }
       const nodeId = await nodeIdFor(ctx, backendNodeId, sessionId);
       await ctx.sendOn(sessionId, 'DOM.focus', { nodeId }).catch(() => {});
