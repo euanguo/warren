@@ -119,46 +119,49 @@ export function MemoryAttributionTabs({ snapshot, pinnedSet, busyAction, onToggl
                         <Button
                           size="sm"
                           variant={isPinned ? 'secondary' : 'ghost'}
+                          className="min-w-[68px]"
                           title={isPinned ? '取消固定（允许自动休眠与 LRU 回收）' : '固定环境（免受自动休眠与回收）'}
                           onClick={() => void onTogglePin(env)}
                         >
                           <Icon name="Lock" className="size-3.5" />
                           {isPinned ? '已固定' : '固定'}
                         </Button>
-                        {env.status === 'running' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busyAction !== null || Boolean(env.protectedReason)}
-                            title={
-                              env.protectedReason
-                                ? `受保护（${PROTECTION_LABELS[env.protectedReason]}），无法休眠`
-                                : '休眠此环境释放渲染进程（保留登录态与标签）'
-                            }
-                            onClick={() =>
-                              void onRunAction(`hibernate:${env.id}`, async () => {
-                                await environmentActions.hibernate(env.id);
-                              })
-                            }
-                          >
-                            休眠
-                          </Button>
-                        )}
-                        {env.status === 'dormant' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busyAction !== null}
-                            onClick={() =>
-                              void onRunAction(`wake:${env.id}`, async () => {
-                                await environmentActions.wake(env.id);
-                              })
-                            }
-                          >
-                            <Icon name="Play" className="size-3.5" />
-                            唤醒
-                          </Button>
-                        )}
+                        <div className="flex w-[64px] justify-end">
+                          {env.status === 'running' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busyAction !== null || Boolean(env.protectedReason)}
+                              title={
+                                env.protectedReason
+                                  ? `受保护（${PROTECTION_LABELS[env.protectedReason]}），无法休眠`
+                                  : '休眠此环境释放渲染进程（保留登录态与标签）'
+                              }
+                              onClick={() =>
+                                void onRunAction(`hibernate:${env.id}`, async () => {
+                                  await environmentActions.hibernate(env.id);
+                                })
+                              }
+                            >
+                              休眠
+                            </Button>
+                          )}
+                          {env.status === 'dormant' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busyAction !== null}
+                              onClick={() =>
+                                void onRunAction(`wake:${env.id}`, async () => {
+                                  await environmentActions.wake(env.id);
+                                })
+                              }
+                            >
+                              <Icon name="Play" className="size-3.5" />
+                              唤醒
+                            </Button>
+                          )}
+                        </div>
                         <IconButton
                           variant="ghost"
                           title="清理此环境的 HTTP 缓存（保留登录态）"

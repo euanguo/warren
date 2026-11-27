@@ -8,6 +8,7 @@ function Tabs({ className, orientation = "horizontal", ...props }: TabsPrimitive
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
+      orientation={orientation}
       data-orientation={orientation}
       className={cn("group/tabs flex gap-2 data-horizontal:flex-col", className)}
       {...props}
@@ -16,7 +17,7 @@ function Tabs({ className, orientation = "horizontal", ...props }: TabsPrimitive
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list relative inline-flex w-fit items-center justify-center rounded-[var(--control-radius)] text-muted-foreground group-data-horizontal/tabs:h-[var(--control-height)] group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col",
+  "group/tabs-list relative inline-flex w-fit items-center justify-center rounded-[var(--control-radius)] text-muted-foreground data-[orientation=horizontal]:h-[var(--control-height)] data-[orientation=vertical]:h-fit data-[orientation=vertical]:flex-col",
   {
     variants: {
       variant: {
@@ -51,7 +52,7 @@ function TabsList({
     let initialized = false;
 
     const sync = () => {
-      const isVertical = list.closest('[data-orientation="vertical"]') !== null;
+      const isVertical = list.closest('[data-slot="tabs"]')?.getAttribute("data-orientation") === "vertical";
       if (isVertical) {
         pill.style.opacity = "0";
         return;
