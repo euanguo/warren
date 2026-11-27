@@ -25,6 +25,7 @@ export class OverlayHost {
   #view?: WebContentsView;
   #ready?: Promise<void>;
   #open = false;
+  #lastUsedAt = Date.now();
   #currentRequest: OverlayRequest | null = null;
   #pendingResolve?: (value: unknown) => void;
   #onResolved?: () => void;
@@ -39,7 +40,26 @@ export class OverlayHost {
 
   /** 预热透明模态层；主窗口首绘完成后再调用，避免冷启动瞬间争抢渲染资源。 */
   warmup(): void {
+    this.#lastUsedAt = Date.now();
     this.#ensureView();
+  }
+
+  /** 回收空闲隐藏态的 Overlay 渲染视图，下次打开时按需重建。 */
+  reclaimIdle(idleMs = 0): number {
+    if (this.#open || !this.#view) return 0;
+    if (idleMs > 0 && Date.now() - this.#lastUsedAt < idleMs) return 0;
+    this.#layers.setSlot('overlay', undefined);
+    if (!this.#view.webContents.isDestroyed()) this.#view.webContents.close();
+    this.#view = undefined;
+    this.#ready = undefined;
+    return 1;
+  }
+
+  processInfos(): Array<{ pid: number; label: string }> {
+    const wc = this.webContents;
+    if (!wc) return [];
+    const pid = wc.getOSProcessId();
+    return Number.isInteger(pid) && pid > 0 ? [{ pid, label: 'Overlay 模态层' }] : [];
   }
 
   #ensureView(): WebContentsView {
@@ -87,6 +107,7 @@ export class OverlayHost {
   }
 
   async open<T = unknown>(request: OverlayRequest): Promise<T | null> {
+    this.#lastUsedAt = Date.now();
     const view = this.#ensureView();
     await this.#ready;
     if (this.#pendingResolve) {
@@ -112,6 +133,7 @@ export class OverlayHost {
     const done = this.#pendingResolve;
     this.#pendingResolve = undefined;
     this.#open = false;
+    this.#lastUsedAt = Date.now();
     this.#currentRequest = null;
     this.#layers.setVisible('overlay', false);
     if (this.#view && !this.#view.webContents.isDestroyed()) {

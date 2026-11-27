@@ -94,10 +94,26 @@ export const envRpcEndpoints: RpcDomainTable = {
   },
   'env.hibernate': {
     kind: 'change',
-    summary: '休眠环境释放渲染进程内存',
-    params: ['id'],
+    summary: '休眠单个环境或全部可安全回收的后台环境以释放渲染进程内存',
+    params: ['id?', 'idle?'],
     gate: 'none',
-    handler: (ctx) => ({ ok: ctx.deps.manager.hibernate(ctx.str('id'), 'manual') }),
+    handler: (ctx) => {
+      if (ctx.params.idle === true) {
+        const hibernated = ctx.deps.manager.hibernateBackground('cli-idle');
+        return { ok: true, hibernated };
+      }
+      return { ok: ctx.deps.manager.hibernate(ctx.str('id'), 'manual') };
+    },
+  },
+  'env.clearCache': {
+    kind: 'change',
+    summary: '清理指定环境或全部环境的 HTTP 磁盘缓存（保留 Cookie 与登录态）',
+    params: ['id?'],
+    gate: 'none',
+    handler: (ctx) => {
+      const id = ctx.optStr('id');
+      return id ? ctx.deps.manager.clearCache(id) : ctx.deps.manager.clearAllCaches();
+    },
   },
   'env.wake': {
     kind: 'change',

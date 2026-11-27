@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { DevToolsDockMode, ViewportPresetId } from './common.ts';
+import type { LruEvictAction } from './memory.ts';
 
 /**
  * 全局控制权策略。
@@ -36,6 +37,18 @@ export interface AppSettings {
   devtoolsBottomSize?: number;
   maxRunning?: number;
   idleHibernateMinutes?: number;
+  /** 内存软水位阈值（MB，0 = 不限；超出后按压力策略优先休眠后台非保护环境）。 */
+  memorySoftLimitMb?: number;
+  /** 后台非激活标签闲置自动睡眠阈值（分钟，0 = 关闭）。 */
+  tabSleepMinutes?: number;
+  /** 启动或唤醒环境时仅实例化当前激活标签，其余保持休眠占位。 */
+  lazyRestoreTabs?: boolean;
+  /** 后台不可见且无 Agent 租约的标签启用 Chromium 降频。 */
+  throttleBackgroundTabs?: boolean;
+  /** 并发运行环境达到上限时的 LRU 动作：优先休眠（保无缝唤醒）或直接停止。 */
+  lruEvictAction?: LruEvictAction;
+  /** 永不自动休眠/回收的环境 ID 白名单。 */
+  pinnedEnvIds?: string[];
   leaseTtlMs?: number;
   showControlPill?: boolean;
 }

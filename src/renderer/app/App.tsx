@@ -129,6 +129,15 @@ export function App() {
     });
   }, [openCommandBar]);
 
+  // 响应侧栏内存速览 Popover 的「打开完整内存面板」动作
+  useEffect(() => {
+    return window.envApi.onPopoverAction((event) => {
+      if (event.id === 'memory-quick' && event.action === 'openMemoryPanel') {
+        openSettings('memory');
+      }
+    });
+  }, []);
+
   // ⌘B 切换环境侧栏；插件全屏页按 Esc 返回环境工作台
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -258,8 +267,11 @@ export function App() {
               onTabCloseRight={(id, space, ref) => void environmentActions.tabCloseRight(id, space, ref)}
               onTabReorder={(id, space, from, to) => void environmentActions.tabReorder(id, space, from, to)}
               onTabToggleMute={(id, space, ref, muted) => void environmentActions.tabMute(id, space, ref, muted)}
+              onTabSleep={(id, space, ref) => void environmentActions.tabSleep(id, space, ref)}
               onStart={(id) => void environmentActions.start(id)}
               onStop={(id) => void environmentActions.stop(id)}
+              onHibernate={(id) => void environmentActions.hibernate(id)}
+              onClearCache={(id) => void environmentActions.clearCache(id)}
               onRemove={(id) => void environmentActions.remove(id)}
               onMoveToGroup={(id, groupId) => void environmentActions.moveToGroup(id, groupId)}
               onRunPluginAction={(pluginId, command, envId) => void pluginActions.runAction(pluginId, command, envId)}
@@ -300,6 +312,8 @@ export function App() {
                       onSelect={(id) => void environmentActions.select(id)}
                       onStart={(id) => void environmentActions.start(id)}
                       onStop={(id) => void environmentActions.stop(id)}
+                      onHibernate={(id) => void environmentActions.hibernate(id)}
+                      onClearCache={(id) => void environmentActions.clearCache(id)}
                       onRemove={(id) => void environmentActions.remove(id)}
                       onTakeover={(id) => void environmentActions.takeover(id)}
                       onRelease={(id) => void environmentActions.release(id)}

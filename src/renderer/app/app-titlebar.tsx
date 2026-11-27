@@ -48,8 +48,11 @@ interface Props {
   onTabCloseRight: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabReorder: (id: string, space: SpaceId, from: number, to: number) => void;
   onTabToggleMute: (id: string, space: SpaceId, ref: TabRef, muted: boolean) => void;
+  onTabSleep?: (id: string, space: SpaceId, ref: TabRef) => void;
   onStart: (id: string) => void;
   onStop: (id: string) => void;
+  onHibernate?: (id: string) => void;
+  onClearCache?: (id: string) => void;
   onRemove: (id: string) => void;
   onMoveToGroup: (envId: string, groupId: string | undefined) => void;
   onRunPluginAction: (pluginId: string, command: string, envId: string) => void;
@@ -91,8 +94,11 @@ export function AppTitlebar({
   onTabCloseRight,
   onTabReorder,
   onTabToggleMute,
+  onTabSleep,
   onStart,
   onStop,
+  onHibernate,
+  onClearCache,
   onRemove,
   onMoveToGroup,
   onRunPluginAction,
@@ -137,6 +143,8 @@ export function AppTitlebar({
     void openEnvironmentContextMenu(event, environment, groups, pluginActions, {
       onStart,
       onStop,
+      onHibernate,
+      onClearCache,
       onRemove,
       onTakeover,
       onRelease,
@@ -356,6 +364,7 @@ export function AppTitlebar({
             onCloseRight={(ref) => onTabCloseRight(environment.id, activeSpaceId, ref)}
             onReorder={(from, to) => onTabReorder(environment.id, activeSpaceId, from, to)}
             onToggleMute={(ref, muted) => onTabToggleMute(environment.id, activeSpaceId, ref, muted)}
+            onSleep={onTabSleep ? (ref) => onTabSleep(environment.id, activeSpaceId, ref) : undefined}
           />
         ) : null}
       </div>

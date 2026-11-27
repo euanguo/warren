@@ -242,6 +242,11 @@ export class PluginLifecycle {
     return this.#active.get(id);
   }
 
+  /** 返回指定已激活插件的工作进程 OS PID（用于内存归因）。 */
+  pidOf(id: string): number | undefined {
+    return this.#active.get(id)?.adapter.pid;
+  }
+
   statusOf(id: string): { status: PluginStatus; detail?: string } {
     return this.#status.get(id) ?? { status: 'disabled' };
   }

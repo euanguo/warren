@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:net';
 import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { EnvironmentManager } from './environments';
+import type { MemoryMonitor } from './memory-monitor.ts';
 import type { PluginHost } from './plugins/host';
 import type { Store } from './store';
 import type { VaultStore } from './vault/store';
@@ -20,6 +21,7 @@ export interface RpcDeps {
   vault: VaultStore;
   saveVault: () => Promise<void>;
   plugins: PluginHost;
+  memoryMonitor?: Pick<MemoryMonitor, 'snapshot' | 'reclaimShellSurfaces'>;
   skillSourceDir?: string;
   homeDir?: string;
 }
@@ -36,6 +38,7 @@ export class RpcServer {
       vault: deps.vault,
       saveVault: deps.saveVault,
       plugins: deps.plugins,
+      memoryMonitor: deps.memoryMonitor,
       skillSourceDir: deps.skillSourceDir,
       homeDir: deps.homeDir,
       isPackaged: app.isPackaged,

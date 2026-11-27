@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Icon } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
 import {
@@ -11,10 +11,14 @@ import {
   SidebarInput,
 } from '@/components/ui/sidebar';
 import { Skeleton } from '@/components/ui/skeleton';
+import { StatusDot, type StatusDotTone } from '@/components/ui/status-dot';
+import { formatMemoryKb } from '@/features/settings/memory-panel';
 import { disclosureInnerClassName, disclosureShellClassName } from '@/lib/disclosure-motion';
 import type { PluginBadgeSnapshot } from '@/lib/plugin-badges';
 import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
-import type { Environment, Group } from '@shared/types';
+import { cn } from '@/lib/utils';
+import { listItemInteractiveClass } from '@/theme/surface';
+import type { Environment, Group, MemorySnapshot } from '@shared/types';
 import { SidebarEnvRow } from './sidebar-env-row';
 import { SidebarGroupHeader } from './sidebar-group-header';
 import { openEnvironmentContextMenu, openGroupContextMenu } from './sidebar-menus';
@@ -28,6 +32,8 @@ interface Props {
   onSelect: (id: string) => void;
   onStart: (id: string) => void;
   onStop: (id: string) => void;
+  onHibernate?: (id: string) => void;
+  onClearCache?: (id: string) => void;
   onRemove: (id: string) => void;
   onTakeover: (id: string) => void;
   onRelease: (id: string) => void;
@@ -75,6 +81,8 @@ export function EnvironmentSidebar({
   onSelect,
   onStart,
   onStop,
+  onHibernate,
+  onClearCache,
   onRemove,
   onTakeover,
   onRelease,
@@ -88,12 +96,53 @@ export function EnvironmentSidebar({
   onMoveToGroup,
 }: Props) {
   const [query, setQuery] = useState('');
+  const [memorySnap, setMemorySnap] = useState<MemorySnapshot | null>(null);
   const [ungroupedCollapsed, setUngroupedCollapsed] = useState(
     () => localStorage.getItem(UNGROUPED_COLLAPSED_KEY) === '1',
   );
   useEffect(() => {
     localStorage.setItem(UNGROUPED_COLLAPSED_KEY, ungroupedCollapsed ? '1' : '0');
   }, [ungroupedCollapsed]);
+
+  // 侧栏展开时低频（5s）采样一次内存摘要，收起时不轮询
+  useEffect(() => {
+    if (compact || typeof window === 'undefined' || !window.envApi?.memorySnapshot) return;
+    let active = true;
+    const pull = () => {
+      void window.envApi
+        .memorySnapshot()
+        .then((snap) => {
+          if (active && snap) setMemorySnap(snap);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const timer = window.setInterval(pull, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [compact]);
+
+  const openMemoryQuickPopover = (event: MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    void window.envApi.openPopover({
+      id: 'memory-quick',
+      anchorRect: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      },
+      size: { width: 320, height: 312 },
+      placement: 'top-start',
+      focusable: true,
+      props: {},
+    });
+  };
+
+  const memoryTone: StatusDotTone =
+    memorySnap?.pressure === 'high' ? 'error' : memorySnap?.pressure === 'elevated' ? 'warning' : 'success';
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -202,6 +251,8 @@ export function EnvironmentSidebar({
                           void openEnvironmentContextMenu(event, target, groups, pluginActions, {
                             onStart,
                             onStop,
+                            onHibernate,
+                            onClearCache,
                             onRemove,
                             onTakeover,
                             onRelease,
@@ -223,13 +274,29 @@ export function EnvironmentSidebar({
       </SidebarContent>
 
       <SidebarFooter>
-        <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
           <span className="min-w-0 truncate tabular-nums">
             {!ready && environments.length === 0
               ? '正在加载环境…'
               : `${runningCount} 运行 / ${environments.length} 环境`}
           </span>
-          <div className="ml-auto flex items-center gap-0.5">
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            {!compact && (
+              <button
+                type="button"
+                data-slot="sidebar-memory-capsule"
+                title="查看内存占用与一键休眠"
+                aria-label="查看内存占用与一键休眠"
+                onClick={openMemoryQuickPopover}
+                className={cn(
+                  listItemInteractiveClass,
+                  'inline-flex h-6 items-center gap-1.5 border border-border/70 bg-surface-elevated/60 px-2 font-mono text-[11px] tabular-nums text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <StatusDot tone={memoryTone} />
+                <span>{memorySnap ? formatMemoryKb(memorySnap.totalMemoryKb) : '内存'}</span>
+              </button>
+            )}
             <IconButton
               variant="ghost"
               title="新建分组"

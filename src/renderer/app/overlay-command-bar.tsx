@@ -45,6 +45,13 @@ const SETTINGS_COMMANDS: Array<{ section: string; title: string; subtitle: strin
       keywords: 'browser devtools dock viewport hibernate maxrunning domain liulanqi',
     },
     {
+      section: 'memory',
+      title: '设置 · 性能与内存',
+      subtitle: '实时内存归因 / 环境与标签休眠 / 水位守卫 / 后台降频',
+      icon: 'Zap',
+      keywords: 'memory performance ram cpu hibernate sleep throttle cache xingneng neicun',
+    },
+    {
       section: 'agent',
       title: '设置 · Agent 与审批',
       subtitle: 'CLI / Skill / 控制权审批 / Lease TTL / 胶囊',
@@ -344,6 +351,44 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
         });
       }
     }
+    list.push(
+      {
+        id: 'memory:hibernate-background',
+        group: '性能与内存',
+        icon: 'Zap',
+        title: '一键休眠全部后台环境',
+        subtitle: '释放非当前查看且非持权环境的渲染进程，保留登录态',
+        keywords: 'memory hibernate sleep background idle xiumian neicun shifang',
+        run: async () => {
+          await window.envApi.hibernateBackground();
+          await window.envApi.resolveOverlay({ command: 'memoryHibernateBackground' });
+        },
+      },
+      {
+        id: 'memory:sleep-idle-tabs',
+        group: '性能与内存',
+        icon: 'Stop',
+        title: '释放全部非激活标签',
+        subtitle: '休眠后台标签渲染进程，点击标签时自动恢复',
+        keywords: 'memory tab sleep idle release biaoqian xiumian neicun',
+        run: async () => {
+          await window.envApi.sleepIdleTabs();
+          await window.envApi.resolveOverlay({ command: 'memorySleepIdleTabs' });
+        },
+      },
+      {
+        id: 'memory:clear-caches',
+        group: '性能与内存',
+        icon: 'Trash',
+        title: '清理全部浏览器 HTTP 缓存',
+        subtitle: '仅清理磁盘/内存缓存，保留所有环境的 Cookie 与登录态',
+        keywords: 'memory clear cache http qingli huancun',
+        run: async () => {
+          await window.envApi.clearAllCaches();
+          await window.envApi.resolveOverlay({ command: 'memoryClearAllCaches' });
+        },
+      },
+    );
     for (const item of SETTINGS_COMMANDS) {
       list.push({
         id: `settings:${item.section}`,

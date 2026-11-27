@@ -13,6 +13,7 @@ import type {
   ControlPolicy,
   Creator,
   DevToolsDockMode,
+  LruEvictAction,
   PluginPolicy,
   ThemePreference,
   ViewportPresetId,
@@ -30,6 +31,12 @@ export const DEFAULT_APP_SETTINGS: Required<AppSettings> = {
   devtoolsBottomSize: DEVTOOLS_BOTTOM_SIZE.default,
   maxRunning: 8,
   idleHibernateMinutes: 10,
+  memorySoftLimitMb: 6144,
+  tabSleepMinutes: 20,
+  lazyRestoreTabs: true,
+  throttleBackgroundTabs: true,
+  lruEvictAction: 'hibernate',
+  pinnedEnvIds: [],
   leaseTtlMs: 60_000,
   showControlPill: true,
 };
@@ -40,6 +47,18 @@ const APPROVAL_MODES: readonly ApprovalMode[] = ['inherit', 'ask', 'auto'];
 const THEMES: readonly ThemePreference[] = ['dark', 'light', 'system'];
 const DOCKS: readonly DevToolsDockMode[] = ['right', 'bottom', 'detach'];
 const VIEWPORTS: readonly ViewportPresetId[] = ['auto', 'desktop-1440', 'laptop-1280', 'mobile-390'];
+const LRU_ACTIONS: readonly LruEvictAction[] = ['hibernate', 'stop'];
+
+function stringListPref(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0))];
+  } catch {
+    return [];
+  }
+}
 
 function boolPref(raw: string | undefined, fallback: boolean): boolean {
   if (raw === 'true' || raw === '1') return true;
@@ -100,6 +119,15 @@ export function toAppSettings(raw: Record<string, string | undefined>): AppSetti
     ),
     maxRunning: intPref(raw.maxRunning, DEFAULT_APP_SETTINGS.maxRunning, 0, 32),
     idleHibernateMinutes: intPref(raw.idleHibernateMinutes, DEFAULT_APP_SETTINGS.idleHibernateMinutes, 0, 240),
+    memorySoftLimitMb: intPref(raw.memorySoftLimitMb, DEFAULT_APP_SETTINGS.memorySoftLimitMb, 0, 65_536),
+    tabSleepMinutes: intPref(raw.tabSleepMinutes, DEFAULT_APP_SETTINGS.tabSleepMinutes, 0, 240),
+    lazyRestoreTabs: boolPref(raw.lazyRestoreTabs, DEFAULT_APP_SETTINGS.lazyRestoreTabs),
+    throttleBackgroundTabs: boolPref(raw.throttleBackgroundTabs, DEFAULT_APP_SETTINGS.throttleBackgroundTabs),
+    lruEvictAction:
+      typeof raw.lruEvictAction === 'string' && (LRU_ACTIONS as readonly string[]).includes(raw.lruEvictAction)
+        ? (raw.lruEvictAction as LruEvictAction)
+        : DEFAULT_APP_SETTINGS.lruEvictAction,
+    pinnedEnvIds: stringListPref(raw.pinnedEnvIds),
     leaseTtlMs: intPref(raw.leaseTtlMs, DEFAULT_APP_SETTINGS.leaseTtlMs, 30_000, 600_000),
     showControlPill: boolPref(raw.showControlPill, DEFAULT_APP_SETTINGS.showControlPill),
   };

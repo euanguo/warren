@@ -46,7 +46,8 @@ export class SiteMemoryRepository {
     tx(db, () => {
       const statement = db.prepare('INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)');
       for (const [key, value] of Object.entries(patch)) {
-        if (value !== undefined) statement.run(key, String(value), now);
+        if (value === undefined) continue;
+        statement.run(key, Array.isArray(value) ? JSON.stringify(value) : String(value), now);
       }
     });
     return this.appSettings();

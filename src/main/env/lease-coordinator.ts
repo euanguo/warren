@@ -45,6 +45,7 @@ export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setV
   setMode?: (mode: ShieldMode) => void;
   setTheme?: (theme: ShieldTheme) => void;
   showAction?: (action: ShieldVisualAction) => void;
+  osProcessId?: number;
 };
 
 export interface LeaseCoordinatorDeps {
@@ -67,6 +68,7 @@ export interface LeaseCoordinatorDeps {
   attachAndRaiseShield: (shield: ShieldLike, bounds: ViewportRect) => void;
   detachShield: (shield: ShieldLike) => void;
   focusForInput?: (id: string, space: SpaceId) => Promise<void>;
+  onLeaseStateChanged?: (id: string, active: boolean) => void;
   leaseTtlMs?: () => number;
   now?: () => number;
 }
@@ -82,7 +84,9 @@ export interface LeaseCoordinatorDeps {
 export class LeaseCoordinator {
   #deps: LeaseCoordinatorDeps;
   #leases = new Map<string, LeaseHandle>();
-  #shields = new Map<string, ShieldLike>();
+  /** 全局单实例透明护盾，同一时刻仅挂载到当前可见的 Agent Space，消除多环境 N 份 WebGL 视图内存开销。 */
+  #sharedShield?: ShieldLike;
+  #shieldOwnerEnvId?: string;
   #ttlOverrideMs?: number;
   #showControlPill = true;
   #shieldTheme: ShieldTheme = 'dark';
@@ -101,16 +105,12 @@ export class LeaseCoordinator {
 
   setShowControlPill(show: boolean): void {
     this.#showControlPill = show;
-    for (const shield of this.#shields.values()) {
-      shield.setShowControlPill?.(show);
-    }
+    this.#sharedShield?.setShowControlPill?.(show);
   }
 
   setShieldTheme(theme: ShieldTheme): void {
     this.#shieldTheme = theme;
-    for (const shield of this.#shields.values()) {
-      shield.setTheme?.(theme);
-    }
+    this.#sharedShield?.setTheme?.(theme);
   }
 
   rawLease(id: string): LeaseHandle | undefined {
@@ -123,6 +123,7 @@ export class LeaseCoordinator {
     if (!lease) return undefined;
     if (lease.expiresAt <= this.#now()) {
       this.#leases.delete(id);
+      this.#deps.onLeaseStateChanged?.(id, false);
       return undefined;
     }
     return lease;
@@ -168,52 +169,60 @@ export class LeaseCoordinator {
   }
 
   shieldAttached(id: string): boolean {
-    return Boolean(this.#shields.get(id)?.attached);
+    return Boolean(this.#sharedShield?.attached && this.#shieldOwnerEnvId === id);
   }
 
   repositionShield(id: string, bounds: ViewportRect): void {
-    const shield = this.#shields.get(id);
-    if (shield?.attached) shield.setBounds(bounds);
+    if (this.#sharedShield?.attached && this.#shieldOwnerEnvId === id) {
+      this.#sharedShield.setBounds(bounds);
+    }
   }
 
   setShieldVisible(id: string, visible: boolean): void {
-    this.#shields.get(id)?.setVisible(visible);
+    if (this.#shieldOwnerEnvId === id) {
+      this.#sharedShield?.setVisible(visible);
+    }
   }
 
   detachShieldOnly(id: string): void {
-    const shield = this.#shields.get(id);
-    if (shield) this.#deps.detachShield(shield);
+    if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
+      this.#deps.detachShield(this.#sharedShield);
+      this.#shieldOwnerEnvId = undefined;
+    }
   }
 
   clearEnv(id: string): void {
     this.#leases.delete(id);
-    const shield = this.#shields.get(id);
-    if (shield) {
-      this.#deps.detachShield(shield);
-      shield.destroy();
-      this.#shields.delete(id);
+    this.#deps.onLeaseStateChanged?.(id, false);
+    if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
+      this.#deps.detachShield(this.#sharedShield);
+      this.#shieldOwnerEnvId = undefined;
     }
   }
 
+  /** 应用退出前彻底销毁全局共享输入护盾视图。 */
+  destroyShield(): void {
+    if (!this.#sharedShield) return;
+    this.#deps.detachShield(this.#sharedShield);
+    this.#sharedShield.destroy();
+    this.#sharedShield = undefined;
+    this.#shieldOwnerEnvId = undefined;
+  }
+
+  /** 返回当前共享护盾进程的归因信息（未创建或已销毁时返回空数组）。 */
+  shieldProcessInfos(): Array<{ pid: number; label: string }> {
+    const pid = this.#sharedShield?.osProcessId;
+    if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) {
+      return [{ pid, label: 'Agent 输入护盾' }];
+    }
+    return [];
+  }
+
   /**
-   * 遮罩只跟 lease 走：agent 持有写权限时盖上，人接管/释放时撤掉。
-   * 遮罩是原生 View，必须在环境视图之后 addChildView 才能盖在它上面。
+   * 遮罩只跟当前选中环境的 Agent Space 走：全局复用单一 InputShield 实例，
+   * 仅当某环境被选中且处于 Agent Space 且非人接管态时挂载并置顶。
    */
   syncShield(id: string, options: { createIfMissing?: boolean } = {}): void {
-    let shield = this.#shields.get(id);
-    if (!shield && options.createIfMissing) {
-      shield = this.#deps.createShield(id, () => {
-        try {
-          this.takeover(id, 'human', 'agent');
-        } catch {
-          // ignore
-        }
-      });
-      this.#shields.set(id, shield);
-    }
-    if (!shield) return;
-    shield.setShowControlPill?.(this.#showControlPill);
-    shield.setTheme?.(this.#shieldTheme);
     const lease = this.#leases.get(id);
     // 遮罩只盖**正在显示的那个**环境：agent 持着别的环境的 lease 时，
     // 不该把当前显示的页面盖住（人看到的是「AI 在操作」，但 AI 在别处）。
@@ -221,19 +230,37 @@ export class LeaseCoordinator {
       lease && lease.space === 'agent' && lease.owner === 'human' && lease.expiresAt > this.#now(),
     );
     const active = this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent' && !humanOwnsAgent;
-    if (active) {
-      const agentControlling = Boolean(
-        lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
-      );
-      const caller = agentControlling ? lease?.label : undefined;
-      shield.setMode?.(agentControlling ? 'agent' : 'idle');
-      shield.setCallerLabel(caller);
-      shield.setVisible(this.#deps.getViewVisible());
-      this.#deps.attachAndRaiseShield(shield, this.#deps.getPageBounds());
-    } else {
-      shield.setMode?.('idle');
-      this.#deps.detachShield(shield);
+    if (!active) {
+      if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
+        this.#sharedShield.setMode?.('idle');
+        this.#deps.detachShield(this.#sharedShield);
+        this.#shieldOwnerEnvId = undefined;
+      }
+      return;
     }
+    if (!this.#sharedShield && options.createIfMissing) {
+      this.#sharedShield = this.#deps.createShield(id, () => {
+        const ownerId = this.#shieldOwnerEnvId;
+        if (!ownerId) return;
+        try {
+          this.takeover(ownerId, 'human', 'agent');
+        } catch {
+          // ignore
+        }
+      });
+    }
+    if (!this.#sharedShield) return;
+    this.#shieldOwnerEnvId = id;
+    this.#sharedShield.setShowControlPill?.(this.#showControlPill);
+    this.#sharedShield.setTheme?.(this.#shieldTheme);
+    const agentControlling = Boolean(
+      lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
+    );
+    const caller = agentControlling ? lease?.label : undefined;
+    this.#sharedShield.setMode?.(agentControlling ? 'agent' : 'idle');
+    this.#sharedShield.setCallerLabel(caller);
+    this.#sharedShield.setVisible(this.#deps.getViewVisible());
+    this.#deps.attachAndRaiseShield(this.#sharedShield, this.#deps.getPageBounds());
   }
 
   /** 将 AI 正在执行的视口坐标/控件矩形同步给当前可见的透明遮罩层绘制轨迹动画。 */
@@ -241,7 +268,8 @@ export class LeaseCoordinator {
     if (this.#deps.getSelectedId() !== id) return;
     if (this.#deps.getActiveSpace(id) !== 'agent') return;
     if (!this.#deps.getViewVisible() || !this.isAgentControlling(id)) return;
-    this.#shields.get(id)?.showAction?.(action);
+    if (this.#shieldOwnerEnvId !== id) return;
+    this.#sharedShield?.showAction?.(action);
   }
 
   acquire(id: string, owner: 'agent' | 'human', label?: string, space: SpaceId = 'agent'): LeaseHandle {
@@ -291,6 +319,7 @@ export class LeaseCoordinator {
       expiresAt: acquired.leaseExpiresAt!,
     };
     this.#leases.set(id, lease);
+    this.#deps.onLeaseStateChanged?.(id, owner === 'agent');
     this.#deps.recordEvent('control.acquired', `${owner} acquired ${id}${label ? ` (${label})` : ''}`, owner, id);
     this.#deps.emitBusEvent('lease.changed', id, {
       owner,
@@ -331,6 +360,7 @@ export class LeaseCoordinator {
       this.#now(),
     );
     this.#leases.delete(id);
+    this.#deps.onLeaseStateChanged?.(id, false);
     this.#deps.recordEvent('control.released', `${actor} released ${id}`, actor, id);
     this.#deps.emitBusEvent('lease.changed', id, {
       owner: 'none',

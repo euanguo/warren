@@ -147,7 +147,9 @@ export function BrowserPanel() {
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-[11px] text-muted-foreground">超出上限时自动停止最久未使用的非活跃环境。</span>
+            <span className="text-[11px] text-muted-foreground">
+              超出上限时按策略自动休眠或停止最久未使用的非活跃环境（更多内存策略见「性能与内存」）。
+            </span>
           </div>
 
           <div className="flex flex-col gap-1.5">

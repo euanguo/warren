@@ -23,6 +23,8 @@ export interface TabState {
   audible: boolean;
   /** 人把这个标签静音了没。`audible` 是页面在响，这个是我们的开关。 */
   muted: boolean;
+  /** 是否处于标签级休眠/惰性占位态（已释放 WebContentsView 与渲染进程，点击或操作时透明重载）。 */
+  sleeping?: boolean;
   /**
    * 主框架加载失败的原因（`did-fail-load`）。导航重新开始时清掉。
    *

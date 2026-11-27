@@ -99,6 +99,30 @@ export const environmentActions = {
   selectSpace: (id: string, space: SpaceId) => runAction(() => window.envApi.spaceSelect(id, space), '切换空间失败'),
   start: (id: string) => runAction(() => window.envApi.start(id), '启动失败'),
   stop: (id: string) => runAction(() => window.envApi.stop(id), '停止失败'),
+  hibernate: (id: string) =>
+    runAction(async () => {
+      const res = await window.envApi.hibernate(id);
+      if (res.ok) toast.success(`环境 ${id} 已休眠，登录态与标签已保留`);
+      else toast.info(`环境 ${id} 当前受保护（正在查看或由 Agent 持有），暂无法休眠`);
+    }, '休眠环境失败'),
+  hibernateBackground: () =>
+    runAction(async () => {
+      const res = await window.envApi.hibernateBackground();
+      if (res.count > 0) toast.success(`已休眠 ${res.count} 个后台环境`);
+      else toast.info('当前没有可安全休眠的后台环境');
+    }, '批量休眠后台环境失败'),
+  wake: (id: string) => runAction(() => window.envApi.wake(id), '唤醒环境失败'),
+  clearCache: (id: string) =>
+    runAction(async () => {
+      const res = await window.envApi.clearEnvCache(id);
+      if (res.ok) toast.success(`已清理环境 ${id} 的 HTTP 缓存（登录态保留）`);
+      else toast.info(`环境 ${id} 尚未初始化缓存`);
+    }, '清理环境缓存失败'),
+  clearAllCaches: () =>
+    runAction(async () => {
+      const res = await window.envApi.clearAllCaches();
+      toast.success(`已清理 ${res.cleared} 个环境的 HTTP 缓存（登录态保留）`);
+    }, '清理全部缓存失败'),
   remove: (id: string) => runAction(() => window.envApi.remove(id), '删除失败'),
   takeover: (id: string, space: SpaceId = 'agent') => runAction(() => window.envApi.takeover(id, space), '接管失败'),
   release: (id: string, space: SpaceId = 'agent') => runAction(() => window.envApi.release(id, space), '交还失败'),
@@ -123,6 +147,17 @@ export const environmentActions = {
   tabReopen: (id: string, space: SpaceId) => runAction(() => window.envApi.tabReopen(id, space), '恢复关闭标签失败'),
   tabMute: (id: string, space: SpaceId, ref: TabRef, muted: boolean) =>
     runAction(() => window.envApi.tabMute(id, space, ref, muted), '切换静音失败'),
+  tabSleep: (id: string, space: SpaceId, ref: TabRef) =>
+    runAction(async () => {
+      const res = await window.envApi.tabSleep(id, space, ref);
+      if (!res.ok) toast.info('当前激活、加载中、发声中或打开 DevTools 的标签无法休眠');
+    }, '休眠标签失败'),
+  sleepIdleTabs: (id?: string) =>
+    runAction(async () => {
+      const res = await window.envApi.sleepIdleTabs(id);
+      if (res.slept > 0) toast.success(`已休眠 ${res.slept} 个非激活标签`);
+      else toast.info('没有可安全休眠的非激活标签');
+    }, '释放非激活标签失败'),
   navigate: (id: string, space: SpaceId, action: NavigationAction) =>
     runAction(() => window.envApi.humanNavigate(id, space, action), '导航失败'),
   startAndNavigate: (id: string, space: SpaceId, url: string) =>

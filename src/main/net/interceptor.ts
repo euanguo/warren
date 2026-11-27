@@ -20,6 +20,8 @@ import type { NetHit, NetRule } from '../../shared/types';
 const MAX_HITS = 200;
 /** HAR 只记文本类响应体，且不超过这个大小（二进制/大响应记了也没法回放）。 */
 const HAR_BODY_LIMIT = 1024 * 1024;
+/** HAR 录制总内存预算上限（50 MB），超限时按 FIFO 淘汰最早条目防止主进程 OOM。 */
+const HAR_TOTAL_BYTES_LIMIT = 50 * 1024 * 1024;
 
 export class NetInterceptor {
   #rules: NetRule[] = [];
@@ -33,6 +35,7 @@ export class NetInterceptor {
   #recording = false;
   #replaying = false;
   #har: HarEntry[] = [];
+  #harBytes = 0;
   /** 下一条规则的过期定时器。没有会过期的规则时是 undefined。 */
   #expiryTimer?: ReturnType<typeof setTimeout>;
   /** 注册给 session 的 handler 必须每次都是同一个引用，`unhandle` 才对得上。 */
@@ -173,6 +176,7 @@ export class NetInterceptor {
 
   startRecording(): void {
     this.#har = [];
+    this.#harBytes = 0;
     this.#recording = true;
     // 录制也要经过 handler 才录得到：没有规则时它本来是摘着的
     this.#sync();
@@ -356,14 +360,21 @@ export class NetInterceptor {
       void clone
         .text()
         .then((body) => {
+          const clipped = body.slice(0, HAR_BODY_LIMIT);
+          const entryBytes = Buffer.byteLength(clipped, 'utf8');
           this.#har.push({
             at: new Date().toISOString(),
             method: request.method,
             url: request.url,
             status: response.status,
             contentType,
-            body: body.slice(0, HAR_BODY_LIMIT),
+            body: clipped,
           });
+          this.#harBytes += entryBytes;
+          while (this.#harBytes > HAR_TOTAL_BYTES_LIMIT && this.#har.length > 1) {
+            const dropped = this.#har.shift();
+            if (dropped?.body) this.#harBytes -= Buffer.byteLength(dropped.body, 'utf8');
+          }
         })
         .catch(() => {
           // 录制永远不能影响请求

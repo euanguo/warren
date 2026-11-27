@@ -41,7 +41,10 @@ export async function runEnvCommand({ args, flags, asJson, call, acquire }) {
       print(await call('env.stop', { id }), asJson);
       return 0;
     case 'hibernate':
-      print(await call('env.hibernate', { id }), asJson);
+      print(await call('env.hibernate', flags.idle ? { idle: true } : { id }), asJson);
+      return 0;
+    case 'clear-cache':
+      print(await call('env.clearCache', id ? { id } : {}), asJson);
       return 0;
     case 'wake':
       print(await call('env.wake', { id }), asJson);

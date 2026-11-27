@@ -19,6 +19,7 @@ import { makeEvent } from './domain/environment';
 import { EnvironmentManager } from './environments';
 import { isOpenableExternalUrl } from './external-url';
 import { registerIpcRoutes } from './ipc-routes.ts';
+import { MemoryMonitor } from './memory-monitor.ts';
 import { warrenPaths } from './paths.ts';
 import { registerPluginProtocol } from './plugin-protocol.ts';
 import { PluginHost } from './plugins/host';
@@ -85,6 +86,7 @@ let window: BrowserWindow | undefined;
 let layers: WindowLayerManager | undefined;
 let overlayHost: OverlayHost | undefined;
 let popoverHost: PopoverHost | undefined;
+let memoryMonitor: MemoryMonitor | undefined;
 let tray: Tray | undefined;
 let quitting = false;
 let suspensionBlocker: number | undefined;
@@ -408,6 +410,17 @@ app.whenReady().then(async () => {
   await plugins.loadState();
   pluginProtocol.invalidate();
 
+  memoryMonitor = new MemoryMonitor({
+    getWindow: () => window,
+    getOverlayHost: () => overlayHost,
+    getPopoverHost: () => popoverHost,
+    getManager: () => manager,
+    getPlugins: () => plugins,
+    store,
+  });
+  memoryMonitor.configure({ softLimitMb: initialSettings.memorySoftLimitMb });
+  memoryMonitor.start();
+
   // IPC 路由必须在主窗口 loadURL/loadFile 之前注册，结构性消除冷启动 No handler registered 竞态
   registerIpcRoutes({
     getWindow: () => window,
@@ -415,6 +428,7 @@ app.whenReady().then(async () => {
     getPopoverHost: () => popoverHost,
     getManager: () => manager,
     getPlugins: () => plugins,
+    getMemoryMonitor: () => memoryMonitor,
     store,
     vault,
     saveVault,
@@ -444,6 +458,7 @@ app.whenReady().then(async () => {
     vault,
     saveVault,
     plugins,
+    memoryMonitor,
     skillSourceDir: skillSourceDir(),
     homeDir: os.homedir(),
   });
@@ -490,6 +505,8 @@ app.on('before-quit', () => {
     clearTimeout(surfaceWarmupTimer);
     surfaceWarmupTimer = undefined;
   }
+  memoryMonitor?.stop();
+  memoryMonitor = undefined;
   overlayHost?.destroy();
   popoverHost?.destroy();
   void plugins?.dispose();

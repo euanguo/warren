@@ -241,6 +241,10 @@ export class PluginHost {
     return this.#lifecycle.statusOf(id);
   }
 
+  pidOf(id: string): number | undefined {
+    return this.#lifecycle.pidOf(id);
+  }
+
   isCrashed(id: string): boolean {
     return this.#lifecycle.isCrashed(id);
   }

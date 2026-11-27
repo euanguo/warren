@@ -292,12 +292,14 @@ export interface EvictionCandidate {
   selected: boolean;
   /** 有人持着未过期的租约（agent 或人）。 */
   leased: boolean;
+  /** 用户显式固定为永不自动回收/休眠。 */
+  pinned?: boolean;
 }
 
 /**
  * 挑出该被 LRU 回收的环境，让「即将启动一个」之后仍然不超过 `limit`。
  *
- * 两条硬排除：**当前选中的**（屏幕上正显示它的页面）和**还持着租约的**（有人正在用）。
+ * 硬排除：**当前选中的**、**还持着租约的**和**用户 Pin 固定的**。
  * 回收一个正在被 agent 操作的环境会直接打断它那一轮，比内存吃紧严重得多。
  * 可回收的挑不够就超限——宁可多开一个，也不动正在用的。
  */
@@ -307,7 +309,7 @@ export function pickEvictions(candidates: EvictionCandidate[], limit: number): s
   const over = candidates.length + 1 - limit;
   if (over <= 0) return [];
   return candidates
-    .filter((candidate) => !candidate.selected && !candidate.leased)
+    .filter((candidate) => !candidate.selected && !candidate.leased && !candidate.pinned)
     .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
     .slice(0, over)
     .map((candidate) => candidate.id);
@@ -324,12 +326,14 @@ export interface DormantCandidate {
   leased: boolean;
   /** 页面正在加载、有声音、或正在录制 / 回放网络。 */
   busy: boolean;
+  /** 用户显式固定为永不自动休眠。 */
+  pinned?: boolean;
 }
 
 /**
  * 挑出该进入休眠的环境。
  *
- * 和 `pickEvictions` 一样有两条硬排除（选中的 / 持租约的），再加一条 `busy`：
+ * 和 `pickEvictions` 一样排除选中的 / 持租约的 / Pin 固定的，再加一条 `busy`：
  * 正在加载、播声音、录 HAR 或回放的环境休眠会直接打断那一轮。
  * 只挑 `lastActiveAt` 已经超过 `idleMs` 的；`idleMs <= 0` 表示关掉自动休眠。
  */
@@ -338,7 +342,11 @@ export function pickDormant(candidates: DormantCandidate[], now: number, idleMs:
   return candidates
     .filter(
       (candidate) =>
-        !candidate.selected && !candidate.leased && !candidate.busy && now - candidate.lastActiveAt >= idleMs,
+        !candidate.selected &&
+        !candidate.leased &&
+        !candidate.busy &&
+        !candidate.pinned &&
+        now - candidate.lastActiveAt >= idleMs,
     )
     .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
     .map((candidate) => candidate.id);

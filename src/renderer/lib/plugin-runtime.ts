@@ -39,6 +39,7 @@ function isPopoverWindow(): boolean {
 const ALLOWED_PLUGIN_SETTINGS_SECTIONS: ReadonlySet<BuiltinSettingsSection> = new Set([
   'general',
   'browser',
+  'memory',
   'agent',
   'vault',
   'plugins',

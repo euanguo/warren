@@ -8,7 +8,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { usageOf } from '../commands.mjs';
 import { createEmitResult, createExecSandbox, createPageApi, describeCapabilities } from '../exec-runtime.mjs';
-import { formatMethodLine, formatSkillLine, parseJsonArg, print } from '../formatters.mjs';
+import { formatMemorySnapshot, formatMethodLine, formatSkillLine, parseJsonArg, print } from '../formatters.mjs';
 
 const SKILL_TARGET_DIRS = [
   { id: 'agents', label: '通用（~/.agents）', skillsDir: '.agents/skills' },
@@ -141,6 +141,23 @@ export async function runCallCommand({ args, call }) {
   }
   print(await call(method, args[2] ? parseJsonArg(args[2], 'jsonParams') : {}), true);
   return 0;
+}
+
+export async function runSystemCommand({ args, asJson, call }) {
+  switch (args[1]) {
+    case 'memory': {
+      const snapshot = await call('system.memory');
+      print(snapshot, asJson, formatMemorySnapshot);
+      return 0;
+    }
+    case 'reclaim': {
+      print(await call('system.reclaimShell'), asJson);
+      return 0;
+    }
+    default:
+      console.error(usageOf('system'));
+      return 1;
+  }
 }
 
 export async function runExecCommand({ args, flags, asJson, call, readStdin, startLeaseRenewer, defaultTimeoutMs }) {

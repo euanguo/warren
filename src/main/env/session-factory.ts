@@ -242,6 +242,24 @@ export class EnvSessionFactory {
     }
   }
 
+  /** 仅清 HTTP 缓存，不动 Cookie / LocalStorage / 登录态。 */
+  async clearCache(id: string): Promise<boolean> {
+    const ses = this.#sessions.get(id);
+    if (!ses) return false;
+    await ses.clearCache();
+    return true;
+  }
+
+  /** 批量清理所有已初始化环境 Session 的 HTTP 缓存（保留登录态）。 */
+  async clearAllCaches(): Promise<number> {
+    let cleared = 0;
+    for (const ses of this.#sessions.values()) {
+      await ses.clearCache().catch(() => undefined);
+      cleared += 1;
+    }
+    return cleared;
+  }
+
   attachTabTelemetry(envId: string, tabId: string, wc: WebContents): void {
     this.#telemetry.attachTab(envId, tabId, wc);
   }

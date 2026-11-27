@@ -18,6 +18,7 @@ import type {
   PluginSkillDocument,
 } from './plugin.ts';
 import type { AgentSkillStatus, AppSettings, CredentialSummary, SystemDiagnosticsReport } from './settings.ts';
+import type { MemorySnapshot } from './memory.ts';
 import type {
   BrowserShortcut,
   DownloadItemInfo,
@@ -85,6 +86,16 @@ export interface EnvApi {
   create(input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }): Promise<Environment>;
   start(id: string): Promise<Environment>;
   stop(id: string): Promise<void>;
+  /** 休眠指定运行中环境（释放渲染进程，保留 Cookie / Session 与标签快照）。 */
+  hibernate(id: string): Promise<{ ok: boolean }>;
+  /** 一键休眠所有可回收的后台运行中环境（不碰当前选中、Agent 持权或已 Pin 环境）。 */
+  hibernateBackground(): Promise<{ hibernated: string[]; count: number }>;
+  /** 从休眠态唤醒指定环境。 */
+  wake(id: string): Promise<{ ok: boolean }>;
+  /** 清理指定环境的 HTTP 缓存（保留 Cookie、LocalStorage 与登录态）。 */
+  clearEnvCache(id: string): Promise<{ ok: boolean }>;
+  /** 清理所有已初始化环境 Session 的 HTTP 缓存（保留登录态）。 */
+  clearAllCaches(): Promise<{ cleared: number }>;
   remove(id: string): Promise<void>;
   update(
     id: string,
@@ -176,6 +187,10 @@ export interface EnvApi {
   tabReopen(id: string, space: SpaceId): Promise<TabState>;
   /** 静音开关。不是页面内容变更，所以不受控制权限制。 */
   tabMute(id: string, space: SpaceId, ref: TabRef, muted: boolean): Promise<TabState>;
+  /** 休眠指定非激活标签（释放 WebContentsView 与渲染进程，点击时自动重载）。 */
+  tabSleep(id: string, space: SpaceId, ref: TabRef): Promise<{ ok: boolean }>;
+  /** 释放指定环境（或全部运行中环境）内可安全休眠的非激活标签。 */
+  sleepIdleTabs(id?: string): Promise<{ slept: number }>;
   vault(): Promise<{ available: boolean; credentials: CredentialSummary[] }>;
   vaultAdd(input: {
     provider: string;
@@ -189,6 +204,10 @@ export interface EnvApi {
   clearDomainPref(envId: string, origin: string): Promise<{ removed: boolean }>;
   clearUrlHistory(): Promise<{ cleared: number }>;
   systemDoctor(): Promise<SystemDiagnosticsReport>;
+  /** 读取按 PID 去重后的全局实时内存快照。 */
+  memorySnapshot(): Promise<MemorySnapshot>;
+  /** 回收空闲隐藏状态的预热浮层（Overlay / Popover），下次触发时按需重建。 */
+  reclaimShellSurfaces(): Promise<{ reclaimed: number }>;
   openDataDir(): Promise<{ opened: boolean }>;
   /** 自带 Skill 在各个 agent 目录里的安装状态（见 src/main/agent-integration.ts）。 */
   agentSkills(): Promise<AgentSkillStatus[]>;

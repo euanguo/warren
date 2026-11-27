@@ -14,8 +14,8 @@ const VIEW_PREFERENCES = {
   sandbox: true,
   nodeIntegration: false,
   webSecurity: true,
-  // Agent 在后台操作时，页面仍要跑定时器、保持可见状态，不能被 Chromium 降频。
-  backgroundThrottling: false,
+  // 默认允许 Chromium 对不可见后台标签降频省内存；当前可见或 Agent 持 lease 时由 TabManager 动态关闭降频。
+  backgroundThrottling: true,
   // 环境页的 preload：补 window.chrome 的 API 表面，见该文件顶部注释
   preload: path.join(__dirname, 'page-preload.cjs'),
 } as const;
@@ -150,6 +150,21 @@ export class Tab {
     wc.setAudioMuted(muted);
   }
 
+  /** 动态切换后台降频：当前显示或 Agent 持权时关掉，切走后台时重新打开。 */
+  setBackgroundThrottling(enabled: boolean): void {
+    const wc = this.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.setBackgroundThrottling(enabled);
+  }
+
+  /** 当前标签所属 Chromium 渲染进程的 OS PID（供内存归因使用）。 */
+  get osProcessId(): number | undefined {
+    const wc = this.webContents;
+    if (!wc || wc.isDestroyed()) return undefined;
+    const pid = wc.getOSProcessId();
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  }
+
   loadURL(url: string): void {
     const wc = this.webContents;
     if (!wc || wc.isDestroyed()) return;
@@ -204,6 +219,9 @@ export interface TabManagerOptions {
   onTargetUrl?: (url: string) => void;
   /** 页内查找命中进度回调。 */
   onFoundInPage?: (result: Electron.Result) => void;
+  /** 是否允许对后台不可见且无 Agent 租约的标签启用降频（默认 true）。 */
+  throttleBackgroundTabs?: boolean;
+  now?: () => number;
 }
 
 /**
@@ -235,6 +253,12 @@ export class TabManager {
    */
   #viewVisible = true;
   #changeTimer?: ReturnType<typeof setTimeout>;
+  /** 每个标签最后一次被选中或使用的时间戳，供后台标签自动睡眠判断。 */
+  #tabLastActive = new Map<string, number>();
+  /** 全局设置是否允许后台标签降频。 */
+  #throttlingAllowed = true;
+  /** 当前环境是否被 Agent 持有活跃租约（持权期禁止降频，保障后台脚本定时器稳定）。 */
+  #leaseActive = false;
   /** favicon URL → data URL。undefined 表示取过一次、失败了。 */
   #favicons = new Map<string, string | undefined>();
   /**
@@ -247,6 +271,7 @@ export class TabManager {
 
   constructor(options: TabManagerOptions) {
     this.#options = options;
+    this.#throttlingAllowed = options.throttleBackgroundTabs ?? true;
     if (options.getViewport) {
       this.#viewport = options.getViewport();
     }
@@ -274,9 +299,9 @@ export class TabManager {
     return this.#viewVisible;
   }
 
-  /** 当前标签的 DevTools 开着没。诊断用。 */
+  /** 当前标签的 DevTools 开着没。诊断用（不唤醒休眠标签）。 */
   get devToolsOpen(): boolean {
-    const wc = this.active()?.view.webContents;
+    const wc = this.#peekActive()?.view.webContents;
     return Boolean(wc && !wc.isDestroyed() && wc.isDevToolsOpened());
   }
 
@@ -284,32 +309,204 @@ export class TabManager {
     return this.#list.list.map((tab) => ({ ...tab, active: tab.id === this.#list.activeId }));
   }
 
-  /** 单个标签的对外状态。调用方刚建好/刚切过它，所以标签一定在。 */
+  /** 只读当前激活标签的快照状态，不触发休眠标签实例化。 */
+  activeState(): TabState | undefined {
+    return this.#list.activeId ? this.#list.get(this.#list.activeId) : undefined;
+  }
+
+  /** 单个标签的对外状态（兼容运行中与休眠占位标签）。 */
   item(id: string): TabListItem {
     const tab = this.#tabs.get(id);
-    if (!tab) throw new Error(`unknown tab: ${id}`);
-    return { ...tab.state, active: id === this.#list.activeId };
+    const state = tab ? tab.state : this.#list.get(id);
+    if (!state) throw new Error(`unknown tab: ${id}`);
+    return { ...state, active: id === this.#list.activeId };
   }
 
+  /** 读取当前激活标签；若它处于休眠占位态，则透明实例化并返回。 */
   active(): Tab | undefined {
-    return this.#list.activeId ? this.#tabs.get(this.#list.activeId) : undefined;
+    const id = this.#list.activeId;
+    if (!id) return undefined;
+    return this.#tabs.get(id) ?? this.ensureMaterialized(id);
   }
 
-  /** 当前激活标签的 CDP 控制层。Agent 的读写都落在这里。 */
+  /** 当前激活标签的 CDP 控制层（若标签休眠则先透明唤醒）。 */
   controller(): BrowserController | undefined {
     const id = this.#list.activeId;
-    return id ? this.#controllers.get(id) : undefined;
+    if (!id) return undefined;
+    this.ensureMaterialized(id);
+    return this.#controllers.get(id);
   }
 
   controllerFor(ref?: TabRef): BrowserController | undefined {
     if (ref === undefined) return this.controller();
     const id = this.#list.resolve(ref);
-    return id ? this.#controllers.get(id) : undefined;
+    if (!id) return undefined;
+    this.ensureMaterialized(id);
+    return this.#controllers.get(id);
   }
 
   /** 把 UI / CLI 给的引用解析成 tabId。输入类操作要靠它判断「是不是当前激活标签」。 */
   resolveRef(ref: TabRef): string | undefined {
     return this.#list.resolve(ref);
+  }
+
+  /**
+   * 创建一个休眠占位标签（零 WebContentsView、零渲染进程），用于启动/唤醒环境时的惰性恢复。
+   * 仅当 `activate === true && materializeIfActive !== false` 时立即实例化。
+   */
+  createSleeping(options: {
+    url: string;
+    title?: string;
+    favicon?: string;
+    activate?: boolean;
+    materializeIfActive?: boolean;
+  }): TabState {
+    if (options.activate && options.materializeIfActive !== false) {
+      return this.create({ url: options.url, activate: true }).state;
+    }
+    const id = crypto.randomUUID();
+    const state: TabState = {
+      id,
+      space: this.#options.space,
+      title: options.title || options.url || '休眠标签',
+      url: options.url,
+      ...(options.favicon ? { favicon: options.favicon } : {}),
+      loading: false,
+      audible: false,
+      muted: false,
+      sleeping: true,
+      createdAt: new Date().toISOString(),
+    };
+    this.#list.add(state, { activate: Boolean(options.activate) });
+    this.#tabLastActive.set(id, this.#now());
+    this.#notify();
+    return state;
+  }
+
+  /** 若指定标签处于休眠占位态，立刻建出真实 WebContentsView 与 CDP 控制器并加载其 URL。 */
+  ensureMaterialized(id: string): Tab | undefined {
+    const existing = this.#tabs.get(id);
+    if (existing) return existing;
+    const state = this.#list.get(id);
+    if (!state) return undefined;
+
+    const tab = new Tab(id, {
+      session: this.#options.session,
+      space: this.#options.space,
+      trustedCa: this.#options.trustedCa,
+      url: state.url,
+    });
+    this.#tabs.set(id, tab);
+    this.#wire(tab);
+    this.#tabLastActive.set(id, this.#now());
+    this.#list.update(id, { sleeping: false, loading: Boolean(state.url) });
+
+    const wc = tab.webContents;
+    if (wc) this.#controllers.set(id, this.#options.createController(id, wc));
+    if (state.url) tab.loadURL(state.url);
+    this.#syncThrottling();
+    this.#notify();
+    return tab;
+  }
+
+  /**
+   * 休眠指定非激活标签：销毁其 WebContentsView 与渲染进程，在标签条保留 URL / 标题 / 图标。
+   * 活跃标签、正在加载、发声或打开了 DevTools 的标签受保护不可休眠。
+   */
+  sleep(ref: TabRef): boolean {
+    const id = this.#list.resolve(ref);
+    if (!id || id === this.#list.activeId) return false;
+    const tab = this.#tabs.get(id);
+    if (!tab) return false;
+    const state = tab.state;
+    if (state.audible || state.loading) return false;
+    const wc = tab.webContents;
+    if (wc && !wc.isDestroyed() && wc.isDevToolsOpened()) return false;
+
+    const previousFavicon = this.#list.get(id)?.favicon;
+    this.#list.update(id, {
+      title: state.title || state.url || '休眠标签',
+      url: state.url,
+      ...(previousFavicon ? { favicon: previousFavicon } : {}),
+      loading: false,
+      audible: false,
+      muted: state.muted,
+      error: undefined,
+      sleeping: true,
+    });
+
+    // 先从 #tabs 摘除再 destroy：防止 wc.on('destroyed') 误把休眠占位标签整条删掉
+    this.#tabs.delete(id);
+    this.#controllers.get(id)?.detach();
+    this.#controllers.delete(id);
+    this.#options.onTabDestroyed(id);
+    if (this.#below === tab.view) this.detachBelow();
+    tab.destroy();
+    this.#notify();
+    return true;
+  }
+
+  /** 休眠超过指定闲置时长的后台非激活标签，返回本次成功休眠个数。 */
+  sleepIdle(idleMs: number, now = this.#now()): number {
+    if (idleMs <= 0) return 0;
+    let slept = 0;
+    for (const id of [...this.#tabs.keys()]) {
+      if (id === this.#list.activeId) continue;
+      const last = this.#tabLastActive.get(id) ?? 0;
+      if (now - last >= idleMs && this.sleep(id)) {
+        slept += 1;
+      }
+    }
+    return slept;
+  }
+
+  /** 立即休眠当前 Space 内全部可安全释放的非激活标签。 */
+  sleepAllInactive(): number {
+    let slept = 0;
+    for (const id of [...this.#tabs.keys()]) {
+      if (id !== this.#list.activeId && this.sleep(id)) slept += 1;
+    }
+    return slept;
+  }
+
+  /** 同步全局「后台标签降频」开关。 */
+  setThrottleBackgroundTabs(enabled: boolean): void {
+    this.#throttlingAllowed = enabled;
+    this.#syncThrottling();
+  }
+
+  /** 同步 Agent Lease 活跃状态（持权期间关闭降频，交还后恢复后台降频）。 */
+  setLeaseActive(active: boolean): void {
+    if (this.#leaseActive === active) return;
+    this.#leaseActive = active;
+    this.#syncThrottling();
+  }
+
+  /** 返回当前 Space 全部标签的进程归因信息（不触发休眠标签唤醒）。 */
+  tabProcessMetrics(): Array<{
+    id: string;
+    space: SpaceId;
+    title: string;
+    url: string;
+    active: boolean;
+    sleeping: boolean;
+    audible: boolean;
+    pid?: number;
+  }> {
+    return this.#list.list.map((entry) => {
+      const live = this.#tabs.get(entry.id);
+      const sleeping = Boolean(entry.sleeping) || !live;
+      return {
+        id: entry.id,
+        space: entry.space,
+        title: live ? live.state.title || entry.title : entry.title,
+        url: live ? live.state.url || entry.url : entry.url,
+        active: entry.id === this.#list.activeId,
+        sleeping,
+        audible: live ? live.state.audible : false,
+        pid: sleeping ? undefined : live?.osProcessId,
+      };
+    });
   }
 
   /**
@@ -328,8 +525,9 @@ export class TabManager {
     });
 
     this.#tabs.set(id, tab);
+    this.#tabLastActive.set(id, this.#now());
     this.#wire(tab);
-    this.#list.add(tab.state, { activate: options.activate ?? true });
+    this.#list.add({ ...tab.state, sleeping: false }, { activate: options.activate ?? true });
 
     const wc = tab.webContents;
     if (wc) this.#controllers.set(id, this.#options.createController(id, wc));
@@ -338,6 +536,7 @@ export class TabManager {
     if (!options.webContents && options.url) tab.loadURL(options.url);
 
     if (this.#list.activeId === id) this.#showActive();
+    this.#syncThrottling();
     this.#notify();
     return tab;
   }
@@ -345,15 +544,18 @@ export class TabManager {
   select(ref: TabRef): Tab | undefined {
     const id = this.#list.resolve(ref);
     if (!id || !this.#list.select(id)) return undefined;
+    const tab = this.ensureMaterialized(id);
+    this.#tabLastActive.set(id, this.#now());
     this.#showActive();
+    this.#syncThrottling();
     this.#notify();
-    return this.#tabs.get(id);
+    return tab;
   }
 
-  /** 关标签。UI、CLI、最后一个标签触发 onEmpty，都走这里。 */
+  /** 关标签（兼容运行中与休眠占位标签）。 */
   close(ref: TabRef): boolean {
     const id = this.#list.resolve(ref);
-    if (!id || !this.#tabs.has(id)) return false;
+    if (!id || (!this.#tabs.has(id) && !this.#list.get(id))) return false;
     this.#remove(id, true);
     return true;
   }
@@ -425,6 +627,7 @@ export class TabManager {
     this.#viewport = bounds;
     this.#options.layers.setSlot('below', view, { visible: true, bounds });
     this.#below = view;
+    this.#syncThrottling();
     return true;
   }
 
@@ -435,6 +638,7 @@ export class TabManager {
       this.#options.layers.setSlot('below', undefined);
     }
     this.#below = undefined;
+    this.#syncThrottling();
   }
 
   get attachedBelow(): boolean {
@@ -443,7 +647,7 @@ export class TabManager {
 
   setViewport(bounds: ViewportRect): void {
     this.#viewport = bounds;
-    const tab = this.active();
+    const tab = this.#peekActive();
     const visible = this.#viewVisible && this.#viewportReady();
     if (tab && this.#attached === tab.view) {
       this.#options.layers.setBounds('page', bounds);
@@ -474,6 +678,7 @@ export class TabManager {
     this.detachBelow();
     this.#visible = true;
     this.#showActive();
+    this.#syncThrottling();
   }
 
   detach(): void {
@@ -482,11 +687,13 @@ export class TabManager {
     // （不复位的话，后台环境会因为一个陈旧的 false 被 assertInputOnScreen 拒绝）
     this.#viewVisible = true;
     this.detachBelow();
-    if (!this.#attached) return;
-    if (this.#options.layers.slotView('page') === this.#attached) {
-      this.#options.layers.setSlot('page', undefined);
+    if (this.#attached) {
+      if (this.#options.layers.slotView('page') === this.#attached) {
+        this.#options.layers.setSlot('page', undefined);
+      }
+      this.#attached = undefined;
     }
-    this.#attached = undefined;
+    this.#syncThrottling();
   }
 
   destroy(): void {
@@ -494,7 +701,8 @@ export class TabManager {
       clearTimeout(this.#changeTimer);
       this.#changeTimer = undefined;
     }
-    for (const id of [...this.#tabs.keys()]) this.#remove(id, true, { silent: true });
+    for (const item of [...this.#list.list]) this.#remove(item.id, true, { silent: true });
+    this.#tabLastActive.clear();
     this.#favicons.clear();
   }
 
@@ -560,9 +768,11 @@ export class TabManager {
     wc.on('media-started-playing', () => sync({ audible: true }));
     wc.on('media-paused', () => sync({ audible: false }));
 
-    // 页面自己调 window.close() 会走到这里：Electron 已经把 webContents 销毁了，
-    // 我们只把它当成「这个标签被关掉了」，绝不再去碰 view.webContents。
-    wc.on('destroyed', () => this.#remove(id, false));
+    // 页面自己调 window.close() 会走到这里：Electron 已经把 webContents 销毁了；
+    // 若该标签已因 sleep() 从 #tabs 摘除，则保留休眠占位标签，不误删。
+    wc.on('destroyed', () => {
+      if (this.#tabs.get(id) === tab) this.#remove(id, false);
+    });
   }
 
   /**
@@ -650,25 +860,27 @@ export class TabManager {
 
   #remove(id: string, destroyWebContents: boolean, options: { silent?: boolean } = {}): void {
     const tab = this.#tabs.get(id);
-    if (!tab) return; // 已经处理过（用户关的 / 页面自己关的）
+    const listState = this.#list.get(id);
+    if (!tab && !listState) return; // 已经处理过（用户关的 / 页面自己关的）
 
     const wasActive = this.#list.activeId === id;
     // 入「最近关闭」栈：⌘⇧T 靠它。环境整体停掉走的是 silent 那条（`destroy()`），不入栈。
-    if (!options.silent) this.#rememberClosed(tab);
+    if (!options.silent) this.#rememberClosedState(tab ? tab.state : listState!);
     this.#tabs.delete(id);
+    this.#tabLastActive.delete(id);
     this.#controllers.get(id)?.detach();
     this.#controllers.delete(id);
-    this.#options.onTabDestroyed(id);
+    if (tab) this.#options.onTabDestroyed(id);
     const { empty } = this.#list.remove(id);
 
-    if (wasActive && this.#attached === tab.view) {
+    if (tab && wasActive && this.#attached === tab.view) {
       if (this.#options.layers.slotView('page') === tab.view) {
         this.#options.layers.setSlot('page', undefined);
       }
       this.#attached = undefined;
     }
-    if (this.#below === tab.view) this.detachBelow();
-    if (destroyWebContents) tab.destroy();
+    if (tab && this.#below === tab.view) this.detachBelow();
+    if (tab && destroyWebContents) tab.destroy();
 
     if (options.silent) return;
 
@@ -678,15 +890,31 @@ export class TabManager {
       return;
     }
     if (wasActive) this.#showActive();
+    this.#syncThrottling();
     this.#notify();
   }
 
   /** 记一条「刚关掉的标签」。没有地址的标签（about:blank）不入栈——重开一个空白页没意义。 */
-  #rememberClosed(tab: Tab): void {
-    const state = tab.state;
+  #rememberClosedState(state: TabState): void {
     if (!state.url || state.url === 'about:blank') return;
     this.#closed.unshift({ url: state.url, title: state.title });
     if (this.#closed.length > CLOSED_STACK_MAX) this.#closed.length = CLOSED_STACK_MAX;
+  }
+
+  #peekActive(): Tab | undefined {
+    return this.#list.activeId ? this.#tabs.get(this.#list.activeId) : undefined;
+  }
+
+  #now(): number {
+    return this.#options.now ? this.#options.now() : Date.now();
+  }
+
+  #syncThrottling(): void {
+    for (const tab of this.#tabs.values()) {
+      const unthrottled =
+        !this.#throttlingAllowed || this.#leaseActive || this.#attached === tab.view || this.#below === tab.view;
+      tab.setBackgroundThrottling(!unthrottled);
+    }
   }
 
   #effectiveViewport(): ViewportRect {
@@ -710,10 +938,12 @@ export class TabManager {
     const visible = this.#viewVisible && this.#viewportReady();
 
     this.#attached = tab.view;
+    this.#tabLastActive.set(tab.id, this.#now());
     this.#options.layers.setSlot('page', tab.view, {
       visible,
       bounds,
     });
+    this.#syncThrottling();
     this.#options.onViewChanged();
   }
 

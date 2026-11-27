@@ -23,6 +23,7 @@ import type {
 import { installSkill, refreshSkills, skillStatus } from './agent-integration.ts';
 import { makeEvent } from './domain/environment.ts';
 import type { EnvironmentManager } from './environments.ts';
+import type { MemoryMonitor } from './memory-monitor.ts';
 import type { PluginHost } from './plugins/host.ts';
 import { RUNTIME_FILE, SOCKET_PATH } from './rpc.ts';
 import type { Store } from './store.ts';
@@ -38,6 +39,7 @@ export interface IpcRoutesDeps {
   getPopoverHost: () => PopoverHost | undefined;
   getManager: () => EnvironmentManager;
   getPlugins: () => PluginHost;
+  getMemoryMonitor?: () => MemoryMonitor | undefined;
   store: Store;
   vault: VaultStore;
   saveVault: () => Promise<void>;
@@ -82,6 +84,14 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   );
   handleShell('env:start', (id: string) => deps.getManager().start(id));
   handleShell('env:stop', (id: string) => deps.getManager().stop(id));
+  handleShell('env:hibernate', (id: string) => ({ ok: deps.getManager().hibernate(id, 'manual') }));
+  handleShell('env:hibernateBackground', () => {
+    const hibernated = deps.getManager().hibernateBackground('manual-batch');
+    return { hibernated, count: hibernated.length };
+  });
+  handleShell('env:wake', (id: string) => ({ ok: deps.getManager().wake(id) }));
+  handleShell('env:clearCache', (id: string) => deps.getManager().clearCache(id));
+  handleShell('system:clearAllCaches', () => deps.getManager().clearAllCaches());
   handleShell('env:remove', (id: string) => deps.getManager().remove(id));
   handleShell(
     'env:update',
@@ -97,6 +107,7 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
     const next = deps.store.setAppSettings(patch);
     const mgr = deps.getManager();
     mgr.applySettings(next);
+    deps.getMemoryMonitor?.()?.configure({ softLimitMb: next.memorySoftLimitMb });
     mgr.setShieldTheme(
       next.theme === 'light' ? 'light' : next.theme === 'system' && !nativeTheme.shouldUseDarkColors ? 'light' : 'dark',
     );
@@ -141,6 +152,10 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   handle('tab:mute', (id: string, space: SpaceId, ref: TabRef, muted: boolean) =>
     deps.getManager().muteTab(id, space, ref, muted),
   );
+  handleShell('tab:sleep', (id: string, space: SpaceId, ref: TabRef) => ({
+    ok: deps.getManager().sleepTab(id, space, ref),
+  }));
+  handleShell('tab:sleepIdle', (id?: string) => ({ slept: deps.getManager().sleepIdleTabs(id) }));
 
   handle('browser:snapshot', async (id: string, space: SpaceId) => {
     const controller = deps.getManager().controllerFor(id, undefined, space);
@@ -281,6 +296,14 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
       plugins: deps.getPlugins(),
     }),
   );
+  handleShell('system:memorySnapshot', async () => {
+    const monitor = deps.getMemoryMonitor?.();
+    if (!monitor) throw new Error('memory monitor is not initialized');
+    return monitor.snapshot();
+  });
+  handleShell('system:reclaimShell', () => ({
+    reclaimed: deps.getMemoryMonitor?.()?.reclaimShellSurfaces(0) ?? 0,
+  }));
 
   handle('agent:skills', async () =>
     skillStatus(os.homedir(), deps.skillSourceDir(), await deps.getPlugins().skillEntries()),

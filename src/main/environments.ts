@@ -3,6 +3,7 @@ import type { BrowserController } from './browser/controller.ts';
 import type { CookieFilter, CookieInput } from './browser/cookies.ts';
 import { wireDownloads } from './browser/downloads.ts';
 import { makeEvent, type EnvironmentPatch } from './domain/environment.ts';
+import type { RawEnvProcessInfo, RawShellProcessInfo } from './domain/memory.ts';
 import { LeaseCoordinator, type LeaseHandle } from './env/lease-coordinator.ts';
 import { EnvLifecycle, SPACE_IDS } from './env/lifecycle.ts';
 import { EnvSessionFactory } from './env/session-factory.ts';
@@ -109,6 +110,7 @@ export class EnvironmentManager {
       },
       detachShield: (shield) => (shield as InputShield).detach(this.#window),
       focusForInput: (id, space) => this.#views.focusForInput(id, space),
+      onLeaseStateChanged: (id, active) => this.#lifecycle.setLeaseActive(id, active),
     });
 
     this.#lifecycle = new EnvLifecycle({
@@ -248,6 +250,12 @@ export class EnvironmentManager {
   muteTab(id: string, space: SpaceId, ref: TabRef, muted: boolean): TabListItem {
     return this.#views.muteTab(id, space, ref, muted);
   }
+  sleepTab(id: string, space: SpaceId, ref: TabRef): boolean {
+    return this.#views.sleepTab(id, space, ref);
+  }
+  sleepIdleTabs(id?: string): number {
+    return this.#lifecycle.sleepIdleTabs(id);
+  }
   reorderTab(id: string, space: SpaceId, from: number, to: number): TabListItem[] {
     return this.#views.reorderTab(id, space, from, to);
   }
@@ -368,13 +376,54 @@ export class EnvironmentManager {
   hibernate(id: string, reason = 'manual'): boolean {
     return this.#lifecycle.hibernate(id, reason);
   }
+  hibernateBackground(reason = 'manual-batch'): string[] {
+    return this.#lifecycle.hibernateBackground(reason);
+  }
   wake(id: string): boolean {
     return this.#lifecycle.wake(id);
+  }
+  async clearCache(id: string): Promise<{ ok: boolean }> {
+    const ok = await this.#sessions.clearCache(id);
+    if (ok) {
+      this.#store.record(makeEvent('env.cacheCleared', `${id} 清理 HTTP 缓存（保留登录态）`, 'human', id));
+    }
+    return { ok };
+  }
+  async clearAllCaches(): Promise<{ cleared: number }> {
+    const cleared = await this.#sessions.clearAllCaches();
+    if (cleared > 0) {
+      this.#store.record(makeEvent('system.cacheCleared', `批量清理 ${cleared} 个环境的 HTTP 缓存`, 'human'));
+    }
+    return { cleared };
+  }
+  memoryInputs(): { environments: RawEnvProcessInfo[]; shellProcesses: RawShellProcessInfo[] } {
+    const now = Date.now();
+    const environments: RawEnvProcessInfo[] = this.#store.list().map((env) => {
+      const spaces = this.#lifecycle.spacesFor(env.id);
+      const status = spaces ? 'running' : this.#lifecycle.isDormant(env.id) ? 'dormant' : 'stopped';
+      const tabs = spaces ? SPACE_IDS.flatMap((space) => spaces[space].tabProcessMetrics()) : [];
+      const lastAt = this.#lifecycle.lastActiveAt(env.id);
+      const idleSeconds = spaces && lastAt > 0 ? Math.max(0, Math.round((now - lastAt) / 1000)) : 0;
+      return {
+        id: env.id,
+        name: env.name,
+        status,
+        idleSeconds,
+        pinned: this.#lifecycle.isPinned(env.id),
+        protectedReason: this.#lifecycle.protectionReasonOf(env.id),
+        tabs,
+      };
+    });
+    return {
+      environments,
+      shellProcesses: this.#leases.shieldProcessInfos(),
+    };
   }
   isDormant(id: string): boolean {
     return this.#lifecycle.isDormant(id);
   }
   shutdown(): void {
+    this.#leases.destroyShield();
     this.#lifecycle.shutdown();
   }
   hasRunningEnvironments(): boolean {
@@ -485,6 +534,11 @@ export class EnvironmentManager {
     this.#lifecycle.setLimits({
       maxRunning: useEnv && process.env.WARREN_MAX_RUNNING !== undefined ? undefined : settings.maxRunning,
       idleMinutes: useEnv && process.env.WARREN_IDLE_MS !== undefined ? undefined : settings.idleHibernateMinutes,
+      tabSleepMinutes: settings.tabSleepMinutes,
+      lazyRestoreTabs: settings.lazyRestoreTabs,
+      throttleBackgroundTabs: settings.throttleBackgroundTabs,
+      lruEvictAction: settings.lruEvictAction,
+      pinnedEnvIds: settings.pinnedEnvIds,
     });
     if (!useEnv || process.env.WARREN_LEASE_TTL_MS === undefined) {
       this.#leases.setLeaseTtlMs(settings.leaseTtlMs);
@@ -538,7 +592,7 @@ export class EnvironmentManager {
     const spaces = this.#lifecycle.spacesFor(env.id);
     const activeSpaceId = spaces?.active ?? 'person';
     const tabs = spaces?.[activeSpaceId];
-    const active = tabs?.active()?.state;
+    const active = tabs?.activeState?.() ?? tabs?.active()?.state;
     return {
       ...env,
       status: spaces ? 'running' : this.#lifecycle.isDormant(env.id) ? 'dormant' : 'stopped',

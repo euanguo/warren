@@ -23,6 +23,7 @@ export const SUBS = {
     'doctor',
     'move',
     'reorder',
+    'clear-cache',
   ],
   group: ['list', 'create', 'rename', 'remove', 'collapse'],
   tab: ['list', 'new', 'select', 'close', 'reopen'],
@@ -97,6 +98,7 @@ export const SUBS = {
     'rpc',
     'run',
   ],
+  system: ['memory', 'reclaim'],
 };
 
 /** 不在任何组里的顶层命令（`help` 必须也覆盖它们）。 */
@@ -150,6 +152,7 @@ export const BOOLEAN_FLAGS = new Set([
   'headed',
   'clear',
   'links',
+  'idle',
 ]);
 
 /** 各组 `default:` 的用法提示，从 SUBS 生成，格式统一成 `[a|b|c]`。 */
@@ -160,7 +163,8 @@ const GROUP_DETAIL_LINES = {
   env: [
     'warren env list',
     'warren env create <name> [--proxy=URL] [--start-url=URL] [--headed=false]',
-    'warren env start|stop|hibernate|wake|remove|select <name>',
+    'warren env start|stop|hibernate|wake|remove|select <name>   # hibernate --idle 一键休眠全部后台环境',
+    'warren env clear-cache [name]            # 清理 HTTP 磁盘缓存（保留登录态）',
     'warren env update <name> [--name=新名字] [--proxy=URL] [--trusted-ca=PEM|none] [--start-url=URL] [--headed=false]',
     'warren env acquire <name> [--wait=5000]   # 取控制权（--wait=ms 轮询）',
     'warren env renew|release <name> --lease=<leaseId>',
@@ -251,6 +255,10 @@ const GROUP_DETAIL_LINES = {
     'warren plugin grant <id> <perm...>',
     'warren plugin run <id> <command> [--env=<env>] [--input=\'{"k":1}\'] [--lease=<leaseId>]',
     'warren plugin rpc <id> <method> [--input=\'{"k":1}\'] [--lease=<leaseId>]',
+  ],
+  system: [
+    'warren system memory [--json]               # 查看按 PID 去重后的进程内存归因与压力水位',
+    'warren system reclaim [--json]              # 主动回收空闲隐藏的预热浮层进程',
   ],
 };
 

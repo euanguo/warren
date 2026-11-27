@@ -25,6 +25,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   devtoolsBottomSize: DEVTOOLS_BOTTOM_SIZE.default,
   maxRunning: 8,
   idleHibernateMinutes: 10,
+  memorySoftLimitMb: 6144,
+  tabSleepMinutes: 20,
+  lazyRestoreTabs: true,
+  throttleBackgroundTabs: true,
+  lruEvictAction: 'hibernate',
+  pinnedEnvIds: [],
   leaseTtlMs: 60_000,
   showControlPill: true,
 };

@@ -7,6 +7,8 @@ import type { Environment, Group, NativeMenuItem } from '@shared/types';
 export interface EnvMenuActions {
   onStart: (id: string) => void;
   onStop: (id: string) => void;
+  onHibernate?: (id: string) => void;
+  onClearCache?: (id: string) => void;
   onRemove: (id: string) => void;
   onTakeover: (id: string) => void;
   onRelease: (id: string) => void;
@@ -54,7 +56,11 @@ export async function openEnvironmentContextMenu(
   const items: NativeMenuItem[] = [
     { label: `${env.name} (${statusLabel[env.status] ?? env.status})`, enabled: false },
     { type: 'separator' },
-    env.status === 'running' ? { id: 'stop', label: '停止' } : { id: 'start', label: '启动' },
+    env.status === 'running'
+      ? { id: 'stop', label: '停止' }
+      : { id: 'start', label: env.status === 'dormant' ? '唤醒' : '启动' },
+    ...(env.status === 'running' && actions.onHibernate ? [{ id: 'hibernate', label: '休眠（保留登录态）' }] : []),
+    ...(actions.onClearCache ? [{ id: 'clear-cache', label: '清理 HTTP 缓存' }] : []),
     { type: 'separator' },
     { id: 'takeover', label: '接管 Agent Space', enabled: env.owner !== 'human' },
     { id: 'release', label: '交还 Agent Space', enabled: env.owner === 'human' },
@@ -87,6 +93,8 @@ export async function openEnvironmentContextMenu(
 
   if (picked === 'start') actions.onStart(env.id);
   else if (picked === 'stop') actions.onStop(env.id);
+  else if (picked === 'hibernate') actions.onHibernate?.(env.id);
+  else if (picked === 'clear-cache') actions.onClearCache?.(env.id);
   else if (picked === 'takeover') actions.onTakeover(env.id);
   else if (picked === 'release') actions.onRelease(env.id);
   else if (picked === 'copy:cli') copyText(`warren exec ${env.id}`, '已复制 CLI 寻址');

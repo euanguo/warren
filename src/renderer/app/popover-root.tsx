@@ -2,11 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PluginBoundary } from '@/app/plugin-surfaces';
 import { PluginBrandGlyph } from '@/components/identity-glyphs';
 import { Icon, type IconName } from '@/components/icons';
-import { IconButton } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Button, IconButton } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/kbd';
 import { MenuLabel } from '@/components/ui/menu';
 import { Spinner } from '@/components/ui/spinner';
+import { StatusDot, type StatusDotTone } from '@/components/ui/status-dot';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { formatMemoryKb } from '@/features/settings/memory-panel';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { usePluginState } from '@/state/plugin-store';
@@ -16,6 +19,7 @@ import { VIEWPORT_PRESET_LIST } from '@shared/viewport-presets';
 import type {
   DownloadItemInfo,
   FindInPageResult,
+  MemorySnapshot,
   PopoverPropsMap,
   PopoverState,
   ViewportPresetId,
@@ -463,6 +467,155 @@ function PluginPopoverView({ props }: { props: PopoverPropsMap['plugin-popover']
   );
 }
 
+export function MemoryQuickView() {
+  const [snapshot, setSnapshot] = useState<MemorySnapshot | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const pull = () => {
+    void window.envApi
+      .memorySnapshot()
+      .then((next) => {
+        if (next) setSnapshot(next);
+      })
+      .catch(() => undefined);
+  };
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      void window.envApi
+        .memorySnapshot()
+        .then((next) => {
+          if (active && next) setSnapshot(next);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = window.setInterval(load, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const topEnvs = (snapshot?.environments ?? []).filter((env) => env.status === 'running').slice(0, 3);
+  const tone: StatusDotTone =
+    snapshot?.pressure === 'high' ? 'error' : snapshot?.pressure === 'elevated' ? 'warning' : 'success';
+  const pressureText = snapshot?.pressure === 'high' ? '高压' : snapshot?.pressure === 'elevated' ? '偏高' : '正常';
+
+  const runQuick = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+      pull();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      data-slot="memory-quick-popover"
+      className={cn(
+        elevatedMenuSurfaceClass,
+        'flex h-full w-full flex-col overflow-hidden rounded-[var(--radius-menu)] text-xs',
+      )}
+    >
+      <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <StatusDot tone={tone} />
+          <span className="font-medium">内存速览</span>
+          <Badge variant="outline" className="text-[10px]">
+            {pressureText}
+          </Badge>
+        </div>
+        <IconButton
+          variant="ghost"
+          title="关闭 (Esc)"
+          aria-label="关闭"
+          onClick={() => void window.envApi.closePopover('memory-quick')}
+        >
+          <Icon name="X" className="size-3.5" />
+        </IconButton>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-lg font-semibold tabular-nums">
+            {snapshot ? formatMemoryKb(snapshot.totalMemoryKb) : '采集中…'}
+          </span>
+          {snapshot && (
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              可释放约 {formatMemoryKb(snapshot.reclaimableMemoryKb)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">高占用运行中环境（Top 3）</span>
+          {topEnvs.length === 0 ? (
+            <p className="py-3 text-center text-[11px] text-muted-foreground">暂无运行中的环境进程</p>
+          ) : (
+            topEnvs.map((env) => (
+              <div
+                key={env.id}
+                className="flex items-center gap-2 rounded-[var(--control-radius)] border border-border/60 bg-surface-under/40 px-2 py-1.5"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium" title={env.name}>
+                  {env.name}
+                </span>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                  {formatMemoryKb(env.memoryKb)}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || Boolean(env.protectedReason)}
+                  title={env.protectedReason ? '当前受保护，无法休眠' : '休眠释放内存'}
+                  onClick={() => void runQuick(() => window.envApi.hibernate(env.id))}
+                >
+                  休眠
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-1.5 border-t border-border/70 px-3 py-2">
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || (snapshot?.reclaimableMemoryKb ?? 0) === 0}
+            onClick={() => void runQuick(() => window.envApi.hibernateBackground())}
+          >
+            休眠后台
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void runQuick(() => window.envApi.sleepIdleTabs())}
+          >
+            释标签
+          </Button>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void window.envApi.dispatchPopoverAction({ id: 'memory-quick', action: 'openMemoryPanel' });
+            void window.envApi.closePopover('memory-quick');
+          }}
+        >
+          完整面板
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * PopoverHost 子窗口渲染入口（加载 `index.html?surface=popover`）。
  * 依托操作系统 `parent` 子窗，直接凌驾于 `WebContentsView` 与主窗之上，绝不遮挡/节流页面。
@@ -497,6 +650,7 @@ export function PopoverRoot() {
         {state.id === 'find-in-page' && <FindInPageView props={state.props} />}
         {state.id === 'downloads' && <DownloadsView props={state.props} />}
         {state.id === 'viewport' && <ViewportView props={state.props} />}
+        {state.id === 'memory-quick' && <MemoryQuickView />}
         {state.id === 'plugin-popover' && <PluginPopoverView props={state.props} />}
       </div>
     </TooltipProvider>

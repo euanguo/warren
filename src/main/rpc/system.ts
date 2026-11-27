@@ -40,6 +40,25 @@ export const systemRpcEndpoints: RpcDomainTable = {
     gate: 'read',
     handler: ({ deps }) => deps.store.appSettings(),
   },
+  'system.memory': {
+    kind: 'read',
+    summary: '采集按 PID 去重后的进程内存归因与压力快照',
+    params: [],
+    gate: 'read',
+    handler: ({ deps }) => {
+      if (!deps.memoryMonitor) {
+        throw new RpcError('UNAVAILABLE', 'memory monitor is not initialized');
+      }
+      return deps.memoryMonitor.snapshot();
+    },
+  },
+  'system.reclaimShell': {
+    kind: 'change',
+    summary: '主动回收当前隐藏态的预热 Overlay/Popover 浮层进程',
+    params: [],
+    gate: 'none',
+    handler: ({ deps }) => ({ reclaimed: deps.memoryMonitor?.reclaimShellSurfaces(0) ?? 0 }),
+  },
   'debug.layout': debugEndpoint({
     kind: 'read',
     summary: '诊断主窗口布局与视口尺寸',

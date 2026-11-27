@@ -72,6 +72,12 @@ export class InputShield {
     return this.#mode;
   }
 
+  get osProcessId(): number | undefined {
+    if (this.#view.webContents.isDestroyed()) return undefined;
+    const pid = this.#view.webContents.getOSProcessId();
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  }
+
   setCallerLabel(label?: string): void {
     const next = label?.trim() || 'Agent';
     if (next === this.#callerLabel) return;

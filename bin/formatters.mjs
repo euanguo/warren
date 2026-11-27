@@ -228,3 +228,26 @@ export const formatFlowLine = (item) =>
 export const formatFlowStepLine = (item) => `GET ${String(item.status).padEnd(4)} ${item.suggestedTemplate}`;
 export const formatFrameLine = (item) =>
   `${item.active ? '●' : '○'} [${item.index}] ${item.frameId}${item.crossOrigin ? ' [OOPIF]' : ''}  ${item.url}`;
+
+const formatMb = (kb) => `${(Number(kb || 0) / 1024).toFixed(0)} MB`;
+
+export const formatMemorySnapshot = (snap) => {
+  const pressureLabel = snap.pressure === 'high' ? '高压' : snap.pressure === 'elevated' ? '偏高' : '正常';
+  const lines = [
+    `Warren 内存总计 ${formatMb(snap.totalMemoryKb)}（压力: ${pressureLabel}，预计可释放 ${formatMb(snap.reclaimableMemoryKb)}，共 ${snap.counts?.processCount ?? 0} 进程）`,
+    `  分类: 环境页面 ${formatMb(snap.breakdown?.environmentsKb)} · 插件 ${formatMb(snap.breakdown?.pluginsKb)} · 壳层 ${formatMb(snap.breakdown?.shellKb)} · 系统/GPU ${formatMb(snap.breakdown?.systemKb)}`,
+  ];
+  const envs = Array.isArray(snap.environments) ? snap.environments : [];
+  if (envs.length > 0) {
+    lines.push('  环境占用:');
+    for (const env of envs) {
+      const status = env.status === 'running' ? '●' : env.status === 'dormant' ? '☾' : '○';
+      const protect = env.protectedReason ? ` [${env.protectedReason}]` : '';
+      const totalTabs = (env.activeTabs ?? 0) + (env.sleepingTabs ?? 0);
+      lines.push(
+        `    ${status} ${String(env.id).padEnd(18)} ${formatMb(env.memoryKb).padStart(8)}  标签:${totalTabs}(休眠:${env.sleepingTabs ?? 0})${protect}`,
+      );
+    }
+  }
+  return lines.join('\n');
+};

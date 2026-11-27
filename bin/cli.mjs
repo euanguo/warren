@@ -21,6 +21,7 @@ import {
   runMethodsCommand,
   runSkillFlag,
   runSkillsCommand,
+  runSystemCommand,
 } from './commands/system.mjs';
 import { runTabCommand } from './commands/tab.mjs';
 import { createRpcClient } from './rpc-client.mjs';
@@ -51,6 +52,7 @@ const GROUP_HANDLERS = {
   exec: runExecCommand,
   tab: runTabCommand,
   browser: runBrowserCommand,
+  system: runSystemCommand,
 };
 
 export async function runCli(argv = process.argv.slice(2), deps = {}) {

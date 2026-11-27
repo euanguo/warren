@@ -17,7 +17,15 @@ import {
 } from '../domain/environment.ts';
 import type { Store } from '../store.ts';
 import type { Tab, TabManager } from '../tabs.ts';
-import type { Creator, Environment, EnvironmentConfig, PluginBusEventType, SpaceId } from '../../shared/types.ts';
+import type {
+  Creator,
+  EnvMemoryProtectionReason,
+  Environment,
+  EnvironmentConfig,
+  LruEvictAction,
+  PluginBusEventType,
+  SpaceId,
+} from '../../shared/types.ts';
 
 /** 同时运行的环境上限。超了按 LRU 回收（见 `evictFor`）。`WARREN_MAX_RUNNING=0` 关掉回收。 */
 const DEFAULT_MAX_RUNNING = 8;
@@ -121,6 +129,11 @@ export interface LifecycleDeps {
   emitBusEvent: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
   maxRunning?: number;
   idleMs?: number;
+  tabSleepMs?: number;
+  lazyRestoreTabs?: boolean;
+  throttleBackgroundTabs?: boolean;
+  lruEvictAction?: LruEvictAction;
+  pinnedEnvIds?: string[];
   now?: () => number;
   waitForInitialLoad?: (tab: Tab, timeoutMs: number) => Promise<void>;
 }
@@ -157,40 +170,100 @@ export class EnvLifecycle {
   #epoch = new Map<string, number>();
   #maxRunning: number;
   #idleMs: number;
+  #tabSleepMs: number;
+  #lazyRestoreTabs: boolean;
+  #throttleBackgroundTabs: boolean;
+  #lruEvictAction: LruEvictAction;
+  #pinned = new Set<string>();
   #sweepTimer?: ReturnType<typeof setInterval>;
 
   constructor(deps: LifecycleDeps) {
     this.#deps = deps;
     this.#maxRunning = deps.maxRunning ?? maxRunningFromEnv();
     this.#idleMs = deps.idleMs ?? idleMsFromEnv();
+    this.#tabSleepMs = deps.tabSleepMs ?? 0;
+    this.#lazyRestoreTabs = deps.lazyRestoreTabs ?? true;
+    this.#throttleBackgroundTabs = deps.throttleBackgroundTabs ?? true;
+    this.#lruEvictAction = deps.lruEvictAction ?? 'stop';
+    if (deps.pinnedEnvIds) {
+      for (const id of deps.pinnedEnvIds) this.#pinned.add(id);
+    }
     for (const id of deps.store.runningSnapshot().dormant ?? []) {
       if (deps.store.configFor(id)) this.#dormant.add(id);
     }
-    if (this.#idleMs > 0) {
-      this.#sweepTimer = setInterval(() => this.sweepIdle(), DORMANT_SWEEP_MS);
-      this.#sweepTimer.unref?.();
-    }
+    this.#syncSweepTimer();
   }
 
   get maxRunning(): number {
     return this.#maxRunning;
   }
 
-  setLimits(limits: { maxRunning?: number; idleMinutes?: number }): void {
+  isTabThrottlingEnabled(): boolean {
+    return this.#throttleBackgroundTabs;
+  }
+
+  isPinned(id: string): boolean {
+    return this.#pinned.has(id);
+  }
+
+  lastActiveAt(id: string): number {
+    return this.#lastActive.get(id) ?? 0;
+  }
+
+  /** 将 Agent Lease 状态同步到两个 Space 的 TabManager，控制后台降频开关。 */
+  setLeaseActive(id: string, active: boolean): void {
+    const spaces = this.#spaces.get(id);
+    if (!spaces) return;
+    spaces.person.setLeaseActive?.(active);
+    spaces.agent.setLeaseActive?.(active);
+  }
+
+  #syncSweepTimer(): void {
+    const needTimer = this.#idleMs > 0 || this.#tabSleepMs > 0;
+    if (needTimer && !this.#sweepTimer) {
+      this.#sweepTimer = setInterval(() => this.sweepIdle(), DORMANT_SWEEP_MS);
+      this.#sweepTimer.unref?.();
+    } else if (!needTimer && this.#sweepTimer) {
+      clearInterval(this.#sweepTimer);
+      this.#sweepTimer = undefined;
+    }
+  }
+
+  setLimits(limits: {
+    maxRunning?: number;
+    idleMinutes?: number;
+    tabSleepMinutes?: number;
+    lazyRestoreTabs?: boolean;
+    throttleBackgroundTabs?: boolean;
+    lruEvictAction?: LruEvictAction;
+    pinnedEnvIds?: string[];
+  }): void {
     if (limits.maxRunning !== undefined && Number.isFinite(limits.maxRunning)) {
       this.#maxRunning = Math.max(0, Math.min(32, Math.floor(limits.maxRunning)));
     }
     if (limits.idleMinutes !== undefined && Number.isFinite(limits.idleMinutes)) {
-      const nextIdleMs = Math.max(0, Math.min(240, Math.floor(limits.idleMinutes))) * 60_000;
-      this.#idleMs = nextIdleMs;
-      if (nextIdleMs > 0 && !this.#sweepTimer) {
-        this.#sweepTimer = setInterval(() => this.sweepIdle(), DORMANT_SWEEP_MS);
-        this.#sweepTimer.unref?.();
-      } else if (nextIdleMs <= 0 && this.#sweepTimer) {
-        clearInterval(this.#sweepTimer);
-        this.#sweepTimer = undefined;
+      this.#idleMs = Math.max(0, Math.min(240, Math.floor(limits.idleMinutes))) * 60_000;
+    }
+    if (limits.tabSleepMinutes !== undefined && Number.isFinite(limits.tabSleepMinutes)) {
+      this.#tabSleepMs = Math.max(0, Math.min(240, Math.floor(limits.tabSleepMinutes))) * 60_000;
+    }
+    if (typeof limits.lazyRestoreTabs === 'boolean') {
+      this.#lazyRestoreTabs = limits.lazyRestoreTabs;
+    }
+    if (typeof limits.throttleBackgroundTabs === 'boolean') {
+      this.#throttleBackgroundTabs = limits.throttleBackgroundTabs;
+      for (const spaces of this.#spaces.values()) {
+        spaces.person.setThrottleBackgroundTabs?.(limits.throttleBackgroundTabs);
+        spaces.agent.setThrottleBackgroundTabs?.(limits.throttleBackgroundTabs);
       }
     }
+    if (limits.lruEvictAction === 'hibernate' || limits.lruEvictAction === 'stop') {
+      this.#lruEvictAction = limits.lruEvictAction;
+    }
+    if (Array.isArray(limits.pinnedEnvIds)) {
+      this.#pinned = new Set(limits.pinnedEnvIds);
+    }
+    this.#syncSweepTimer();
   }
 
   get runningCount(): number {
@@ -432,27 +505,75 @@ export class EnvLifecycle {
     return true;
   }
 
-  /** 定时扫描：闲置到点且没在被用的环境进休眠。 */
+  /** 返回该运行中环境为何受保护免自动休眠/回收；返回 undefined 表示可安全回收。 */
+  protectionReasonOf(id: string): EnvMemoryProtectionReason | undefined {
+    if (!this.#spaces.has(id)) return undefined;
+    if (this.#deps.getSelectedId() === id) return 'selected';
+    if (this.#deps.hasLiveLease(id)) return 'leased';
+    if (this.#pinned.has(id)) return 'pinned';
+    const spaces = this.#spaces.get(id)!;
+    const tabs = SPACE_IDS.flatMap((space) => spaces[space].list());
+    if (tabs.some((tab) => tab.audible)) return 'audible';
+    if (tabs.some((tab) => tab.loading) || this.#deps.isNetBusy(id)) return 'busy';
+    return undefined;
+  }
+
+  /** 一键休眠所有可安全回收的后台运行中环境，返回本次进入休眠的环境 ID 列表。 */
+  hibernateBackground(reason = 'manual-batch'): string[] {
+    const hibernated: string[] = [];
+    for (const id of [...this.#spaces.keys()]) {
+      if (this.protectionReasonOf(id)) continue;
+      if (this.hibernate(id, reason)) hibernated.push(id);
+    }
+    return hibernated;
+  }
+
+  /** 立即休眠指定环境（或全部非持权运行中环境）内的所有非激活可安全休眠标签。 */
+  sleepIdleTabs(envId?: string): number {
+    let slept = 0;
+    const targets = envId ? [envId] : [...this.#spaces.keys()];
+    for (const id of targets) {
+      const spaces = this.#spaces.get(id);
+      if (!spaces) continue;
+      if (!envId && this.#deps.hasLiveLease(id)) continue;
+      for (const space of SPACE_IDS) {
+        slept += spaces[space].sleepAllInactive?.() ?? 0;
+      }
+    }
+    return slept;
+  }
+
+  /** 定时扫描：闲置到点且没在被用的环境进休眠，同时休眠超时的后台非激活标签。 */
   sweepIdle(): void {
-    if (this.#idleMs <= 0) return;
     const now = this.#now();
-    const candidates = [...this.#spaces.keys()].map((id) => ({
-      id,
-      lastActiveAt: this.#lastActive.get(id) ?? 0,
-      selected: this.#deps.getSelectedId() === id,
-      leased: this.#deps.hasLiveLease(id),
-      busy: this.#isBusy(id),
-    }));
-    for (const id of pickDormant(candidates, now, this.#idleMs)) {
-      this.hibernate(id, `闲置 ${Math.round((now - (this.#lastActive.get(id) ?? 0)) / 1000)}s`);
+    if (this.#idleMs > 0) {
+      const candidates = [...this.#spaces.keys()].map((id) => ({
+        id,
+        lastActiveAt: this.#lastActive.get(id) ?? 0,
+        selected: this.#deps.getSelectedId() === id,
+        leased: this.#deps.hasLiveLease(id),
+        busy: this.#isBusy(id),
+        pinned: this.#pinned.has(id),
+      }));
+      for (const id of pickDormant(candidates, now, this.#idleMs)) {
+        this.hibernate(id, `闲置 ${Math.round((now - (this.#lastActive.get(id) ?? 0)) / 1000)}s`);
+      }
+    }
+    if (this.#tabSleepMs > 0) {
+      for (const [id, spaces] of this.#spaces.entries()) {
+        if (this.#deps.hasLiveLease(id)) continue;
+        for (const space of SPACE_IDS) {
+          spaces[space].sleepIdle?.(this.#tabSleepMs, now);
+        }
+      }
     }
   }
 
   /**
    * 起新环境之前腾位置：按「最后一次被用到」回收最久没用的那几个。
    *
-   * 排除项见 `pickEvictions`（选中的 / 持着租约的绝不回收）。
-   * 被回收的环境就是 `stopped`——页面关掉、内存还给系统，下次要用手动再启动。
+   * 排除项见 `pickEvictions`（选中的 / 持租约的 / Pin 固定的绝不回收）。
+   * 按 `lruEvictAction` 决定优先 `hibernate`（默认，保留无缝唤醒）还是直接 `stop`。
    */
   evictFor(keep: string): void {
     if (this.#maxRunning <= 0) return;
@@ -463,12 +584,22 @@ export class EnvLifecycle {
         lastActiveAt: this.#lastActive.get(id) ?? 0,
         selected: this.#deps.getSelectedId() === id,
         leased: this.#deps.hasLiveLease(id),
+        pinned: this.#pinned.has(id),
       }));
     for (const id of pickEvictions(candidates, this.#maxRunning)) {
-      this.#deps.store.record(
-        makeEvent('env.evicted', `${id} 被 LRU 回收（同时运行上限 ${this.#maxRunning}）`, 'system', id),
-      );
-      this.stop(id, 'evicted');
+      if (this.#lruEvictAction === 'hibernate') {
+        this.#deps.store.record(
+          makeEvent('env.evicted', `${id} 达到并发上限 ${this.#maxRunning}，自动休眠释放内存`, 'system', id),
+        );
+        if (!this.hibernate(id, `LRU 并发上限 ${this.#maxRunning}`)) {
+          this.stop(id, 'evicted');
+        }
+      } else {
+        this.#deps.store.record(
+          makeEvent('env.evicted', `${id} 被 LRU 回收（同时运行上限 ${this.#maxRunning}）`, 'system', id),
+        );
+        this.stop(id, 'evicted');
+      }
     }
   }
 
@@ -574,8 +705,19 @@ export class EnvLifecycle {
         list.findIndex((tab) => tab.active),
       );
       for (let index = 0; index < list.length; index += 1) {
-        const tab = spaces[space].create({ url: list[index].url, activate: index === activeIndex });
-        first ??= tab;
+        const isActive = index === activeIndex;
+        const canLazy = this.#lazyRestoreTabs && typeof spaces[space].createSleeping === 'function';
+        if (canLazy && (space !== spaces.active || !isActive)) {
+          // 惰性恢复：后台标签与未显示 Space 的历史标签仅占位不建渲染进程，切换或操作时透明加载
+          spaces[space].createSleeping({
+            url: list[index].url,
+            activate: isActive,
+            materializeIfActive: false,
+          });
+        } else {
+          const tab = spaces[space].create({ url: list[index].url, activate: isActive });
+          first ??= tab;
+        }
       }
     }
     // Person Space 始终至少有一个入口；Agent Space 则等 agent 第一次操作时再懒建。

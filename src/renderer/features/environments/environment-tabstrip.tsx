@@ -23,6 +23,7 @@ interface Props {
   onCloseRight: (ref: TabRef) => void;
   onReorder: (from: number, to: number) => void;
   onToggleMute: (ref: TabRef, muted: boolean) => void;
+  onSleep?: (ref: TabRef) => void;
 }
 
 function Favicon({ url }: { url: string }) {
@@ -49,6 +50,7 @@ export function EnvironmentTabstrip({
   onCloseRight,
   onReorder,
   onToggleMute,
+  onSleep,
 }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -96,6 +98,15 @@ export function EnvironmentTabstrip({
         label: tab.muted ? '取消静音' : '静音',
         enabled: !locked,
       },
+      ...(onSleep && !tab.sleeping
+        ? [
+            {
+              id: 'sleep',
+              label: '休眠标签（释放内存）',
+              enabled: !locked && tab.id !== activeTabId && !tab.loading && !tab.audible,
+            },
+          ]
+        : []),
       { type: 'separator' },
       { id: 'close', label: '关闭', enabled: !locked },
       { id: 'close-others', label: '关闭其他', enabled: !locked && tabs.length >= 2 },
@@ -112,6 +123,7 @@ export function EnvironmentTabstrip({
     else if (picked === 'hard-reload') (onHardReload ?? onReload)(tab.id);
     else if (picked === 'copy' && tab.url) void navigator.clipboard.writeText(tab.url);
     else if (picked === 'mute') onToggleMute(tab.id, !tab.muted);
+    else if (picked === 'sleep') onSleep?.(tab.id);
     else if (picked === 'close') onClose(tab.id);
     else if (picked === 'close-others') onCloseOthers(tab.id);
     else if (picked === 'close-right') onCloseRight(tab.id);
@@ -131,6 +143,7 @@ export function EnvironmentTabstrip({
               draggable={!locked}
               data-tab-index={index}
               data-tab-id={tab.id}
+              data-tab-sleeping={tab.sleeping ? 'true' : undefined}
               onDragStart={(event: DragEvent<HTMLDivElement>) => {
                 if (locked) return;
                 setDragIndex(index);
@@ -152,6 +165,7 @@ export function EnvironmentTabstrip({
               onContextMenu={(event) => void openTabMenu(event, tab, index, label)}
               className={cn(
                 'relative flex max-w-[180px] shrink-0 items-center rounded-[var(--control-radius)]',
+                tab.sleeping && 'opacity-65',
                 tab.id !== activeTabId &&
                   index < tabs.length - 1 &&
                   tabs[index + 1]?.id !== activeTabId &&
@@ -164,8 +178,8 @@ export function EnvironmentTabstrip({
             >
               <SurfaceTab
                 className="max-w-[180px]"
-                label={label}
-                title={tab.url || label}
+                label={tab.sleeping ? `${label}` : label}
+                title={tab.sleeping ? `${tab.url || label}（已休眠，点击恢复）` : tab.url || label}
                 active={tab.id === activeTabId}
                 icon={
                   tab.loading ? (

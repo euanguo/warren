@@ -40,6 +40,7 @@ export class PopoverHost {
   #focusable?: Slot;
   #activeId: PopoverId | null = null;
   #activeSlot?: Slot;
+  #lastUsedAt = Date.now();
   #currentOptions?: PopoverOpenOptions;
   #lastBounds?: { x: number; y: number; width: number; height: number };
   #hoverTimer?: ReturnType<typeof setInterval>;
@@ -62,8 +63,38 @@ export class PopoverHost {
 
   /** 预热两个子窗，确保首次触发 0ms 弹出。 */
   warmup(): void {
+    this.#lastUsedAt = Date.now();
     this.#ensureSlot(false);
     this.#ensureSlot(true);
+  }
+
+  /** 回收空闲隐藏态的预热 Popover 子窗，下次触发时按需重建。 */
+  reclaimIdle(idleMs = 0): number {
+    if (this.#activeId) return 0;
+    if (idleMs > 0 && Date.now() - this.#lastUsedAt < idleMs) return 0;
+    let reclaimed = 0;
+    for (const slot of [this.#nonFocusable, this.#focusable]) {
+      if (slot && !slot.win.isDestroyed()) {
+        slot.win.destroy();
+        reclaimed += 1;
+      }
+    }
+    this.#nonFocusable = undefined;
+    this.#focusable = undefined;
+    return reclaimed;
+  }
+
+  processInfos(): Array<{ pid: number; label: string }> {
+    const out: Array<{ pid: number; label: string }> = [];
+    if (this.#nonFocusable && !this.#nonFocusable.win.isDestroyed()) {
+      const pid = this.#nonFocusable.win.webContents.getOSProcessId();
+      if (Number.isInteger(pid) && pid > 0) out.push({ pid, label: 'Popover 浮卡（非聚焦）' });
+    }
+    if (this.#focusable && !this.#focusable.win.isDestroyed()) {
+      const pid = this.#focusable.win.webContents.getOSProcessId();
+      if (Number.isInteger(pid) && pid > 0) out.push({ pid, label: 'Popover 浮卡（可聚焦）' });
+    }
+    return out;
   }
 
   isOwnedWebContents(wc: WebContents): boolean {
@@ -76,6 +107,7 @@ export class PopoverHost {
   }
 
   async open(options: PopoverOpenOptions): Promise<void> {
+    this.#lastUsedAt = Date.now();
     const focusable = Boolean(options.focusable);
     const slot = this.#ensureSlot(focusable);
     await slot.ready;
@@ -149,6 +181,7 @@ export class PopoverHost {
     const slot = this.#activeSlot;
     this.#activeId = null;
     this.#activeSlot = undefined;
+    this.#lastUsedAt = Date.now();
     this.#currentOptions = undefined;
     this.#lastBounds = undefined;
     if (slot && !slot.win.isDestroyed()) {

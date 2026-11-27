@@ -53,6 +53,7 @@ export interface PopoverPropsMap {
   'find-in-page': { envId: string; space: SpaceId; initialQuery?: string };
   downloads: { envId?: string };
   viewport: { envId: string; space: SpaceId; preset: ViewportPresetId };
+  'memory-quick': Record<string, never>;
   'plugin-popover': { pluginId: string; surfaceId: string; environmentId?: string; space: SpaceId; url: string };
 }
 
@@ -83,6 +84,7 @@ export type PopoverActionEvent =
   | { id: 'address-suggest'; action: 'hover'; payload: number }
   | { id: 'address-suggest'; action: 'pick'; payload: string }
   | { id: 'viewport'; action: 'preset'; payload: ViewportPresetId }
+  | { id: 'memory-quick'; action: 'openMemoryPanel' }
   | { id: 'plugin-popover'; action: 'openPluginPage'; payload: { pluginId: string; surfaceId: string } }
   | { id: 'plugin-popover'; action: 'openInspectorTab'; payload: { pluginId: string; surfaceId: string } }
   | { id: 'plugin-popover'; action: 'openSettings'; payload: { section?: BuiltinSettingsSection } }

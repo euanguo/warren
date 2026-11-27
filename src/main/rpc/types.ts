@@ -4,6 +4,7 @@
 import type { TabRef, SpaceId } from '../../shared/types.ts';
 import type { BrowserController } from '../browser/controller.ts';
 import type { EnvironmentManager } from '../environments.ts';
+import type { MemoryMonitor } from '../memory-monitor.ts';
 import type { PluginHost } from '../plugins/host.ts';
 import type { Store } from '../store.ts';
 import type { VaultStore } from '../vault/store.ts';
@@ -22,6 +23,7 @@ export interface DispatchDeps {
   vault: VaultStore;
   saveVault: () => Promise<void>;
   plugins: PluginHost;
+  memoryMonitor?: Pick<MemoryMonitor, 'snapshot' | 'reclaimShellSurfaces'>;
   skillSourceDir?: string;
   homeDir?: string;
   isPackaged: boolean;

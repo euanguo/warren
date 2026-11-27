@@ -12,6 +12,7 @@ import { ApprovalPanel } from '@/features/settings/approval-panel';
 import { BrowserPanel } from '@/features/settings/browser-panel';
 import { DiagnosticsPanel } from '@/features/settings/diagnostics-panel';
 import { GeneralPanel } from '@/features/settings/general-panel';
+import { MemoryPanel } from '@/features/settings/memory-panel';
 import type { PluginSettingsSection } from '@/lib/plugin-sdk-types';
 import { setSettingsQuery, useNavigationState, type SettingsSection } from '@/state/navigation-store';
 import type { Environment, InstalledPlugin } from '@shared/types';
@@ -56,6 +57,15 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     icon: 'Code',
     keywords: '浏览器 devtools 开发者工具 停靠 右侧 底部 独立 视口 缩放 并发 休眠 按域 历史 dock viewport maxrunning',
     render: () => <BrowserPanel />,
+  },
+  {
+    id: 'memory',
+    group: '界面与浏览',
+    title: '性能与内存',
+    subtitle: '实时监控进程内存归因、按环境或标签精准休眠、配置水位守卫与后台降频策略。',
+    icon: 'Zap',
+    keywords: '性能 内存 进程 监控 休眠 缓存 水位 降频 惰性 memory ram cpu pid hibernate sleep cache throttle',
+    render: () => <MemoryPanel />,
   },
   {
     id: 'agent',

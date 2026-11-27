@@ -67,6 +67,7 @@ export interface ViewCoordinatorDeps {
     | 'rememberTabs'
     | 'onSpaceEmpty'
     | 'maxRunning'
+    | 'isTabThrottlingEnabled'
   >;
   getLeases: () => Pick<
     LeaseCoordinator,
@@ -230,6 +231,7 @@ export class EnvViewCoordinator {
       isViewportReady: () => this.#layers.isViewportReady(),
       session: ses,
       trustedCa,
+      throttleBackgroundTabs: this.#deps.getLifecycle().isTabThrottlingEnabled?.() ?? true,
       onChanged: () => {
         this.#deps.onChange();
         this.#deps.getLifecycle().rememberTabs(id);
@@ -364,6 +366,15 @@ export class EnvViewCoordinator {
     this.#deps.store.record(makeEvent('tab.muted', `${id} 标签 ${ref} ${muted ? '静音' : '取消静音'}`, 'human', id));
     this.#afterTabChange(id);
     return tab;
+  }
+
+  sleepTab(id: string, space: SpaceId, ref: TabRef): boolean {
+    const slept = this.#requireTabs(id, space).sleep(ref);
+    if (slept) {
+      this.#deps.store.record(makeEvent('tab.slept', `${id} 标签 ${ref} 进入休眠释放内存`, 'human', id));
+      this.#afterTabChange(id);
+    }
+    return slept;
   }
 
   reorderTab(id: string, space: SpaceId, from: number, to: number): TabListItem[] {
