@@ -27,7 +27,7 @@
   <img src="./docs/screenshots/01-workbench-dark.png" alt="Warren 工作台——深浅色自适应实机预览" width="100%" />
 </picture>
 
-<sub><i>深浅主题自适应预览：左侧分组环境树、Person / Agent 双空间、真实网页（<code>react.dev</code> / <code>github.com</code>）与右侧随行工作台检查器。</i></sub>
+<sub><i>深浅主题自适应预览：OpenBot 扁平精密设计体系、Kubai 插件品牌图标、分组环境树、真实美观站点（<code>linear.app</code> / <code>vercel.com</code>）与右侧随行工作台检查器。</i></sub>
 
 </div>
 
@@ -43,16 +43,16 @@
 |---|---|
 | **环境级完全隔离** | 每个 **Environment** 拥有独立分区的 Electron `Session`（Cookie、`localStorage`、缓存）、独立 HTTP / SOCKS / Whistle 代理出口，以及环境级 X.509 `trustedCa` 验签——不魔改内核，也不做指纹伪装。 |
 | **同会话双空间（Person / Agent）** | 同一环境内共享登录态与代理出口，但分离为 **Person Space**（永远由人控制、免 lease）与 **Agent Space**（受单写者租约约束）两套独立标签工作区，人与 Agent 并行操作互不碰撞；交还控制权时保持当前视角，不强制跳回。 |
-| **显式寻址 + 三层 WebGL 原生护盾** | 读操作免 lease，写操作必须显式指定 `<env>` 并持 lease（UI 选中环境 ≠ 获得写权限）。Agent 持锁期间，独立原生 `WebContentsView` 护盾通过三层 WebGL 着色器（域扭曲呼吸面纱、点阵微粒与指针尾迹水波、Poisson 模糊流光边框）配合目标锚框与右下角接管胶囊，在不遮挡网页内容的前提下阻断误触，一键即可收回控制权。 |
+| **常驻托管态 + Ardia WebGL2 物理光场护盾** | 读操作免 lease，写操作显式指定 `<env>` 并进入常驻托管操作态（命令间隙自动释放写锁并平滑切入舒缓 `thinking` 态，彻底消除蒙层闪烁，直到调用 `warren env finish <env>` 或人工干预退出）。全局单实例原生 `WebContentsView` 护盾采用**慢流速 Ardia `PowerUp + Halo` WebGL2 物理光场**（Oklab 6 色光谱、3D Simplex 噪声宽柔半影、空心四边几何体裁剪零中心开销），搭配 macOS 液态玻璃 HUD、渐变 AI 光标、目标锁定框与一键「接管 / 结束」。 |
 | **CLI + 自动合成 Skill** | 专为 Coding Agent 打造（`warren` CLI + 自动同步至 `~/.agents`、`~/.claude`、`~/.codex` 的 `SKILL.md`），提供紧凑可读的无障碍树 `@N` 快照、带 Delta Receipt 的 `batch` 批处理与受限 `node:vm` 脚本运行时。 |
 
 ---
 
 ## 界面实机预览
 
-### 三层 WebGL 原生 AI 护盾（深色 / 浅色自适应）
+### 慢流速 Ardia `PowerUp + Halo` WebGL2 原生 AI 护盾（深色 / 浅色自适应）
 
-当 Agent 持有 lease 操作 `Agent Space` 时，原生 `shield` 视窗层（`InputShield`）在网页上方叠加动态呼吸面纱、随指尖移动的点阵星火尾迹、流光圆角边框、目标 CTA 锚框与虚拟光标，同时右下角悬浮实时动作状态胶囊，兼顾极佳通透感与随行可接管性。
+当 Agent 托管操作 `Agent Space` 时，原生 `shield` 视窗层（`InputShield`）在真实网页（`linear.app` / `react.dev`）上方叠加慢流速 **Ardia `PowerUp + Halo` WebGL2 物理光场**——融合 Oklab 光谱混色、3D Simplex Noise 宽幅半影、空心四边裁剪几何体、渐变 AI 箭头光标、目标锚框（`@N`）与底部居中 macOS 液态玻璃 HUD 胶囊，兼顾极高通透度与一键「接管 / 结束」。
 
 <table>
   <tr>
@@ -60,7 +60,7 @@
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="./docs/screenshots/03-agent-shield-dark.png" />
         <source media="(prefers-color-scheme: light)" srcset="./docs/screenshots/04-agent-shield-light.png" />
-        <img src="./docs/screenshots/03-agent-shield-dark.png" alt="Warren 三层 WebGL AI 输入护盾激活态（深色与浅色主题）" width="100%" />
+        <img src="./docs/screenshots/03-agent-shield-dark.png" alt="Warren 慢流速 Ardia PowerUp+Halo WebGL2 AI 输入护盾（深色与浅色主题）" width="100%" />
       </picture>
     </td>
   </tr>
@@ -90,21 +90,21 @@
   <tr>
     <td width="50%" valign="top">
       <a href="./docs/screenshots/05-agent-idle-readonly.png">
-        <img src="./docs/screenshots/05-agent-idle-readonly.png" alt="Agent 空间释放控制权后保留原视角的只读虚线边框" width="100%" />
+        <img src="./docs/screenshots/05-agent-idle-readonly.png" alt="Agent 空间思考托管常驻态与柔和 Ardia 物理光场" width="100%" />
       </a>
       <br />
-      <strong>交还控制权不跳视角（只读虚线护栏）</strong>
+      <strong>常驻托管会话态 · 思考期不闪烁</strong>
       <br />
-      <sub>在 <code>Agent Space</code> 点击「交还」后稳稳停留在当前 Agent 视图方便继续围观，并以高对比虚线边框与顶栏「接管编辑」清楚提示只读保护状态。</sub>
+      <sub>单条 CLI 命令结束后底层写锁即时释放，护盾平滑收敛至舒缓 <code>thinking</code> 常驻光场（底部胶囊显示「思考中 · 托管常驻」），直至 AI 调 <code>warren env finish</code> 或人点「接管 / 结束」才退场。</sub>
     </td>
     <td width="50%" valign="top">
       <a href="./docs/screenshots/09-workbench-snapshot-hn.png">
-        <img src="./docs/screenshots/09-workbench-snapshot-hn.png" alt="Hacker News 页面与工作台实时可访问性快照树" width="100%" />
+        <img src="./docs/screenshots/09-workbench-snapshot-hn.png" alt="Vite.dev 页面与工作台实时可访问性快照树" width="100%" />
       </a>
       <br />
       <strong>真实网站实时无障碍快照面板</strong>
       <br />
-      <sub>在 <code>news.ycombinator.com</code> 等真实站点旁一键读取页面可访问性节点树（504 个节点），并与事件、控制台、网络、规则和存储面板随时切换对照。</sub>
+      <sub>在 <code>vite.dev</code> 等真实站点旁一键读取页面语义无障碍节点树（111 个节点），并与事件、控制台、网络、规则和存储面板随时切换对照。</sub>
     </td>
   </tr>
   <tr>
@@ -130,7 +130,7 @@
 </table>
 
 <details>
-<summary><strong>更多实机截图：右侧互斥横幅、未启动引导页、Whistle 代理台、全局账号与设置 / Vault</strong></summary>
+<summary><strong>更多实机截图：右侧互斥横幅、未启动引导页、Whistle 代理台、全局账号与外观 / 内存治理</strong></summary>
 
 <table>
   <tr>
@@ -179,18 +179,18 @@
         <img src="./docs/screenshots/15-global-settings-general.png" alt="全局设置：通用与外观主题预览" width="100%" />
       </a>
       <br />
-      <strong>设置中心 —— 通用与外观</strong>
+      <strong>设置中心 —— 通用与可抽离配色皮肤引擎</strong>
       <br />
-      <sub>4-seed 深色/浅色/跟随系统主题三卡预览（全壳层、DevTools、浮层同步），含紧凑顶栏与视图 <code>8px</code> 圆角开关。</sub>
+      <sub>深色 / 浅色 / 跟随系统三卡预览搭配 4 套可抽离纯色板皮肤（纯中性、冷调石墨、暖墨宣纸、极夜纯黑）与实时自定义色板微调，全壳层、DevTools 与浮层同步生效。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="./docs/screenshots/16-global-settings-vault.png">
-        <img src="./docs/screenshots/16-global-settings-vault.png" alt="全局设置：safeStorage 加密凭据 Vault 与安全边界" width="100%" />
+      <a href="./docs/screenshots/16-global-settings-memory.png">
+        <img src="./docs/screenshots/16-global-settings-memory.png" alt="全局设置：实时 PID 去重性能与内存治理面板" width="100%" />
       </a>
       <br />
-      <strong><code>safeStorage</code> 加密 Vault 与安全边界</strong>
+      <strong>性能与实时内存治理面板</strong>
       <br />
-      <sub>本地密钥链加密落盘，仅向外部 Agent 与插件暴露不透明 <code>vault://...</code> 引用及脱敏账号提示，绝不回传明文。</sub>
+      <sub>按 PID 去重实时归因环境页面、插件进程、壳层与 GPU 内存占用，支持单环境固定 / 休眠 / 唤醒、空闲标签释放、缓存清理与自动化内存水位策略。</sub>
     </td>
   </tr>
 </table>
@@ -212,7 +212,7 @@
 
 **方式 A：从 `.dmg` 安装**
 
-1. 打开 `Warren-0.1.0-arm64.dmg`，将 `Warren.app` 拖入 `/Applications`（若系统提示警告，先关闭弹窗，不要移到废纸篓）。
+1. 打开 `Warren-0.3.0-arm64.dmg`，将 `Warren.app` 拖入 `/Applications`（若系统提示警告，先关闭弹窗，不要移到废纸篓）。
 2. 在终端运行：
 
 ```bash
@@ -225,7 +225,7 @@ open -a Warren
 建议使用 `ditto` 直接解压进 `/Applications`（完整保留 Electron 包内符号链接与权限），清除隔离属性后启动：
 
 ```bash
-ditto -xk Warren-darwin-arm64-0.1.0.zip /Applications
+ditto -xk Warren-darwin-arm64-0.3.0.zip /Applications
 xattr -cr /Applications/Warren.app
 open -a Warren
 ```
@@ -272,8 +272,8 @@ click @1
 snapshot -i
 EOF
 
-# 完成后释放租约
-warren env release dev --lease=<leaseId>
+# 任务全部完成后显式结束 Agent 托管态并撤除蒙层
+warren env finish dev
 ```
 
 <details>

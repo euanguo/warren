@@ -27,7 +27,7 @@ An Electron desktop workbench and native CLI where each **Environment** pairs is
   <img src="./docs/screenshots/01-workbench-dark.png" alt="Warren Workbench — Dark & Light Adaptive Preview" width="100%" />
 </picture>
 
-<sub><i>Dark &amp; light adaptive preview — grouped environments, Person / Agent spaces, live websites (<code>react.dev</code> / <code>github.com</code>), and the right Workbench Inspector.</i></sub>
+<sub><i>Dark &amp; light adaptive preview — OpenBot flat-precision chrome, Kubai plugin icons, grouped environments, live websites (<code>linear.app</code> / <code>vercel.com</code>), and the right Workbench Inspector.</i></sub>
 
 </div>
 
@@ -43,16 +43,16 @@ Most browser-automation setups split into two extremes: headless scripts you can
 |---|---|
 | **Per-Burrow Isolation** | Each **Environment** owns a partitioned Electron `Session` (cookies, `localStorage`, cache), independent HTTP/SOCKS/Whistle proxy, and per-environment X.509 `trustedCa` verification—without kernel patches or fingerprint spoofing. |
 | **Dual Spaces, Shared Auth** | Every Environment contains a **Person Space** (always human-owned, no lease required) and an **Agent Space** (lease-gated). Both share the same login session and proxy egress while keeping separate tab sets that never collide—and releasing control keeps you right in your active view. |
-| **Single-Writer Lease & 3-Layer WebGL Shield** | Reading never requires a lease; writing requires an explicit `<env>` lease. When an agent holds the lock, a native `WebContentsView` shield renders an animated 3-layer WebGL veil (domain-warped FBM aurora, interactive dot-matrix pointer trail & click ripple, and Poisson-blurred border glow) plus CTA target box and one-click **Take Over**. |
+| **Persistent Agent Session &amp; Ardia WebGL2 Shield** | Reading never requires a lease; writing acquires an `<env>` lease and enters a persistent Agent operating session (`acting` ↔ calm `thinking` across commands until `warren env finish <env>` or human intervention). A single-instance native `WebContentsView` shield renders a slow-flow **Ardia `PowerUp + Halo` WebGL2 physical light field** (Oklab 6-color spectrum, 3D Simplex Noise penumbra, hollow 4-strip edge geometry for zero center GPU cost) with a macOS Liquid Glass HUD, Dia gradient AI cursor, target lock box, and one-click **Take Over / Finish**. |
 | **CLI + Auto-Synced Skills** | Designed for coding agents (`warren` CLI + compiled `SKILL.md` for `~/.agents`, `~/.claude`, `~/.codex`) with compact accessibility `@N` snapshots, batched Delta Receipts, and a locked `node:vm` scripting runtime. |
 
 ---
 
 ## Visual Tour
 
-### 3-Layer WebGL Native AI Shield (Dark & Light)
+### Slow-Flow Ardia `PowerUp + Halo` WebGL2 Native AI Shield (Dark & Light)
 
-When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield`) blends a translucent WebGL breathing veil, radial dot-matrix pointer trail, Poisson-blurred flowing border glow, CTA highlight anchor, and virtual cursor directly above real web pages—keeping content legible while blocking accidental clicks until you click **Take Over**.
+When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield`) renders a slow-flow **Ardia `PowerUp + Halo` WebGL2 physical light field** directly above live pages (`linear.app` / `react.dev`)—combining Oklab perceptual spectrum blending, 3D Simplex Noise penumbra, hollow 4-strip perimeter geometry, a gradient AI arrow cursor, target lock-on box (`@N`), and a bottom-center macOS Liquid Glass HUD with one-click **Take Over** and **Finish**.
 
 <table>
   <tr>
@@ -60,7 +60,7 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="./docs/screenshots/03-agent-shield-dark.png" />
         <source media="(prefers-color-scheme: light)" srcset="./docs/screenshots/04-agent-shield-light.png" />
-        <img src="./docs/screenshots/03-agent-shield-dark.png" alt="Warren 3-Layer WebGL AI Input Shield (Dark & Light)" width="100%" />
+        <img src="./docs/screenshots/03-agent-shield-dark.png" alt="Warren Slow-Flow Ardia PowerUp+Halo WebGL2 AI Input Shield (Dark & Light)" width="100%" />
       </picture>
     </td>
   </tr>
@@ -90,21 +90,21 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
   <tr>
     <td width="50%" valign="top">
       <a href="./docs/screenshots/05-agent-idle-readonly.png">
-        <img src="./docs/screenshots/05-agent-idle-readonly.png" alt="Agent Idle Read-Only Mode Preserving View" width="100%" />
+        <img src="./docs/screenshots/05-agent-idle-readonly.png" alt="Persistent Agent Thinking Session Mode with Calm Ardia Glow" width="100%" />
       </a>
       <br />
-      <strong>View-Preserving Control Release (Read-Only Guard)</strong>
+      <strong>Persistent Agent Session · Calm Thinking Mode</strong>
       <br />
-      <sub>Handing control back leaves you inside <code>Agent Space</code> with a crisp dashed perimeter guard and a single-click <strong>Take Over Edit</strong> trigger instead of yanking you away.</sub>
+      <sub>Between CLI commands, the write lock frees automatically while the Agent operating session smoothly shifts into a serene <code>thinking</code> glow—eliminating shield flicker until AI calls <code>warren env finish</code> or you click <strong>Take Over / Finish</strong>.</sub>
     </td>
     <td width="50%" valign="top">
       <a href="./docs/screenshots/09-workbench-snapshot-hn.png">
-        <img src="./docs/screenshots/09-workbench-snapshot-hn.png" alt="Workbench Accessibility Snapshot Inspector on Hacker News" width="100%" />
+        <img src="./docs/screenshots/09-workbench-snapshot-hn.png" alt="Workbench Accessibility Snapshot Inspector on Vite.dev" width="100%" />
       </a>
       <br />
       <strong>Live AXTree Snapshot Inspector</strong>
       <br />
-      <sub>Inspect what agents perceive on live sites like <code>news.ycombinator.com</code> (504 accessibility nodes) directly beside the viewport, or jump to Console, Network, Rules, and Storage.</sub>
+      <sub>Inspect what agents perceive on live sites like <code>vite.dev</code> (111 semantic accessibility nodes) directly beside the viewport, or jump to Console, Network, Rules, and Storage.</sub>
     </td>
   </tr>
   <tr>
@@ -130,7 +130,7 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
 </table>
 
 <details>
-<summary><strong>More Real-Site Captures: Right-Dock Exclusivity, Stopped Env Launchpad, Whistle Proxy, Accounts &amp; Vault Settings</strong></summary>
+<summary><strong>More Real-Site Captures: Right-Dock Exclusivity, Stopped Env Launchpad, Whistle Proxy, Accounts &amp; Memory Governance</strong></summary>
 
 <table>
   <tr>
@@ -179,18 +179,18 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
         <img src="./docs/screenshots/15-global-settings-general.png" alt="General & Theme Settings" width="100%" />
       </a>
       <br />
-      <strong>Settings Center — Appearance &amp; Chrome</strong>
+      <strong>Settings Center — Appearance &amp; Detachable Skin Engine</strong>
       <br />
-      <sub>4-seed Dark / Light / System themes synced across chrome, DevTools, and overlays, plus compact chrome &amp; <code>8px</code> corner controls.</sub>
+      <sub>OpenBot flat-precision theme cards (Dark / Light / System) paired with 4 detachable color-only skins (Neutral, Cool Slate, Warm Ink, Pitch Black) and live custom palette tuning.</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="./docs/screenshots/16-global-settings-vault.png">
-        <img src="./docs/screenshots/16-global-settings-vault.png" alt="Encrypted Vault & Security Boundaries" width="100%" />
+      <a href="./docs/screenshots/16-global-settings-memory.png">
+        <img src="./docs/screenshots/16-global-settings-memory.png" alt="Performance & Real-Time PID Memory Governance Panel" width="100%" />
       </a>
       <br />
-      <strong>Encrypted <code>safeStorage</code> Vault</strong>
+      <strong>Performance &amp; Real-Time Memory Governance</strong>
       <br />
-      <sub>Stores proxy/login/API secrets encrypted at rest with opaque <code>vault://...</code> references—never exposed in plaintext to agents or renderer UI.</sub>
+      <sub>PID-deduplicated memory attribution across environments, plugins, shell, and GPU processes with one-click hibernate/wake, tab sleep, cache cleanup, and automated pressure policies.</sub>
     </td>
   </tr>
 </table>
@@ -212,7 +212,7 @@ Download `Warren-<version>-arm64.dmg` or `Warren-darwin-arm64-<version>.zip` fro
 
 **Option A — Install from `.dmg`:**
 
-1. Open `Warren-0.1.0-arm64.dmg` and drag `Warren.app` into `/Applications` (if Gatekeeper warns before dragging, do not move to Trash).
+1. Open `Warren-0.3.0-arm64.dmg` and drag `Warren.app` into `/Applications` (if Gatekeeper warns before dragging, do not move to Trash).
 2. Run in Terminal:
 
 ```bash
@@ -225,7 +225,7 @@ open -a Warren
 Extract with `ditto` into `/Applications` (preserves Electron bundle symlinks and permissions), clear quarantine, and launch:
 
 ```bash
-ditto -xk Warren-darwin-arm64-0.1.0.zip /Applications
+ditto -xk Warren-darwin-arm64-0.3.0.zip /Applications
 xattr -cr /Applications/Warren.app
 open -a Warren
 ```
@@ -272,8 +272,8 @@ click @1
 snapshot -i
 EOF
 
-# Release lease when finished
-warren env release dev --lease=<leaseId>
+# Finish the Agent operating session and dismiss the overlay shield
+warren env finish dev
 ```
 
 <details>
