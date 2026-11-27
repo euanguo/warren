@@ -26,8 +26,8 @@ module.exports = {
     asar: true,
     // 打包时**必须显式给**：不给就是 Electron 默认的 `com.github.Electron`
     // （实测——公证也会因为这个 id 认不出应用是谁的）
-    appBundleId: 'com.euanguo.warren',
-    appCopyright: 'Copyright © 2026 euanguo',
+    appBundleId: 'dev.saywhy.warren',
+    appCopyright: 'Copyright © 2026 saywhy.dev',
     // macOS 认 icon.icns，Windows/Linux 认 icon.png（assets/ 下两份都在）
     icon: './assets/icon',
     // 自带 Skill、桌面图标与 CLI 入口跟着 app 走：主进程与外部 Agent 从 Resources 读取

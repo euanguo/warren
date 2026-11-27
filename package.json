@@ -4,6 +4,11 @@
   "version": "0.2.2",
   "description": "Agent-first isolated browser environments — one burrow per identity, one egress per burrow",
   "license": "MIT",
+  "homepage": "https://github.com/saywhy-dev/warren",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saywhy-dev/warren.git"
+  },
   "type": "module",
   "main": ".vite/build/main.cjs",
   "bin": {

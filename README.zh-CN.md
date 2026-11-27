@@ -11,7 +11,7 @@
 [English](./README.md) · **简体中文** · [快速开始](#快速开始) · [界面实机预览](#界面实机预览) · [CLI 与 Agent 工作流](#cli-与-agent-工作流) · [系统架构](#系统架构) · [插件体系](#插件体系v4) · [文档导航](./docs/README.md)
 
 <p>
-  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" height="20" /></a>
+  <a href="https://github.com/saywhy-dev/warren/actions/workflows/ci.yml"><img src="https://github.com/saywhy-dev/warren/actions/workflows/ci.yml/badge.svg" alt="CI" height="20" /></a>
   <img src="./assets/badges/electron.svg" alt="Electron 45.5" height="20" />
   <img src="./assets/badges/node.svg" alt="Node.js 24+" height="20" />
   <img src="./assets/badges/typescript.svg" alt="TypeScript 7.0" height="20" />
@@ -203,7 +203,7 @@
 
 ### 1. 安装 macOS 客户端（未签名包必读）
 
-前往 [GitHub Releases](https://github.com/euanguo/warren/releases) 或最新一次通过的 [`CI` 工作流运行记录](https://github.com/euanguo/warren/actions/workflows/ci.yml) 页面底部的 `warren-macos-arm64` 构建产物（Artifacts），下载 `Warren-<version>-arm64.dmg` 或 `Warren-darwin-arm64-<version>.zip`（Apple Silicon / macOS）。
+前往 [GitHub Releases](https://github.com/saywhy-dev/warren/releases) 或最新一次通过的 [`CI` 工作流运行记录](https://github.com/saywhy-dev/warren/actions/workflows/ci.yml) 页面底部的 `warren-macos-arm64` 构建产物（Artifacts），下载 `Warren-<version>-arm64.dmg` 或 `Warren-darwin-arm64-<version>.zip`（Apple Silicon / macOS）。
 
 > [!IMPORTANT]
 > **未签名包在 macOS 上会触发 Gatekeeper 拦截，必须先执行去隔离命令**
@@ -238,7 +238,7 @@ open -a Warren
 运行环境：**macOS**（Apple Silicon）+ **Node.js `24+`** 与 `npm`。
 
 ```bash
-git clone https://github.com/euanguo/warren.git
+git clone https://github.com/saywhy-dev/warren.git
 cd warren
 npm install
 npm start                 # 启动 Electron Core + 本地 Unix Socket RPC (~/.warren/runtime/envd.sock)

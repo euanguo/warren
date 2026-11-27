@@ -11,7 +11,7 @@ An Electron desktop workbench and native CLI where each **Environment** pairs is
 **English** · [简体中文](./README.zh-CN.md) · [Quick Start](#quick-start) · [Visual Tour](#visual-tour) · [CLI & Skills](#cli--agent-workflow) · [Architecture](#architecture) · [Plugins](#plugin-system-v4) · [Docs](./docs/README.md)
 
 <p>
-  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" height="20" /></a>
+  <a href="https://github.com/saywhy-dev/warren/actions/workflows/ci.yml"><img src="https://github.com/saywhy-dev/warren/actions/workflows/ci.yml/badge.svg" alt="CI" height="20" /></a>
   <img src="./assets/badges/electron.svg" alt="Electron 45.5" height="20" />
   <img src="./assets/badges/node.svg" alt="Node.js 24+" height="20" />
   <img src="./assets/badges/typescript.svg" alt="TypeScript 7.0" height="20" />
@@ -203,7 +203,7 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
 
 ### 1. Install macOS App (Unsigned / Ad-Hoc Build)
 
-Download `Warren-<version>-arm64.dmg` or `Warren-darwin-arm64-<version>.zip` from [GitHub Releases](https://github.com/euanguo/warren/releases) or the `warren-macos-arm64` artifact on the latest passing [`CI` workflow run](https://github.com/euanguo/warren/actions/workflows/ci.yml) (Apple Silicon / macOS).
+Download `Warren-<version>-arm64.dmg` or `Warren-darwin-arm64-<version>.zip` from [GitHub Releases](https://github.com/saywhy-dev/warren/releases) or the `warren-macos-arm64` artifact on the latest passing [`CI` workflow run](https://github.com/saywhy-dev/warren/actions/workflows/ci.yml) (Apple Silicon / macOS).
 
 > [!IMPORTANT]
 > **Unsigned macOS packages trigger Gatekeeper**
@@ -238,7 +238,7 @@ open -a Warren
 Prerequisites: **macOS** (Apple Silicon) + **Node.js `24+`** and `npm`.
 
 ```bash
-git clone https://github.com/euanguo/warren.git
+git clone https://github.com/saywhy-dev/warren.git
 cd warren
 npm install
 npm start                 # Starts Electron Core + local Unix socket RPC (~/.warren/runtime/envd.sock)

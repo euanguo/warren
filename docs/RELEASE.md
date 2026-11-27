@@ -17,7 +17,7 @@ npm run make
 `codesign -dv out/Warren-darwin-arm64/Warren.app` 显示 `Signature=adhoc`。
 自己机器上跑没问题；**发给别人会被 Gatekeeper 拦**（见下一节）。
 
-打包时 `appBundleId` 必须显式给（现在是 `com.euanguo.warren`）：不给就是 Electron 的默认值
+打包时 `appBundleId` 必须显式给（现在是 `dev.saywhy.warren`）：不给就是 Electron 的默认值
 `com.github.Electron`（实测），公证会因为这个 id 认不出应用是谁的。
 
 `npm run make` 会先跑一遍 Vite 构建（主进程 + preload + 渲染层）。**别在 `npm start` 还开着的时候跑**——
@@ -49,7 +49,7 @@ npm run make
 
 要做的时候（估计 2 小时 + 一次真实发布）：
 
-1. `npm i electron-updater`，在 `package.json` 里加 `build.publish = { provider: 'github', owner: 'euanguo', repo: 'warren' }`；
+1. `npm i electron-updater`，在 `package.json` 里加 `build.publish = { provider: 'github', owner: 'saywhy-dev', repo: 'warren' }`；
 2. 主进程 `app.whenReady()` 里，**只在 `app.isPackaged` 时** `autoUpdater.checkForUpdatesAndNotify()`；
 3. 更新源要走 GitHub Releases：`npm run make` 之后把 zip/yml 传到 Release（`electron-builder` 家族的文件格式；
    Forge 的 zip maker 产物形状和它不完全一致，这一条要单独验）；

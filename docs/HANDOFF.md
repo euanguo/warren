@@ -1491,5 +1491,5 @@ node bin/warren.mjs browser screenshot <env> --output=/tmp/warren-shot.png
 - **用户偏好**：中文沟通；直接给结果和链接，不要废话和手动步骤；结构化数据存文件不要只给文字列表。
 - **验证习惯**：说「做完了」必须带实测输出。这个项目里已经出现过多次「看起来改了但没生效」（见坑 8），所以改完必须重启 + 实测。
 - **视觉模型当前不可用**（API key 401）—— 需要判断「界面长什么样」时，用像素统计代替：区域平均 RGB、唯一颜色数、特定条带的暗像素占比。这个项目里已经用过（验证遮罩是否渲染、验证皮肤是否切换）。
-- **仓库**：`origin` = `git@github.com:euanguo/warren.git`。**HTTPS 那条没有凭据**（`git push` 直接跑会报
+- **仓库**：`origin` = `git@github.com:saywhy-dev/warren.git`。**HTTPS 那条没有凭据**（`git push` 直接跑会报
   `could not read Username`），走 SSH。`gh` 的 token 已失效，所以 `gh run list` 读不到 CI 结果。
