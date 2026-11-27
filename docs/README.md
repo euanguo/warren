@@ -29,6 +29,7 @@
 | **不换内核时怎么更接近真实浏览器** | `ELECTRON-REALISM-PLAN.md` |
 | **Agent CLI & Browser Ops v3** | `AGENT-CLI-AND-BROWSER-OPS-DEEP-RESEARCH.md`、`CLI-AND-BROWSER-OPS-V3-PLAN.md` |
 | **Agent CLI v4（AI-Native 上下文与输出工程）** | `WARREN-V4-AI-NATIVE-CLI-CONTEXT-PLAN.md`（Wave 1–5 实施蓝图） |
+| **公开基准测试与能力评估体系** | `BENCHMARK-EVALUATION.md`（业界 4 级基准地图、问题改造计划、可复现评测脚本与基线成绩） |
 
 ## 历史 / 只作参考
 

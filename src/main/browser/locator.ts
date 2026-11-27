@@ -133,14 +133,19 @@ async function isolatedContext(ctx: PageContext, sessionId?: string): Promise<nu
     map = new Map();
     worldCtxCache.set(ctx.wc.id, map);
   }
-  const key = sessionId ?? '';
+  const activeFrameId = !sessionId ? ctx.activeFrameId?.() : undefined;
+  const key = `${sessionId ?? ''}:${activeFrameId ?? ''}`;
   const cached = map.get(key);
   if (cached !== undefined) return cached;
-  const { frameTree } = await ctx.sendOn<{ frameTree: { frame: { id: string } } }>(sessionId, 'Page.getFrameTree');
+  let frameId = activeFrameId;
+  if (!frameId) {
+    const { frameTree } = await ctx.sendOn<{ frameTree: { frame: { id: string } } }>(sessionId, 'Page.getFrameTree');
+    frameId = frameTree.frame.id;
+  }
   const { executionContextId } = await ctx.sendOn<{ executionContextId: number }>(
     sessionId,
     'Page.createIsolatedWorld',
-    { frameId: frameTree.frame.id, worldName: 'warren' },
+    { frameId, worldName: 'warren' },
   );
   map.set(key, executionContextId);
   return executionContextId;

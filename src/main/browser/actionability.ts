@@ -4,7 +4,7 @@
  * Portal 浮层免滚动识别、CDP `DOM.getNodeForLocation` 命中归属、顶层模态检测与 AX 语义遮挡描述）。
  */
 import type { PageContext } from './ctx.ts';
-import { hitTestLocation, isHitAcceptable, localQuadClickPoint } from './click-point.ts';
+import { evaluateHitAcceptance, hitTestLocation, localQuadClickPoint } from './click-point.ts';
 import { ACTIONABILITY_STATE_JS } from './dom-scripts.ts';
 import { richErr } from './errors.ts';
 import { describeAxBlocker } from './locator.ts';
@@ -117,8 +117,9 @@ interface StateSnapshot {
 }
 
 /**
- * 判断目标是否为已在视口内的浮动 Portal 菜单项（如 Radix/Base UI/MUI 的 menuitem/option）。
- * 若返回 true，调用方应跳过 `scrollIntoView`，避免滚动触发浮层关闭。
+ * 判断目标是否为已在视口内的浮动 Portal 菜单/自动补全项（如 Radix/Base UI/MUI 的 menuitem/option，
+ * 或 jQuery UI Autocomplete / 常见自定义 typeahead 浮层项）。
+ * 若返回 true，调用方应跳过 `scrollIntoView`，避免滚动触发 blur 或浮层关闭。
  */
 export async function isVisibleFloatingFlyout(
   ctx: PageContext,
@@ -132,16 +133,31 @@ export async function isVisibleFloatingFlyout(
     nodeId,
     `(el) => {
       if (!el || el.nodeType !== 1) return false;
-      const role = (typeof el.getAttribute === 'function' ? el.getAttribute('role') : '') || '';
-      if (!/^(menuitem|menuitemcheckbox|menuitemradio|option)$/i.test(role)) return false;
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) return false;
       if (r.top < 0 || r.left < 0 || r.bottom > innerHeight || r.right > innerWidth) return false;
+      const safeAttr = (n, k) => {
+        try { return typeof n.getAttribute === 'function' ? n.getAttribute(k) || '' : ''; } catch { return ''; }
+      };
+      const role = safeAttr(el, 'role');
+      const isAriaItem = /^(menuitem|menuitemcheckbox|menuitemradio|option)$/i.test(role);
+      const flyoutClassRe = /\\b(ui-autocomplete|ui-menu-item|ui-menu|autocomplete|typeahead|dropdown-menu|suggestions?|combobox-list|listbox|popover)\\b/i;
+      const flyoutRoleRe = /^(menu|menubar|listbox|combobox)$/i;
+      let isFlyoutItem = isAriaItem;
       const parentOf = (n) => n.assignedSlot || n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
       let cur = el;
+      let hasPositionedAncestor = false;
       for (let d = 0; cur && cur.nodeType === 1 && d < 12; d++) {
         const pos = getComputedStyle(cur).position;
-        if (pos === 'fixed' || pos === 'absolute') return true;
+        if (pos === 'fixed' || pos === 'absolute') hasPositionedAncestor = true;
+        if (!isFlyoutItem && d <= 4) {
+          const curRole = safeAttr(cur, 'role');
+          const curClass = safeAttr(cur, 'class');
+          if (flyoutRoleRe.test(curRole) || flyoutClassRe.test(curClass)) {
+            isFlyoutItem = true;
+          }
+        }
+        if (isFlyoutItem && hasPositionedAncestor) return true;
         cur = parentOf(cur);
       }
       return false;
@@ -185,17 +201,21 @@ export async function checkActionable(
     if (quadInfo) {
       const cdpHit = await hitTestLocation(ctx, quadInfo.point, sessionId);
       if (cdpHit?.backendNodeId) {
-        const ok = await isHitAcceptable(ctx, backendNodeId, cdpHit.backendNodeId, sessionId);
-        if (ok) return;
-        const blockerDesc = await describeAxBlocker(ctx, cdpHit.backendNodeId, sessionId);
-        const modalNote =
-          !snapshot.hit.ok && snapshot.hit.modalBlocker ? `；顶层模态框：<${snapshot.hit.modalBlocker}>` : '';
-        throw richErr('TARGET_OCCLUDED', `目标被 ${blockerDesc} 遮挡${modalNote}`, {
-          data: {
-            blocker: blockerDesc,
-            ...(modalNote && !snapshot.hit.ok ? { modalBlocker: snapshot.hit.modalBlocker } : {}),
-          },
-        });
+        const verdict = await evaluateHitAcceptance(ctx, backendNodeId, cdpHit.backendNodeId, sessionId);
+        if (verdict === 'accepted') return;
+        if (verdict === 'blocked') {
+          const blockerDesc = await describeAxBlocker(ctx, cdpHit.backendNodeId, sessionId);
+          const modalNote =
+            !snapshot.hit.ok && snapshot.hit.modalBlocker ? `；顶层模态框：<${snapshot.hit.modalBlocker}>` : '';
+          throw richErr('TARGET_OCCLUDED', `目标被 ${blockerDesc} 遮挡${modalNote}`, {
+            data: {
+              blocker: blockerDesc,
+              ...(modalNote && !snapshot.hit.ok ? { modalBlocker: snapshot.hit.modalBlocker } : {}),
+            },
+          });
+        }
+        // verdict === 'unresolvable'（如按钮内部 ::before/::after 伪元素或不可解析 shadow 节点）：
+        // 交由下方已穿透 Open Shadow DOM 的 `snapshot.hit` 做最终裁决，真实伪元素遮挡仍会被拦截。
       }
     }
     if (!snapshot.hit.ok) {

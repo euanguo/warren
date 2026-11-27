@@ -214,28 +214,67 @@ async function augmentFrameWithDom(
               }
             }
 
-            // 3) Cursor 交互补盲（排除原生可交互标签与大容器）
+            // 3) Cursor 交互补盲（排除带 href 的原生链接与原生表单控件，保留无 href 交互 <a>、拖拽区与小图标按钮）
             const hasPointer = cs.cursor === 'pointer';
             if (opts.includeCursor && extras.length < 120) {
-              const isNative = /^(a|button|input|select|textarea|summary|label|option)$/.test(tag);
+              const isNative =
+                (tag === 'a' && el.hasAttribute('href')) ||
+                /^(button|input|select|textarea|summary|label|option)$/.test(tag);
               const role = (el.getAttribute('role') || '').toLowerCase();
               const hasAriaInteractive = /^(button|link|textbox|checkbox|radio|combobox|menuitem|tab|switch|slider|searchbox|option|treeitem|listbox|gridcell)$/.test(role);
               if (!isNative && !hasAriaInteractive) {
                 const r = el.getBoundingClientRect();
                 const reasonableSize = r.width >= 8 && r.height >= 8 && r.width * r.height < vw * vh * 0.45;
+                const clsStr = typeof el.className === 'string' ? el.className : '';
+                const isDraggable =
+                  el.getAttribute('draggable') === 'true' || /\\bui-draggable\\b/.test(clsStr);
+                const isDroppable =
+                  typeof el.ondrop === 'function' ||
+                  el.hasAttribute('ondrop') ||
+                  /\\bui-droppable\\b/.test(clsStr);
+                const hasIconMedia =
+                  Boolean(cs.backgroundImage && cs.backgroundImage !== 'none') ||
+                  /url\\(/i.test(cs.content || '') ||
+                  Boolean(el.querySelector && el.querySelector('svg, img, i'));
+                const isSmallIconControl = hasPointer && hasIconMedia && r.width <= 48 && r.height <= 48;
                 const explicitInteractive =
                   typeof el.onclick === 'function' ||
                   el.hasAttribute('onclick') ||
+                  typeof el.onmouseenter === 'function' ||
+                  el.hasAttribute('onmouseenter') ||
+                  typeof el.onmouseover === 'function' ||
+                  el.hasAttribute('onmouseover') ||
                   el.isContentEditable ||
+                  isDraggable ||
+                  isDroppable ||
                   (el.hasAttribute('tabindex') && Number(el.getAttribute('tabindex')) >= 0);
-                if (reasonableSize && (explicitInteractive || (hasPointer && !parentHasPointer))) {
+                if (reasonableSize && (explicitInteractive || isSmallIconControl || (hasPointer && !parentHasPointer))) {
                   const text = clean(el.getAttribute('aria-label') || el.getAttribute('title') || el.innerText || el.textContent).slice(0, 80);
-                  if (text || explicitInteractive) {
+                  const iconFallback =
+                    !text && hasPointer && hasIconMedia
+                      ? el.id
+                        ? '#' + el.id
+                        : clsStr
+                            .trim()
+                            .split(/\\s+/)
+                            .filter((c) => c && !/^(clicked|active|selected|hover|focus|icon|fa)$/i.test(c))
+                            .slice(0, 2)
+                            .join('.')
+                      : '';
+                  if (text || iconFallback || explicitInteractive) {
                     const idx = pushEl(el);
+                    const idFallback = (isDraggable || isDroppable) && el.id ? '#' + el.id : '';
+                    const extraRole = el.isContentEditable
+                      ? 'textbox'
+                      : isDraggable
+                        ? 'draggable'
+                        : isDroppable
+                          ? 'droppable'
+                          : 'clickable';
                     extras.push({
                       idx,
-                      role: el.isContentEditable ? 'textbox' : 'clickable',
-                      name: text || tag,
+                      role: extraRole,
+                      name: text || iconFallback || idFallback || tag,
                       cursorInteractive: true,
                     });
                     if (opts.boxes) {
@@ -669,7 +708,11 @@ function stableLocator(n: AxNode): string | undefined {
 
 function actionMarks(role: string): Array<'click' | 'fill' | 'select' | 'focus'> {
   const r = role.toLowerCase();
-  if (/button|link|menuitem|tab|switch|checkbox|radio|slider|treeitem|clickable|disclosuretriangle/i.test(r)) {
+  if (
+    /button|link|menuitem|tab|switch|checkbox|radio|slider|treeitem|clickable|draggable|droppable|disclosuretriangle/i.test(
+      r,
+    )
+  ) {
     return ['click', 'focus'];
   }
   if (/textbox|searchbox|combobox/i.test(r)) return ['fill', 'focus'];

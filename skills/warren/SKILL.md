@@ -92,7 +92,7 @@ warren browser detect-login <env>
 | `PATH_DENIED` | 路径越界（系统/数据目录），或凭据域名不在已配置的白名单 | 传安全绝对路径；核对站点域，或用账号插件 `update` 补齐允许域名 |
 | `ENV_NOT_VISIBLE` | 主窗切到设置/插件全屏页或开着浮层让出了视图 | 关闭浮层或切回环境页（非后台运行问题） |
 | `TAB_GONE` | 固定或显式指定的标签已关闭（禁止静默切页） | 运行 `warren tab list <env>` 选择新标签或取消 `--tab` |
-| `DIALOG_OPEN` | 页面存在未处理的原生弹窗 | 先 `browser dialog <env> accept` 或 `dismiss` |
+| `DIALOG_OPEN` | 页面存在未处理的原生弹窗（`alert`/`confirm`；Electron 原生不支持 `window.prompt`） | 先 `browser dialog <env> accept` 或 `dismiss` |
 | `FLOW_AUTH_EXPIRED` / `FLOW_UNKNOWN_FIELD` | Flow 鉴权过期或过滤字段不存在 | 重新登录目标站点，或按报错列出的可用字段修正 `--where` |
 | `CDP_BLOCKED` / `UNSUPPORTED_PAGE_API` | 超出干净 CDP 白名单或调用了不支持的 `page` 方法 | 改用 `page.evaluate`、脚本内 `help()` 或 `warren exec --capabilities --detailed` |
 

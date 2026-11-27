@@ -187,14 +187,23 @@ export async function hitTestLocation(
   return res;
 }
 
-/** 用 CDP `Runtime.callFunctionOn` 比较两个 `backendNodeId` 是否构成合法点击归属关系。 */
-export async function isHitAcceptable(
+/** CDP 命中测试归属判定结果。 */
+export type HitAcceptanceResult = 'accepted' | 'blocked' | 'unresolvable';
+
+/**
+ * 用 CDP `Runtime.callFunctionOn` 比较两个 `backendNodeId` 是否构成合法点击归属关系。
+ *
+ * 当命中的节点无法解析为 JS 对象（常见于 FontAwesome 图标的 `::before`/`::after` 伪元素或
+ * UA Shadow DOM 伪节点）时，返回 `'unresolvable'` 而非 `'blocked'`，让调用方优雅回退到已穿透
+ * Open Shadow DOM 的 `elementFromPoint` 校验，避免误报 `TARGET_OCCLUDED` 的同时保留对真实遮挡层的拦截。
+ */
+export async function evaluateHitAcceptance(
   ctx: PageContext,
   targetBackendId: number,
   hitBackendId: number,
   sessionId?: string,
-): Promise<boolean> {
-  if (targetBackendId === hitBackendId) return true;
+): Promise<HitAcceptanceResult> {
+  if (targetBackendId === hitBackendId) return 'accepted';
   const [targetObj, hitObj] = await Promise.all([
     ctx
       .sendOn<{ object?: { objectId?: string } }>(sessionId, 'DOM.resolveNode', { backendNodeId: targetBackendId })
@@ -208,7 +217,7 @@ export async function isHitAcceptable(
   if (!tId || !hId) {
     if (tId) await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: tId }).catch(() => {});
     if (hId) await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: hId }).catch(() => {});
-    return false;
+    return 'unresolvable';
   }
   try {
     const r = await ctx.sendOn<{ result?: { value?: unknown } }>(sessionId, 'Runtime.callFunctionOn', {
@@ -217,31 +226,59 @@ export async function isHitAcceptable(
       arguments: [{ objectId: hId }],
       returnByValue: true,
     });
-    return r?.result?.value === true;
+    if (r?.result?.value === true) return 'accepted';
+    // Chromium 在部分 Shadow DOM 图标按钮（如 FontAwesome i::before）上会为伪元素返回 objectId，
+    // 但在 JS 侧它不是标准 DOM 树节点，导致 RELATION_CHECK_JS 返回 false。
+    // 仅在拒绝分支做一次 DOM.describeNode：若是伪元素则判 unresolvable，交给穿透 Shadow DOM 的 snapshot.hit 裁决。
+    const described = await ctx
+      .sendOn<{ node?: { pseudoType?: string } }>(sessionId, 'DOM.describeNode', { backendNodeId: hitBackendId })
+      .catch(() => null);
+    if (described?.node?.pseudoType) return 'unresolvable';
+    return 'blocked';
   } catch {
-    return false;
+    return 'unresolvable';
   } finally {
     await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: tId }).catch(() => {});
     await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: hId }).catch(() => {});
   }
 }
 
-/** 获取某个 `backendNodeId` 的紧凑标签描述（防 DOM Clobbering）。 */
+/** 用 CDP `Runtime.callFunctionOn` 比较两个 `backendNodeId` 是否构成合法点击归属关系。 */
+export async function isHitAcceptable(
+  ctx: PageContext,
+  targetBackendId: number,
+  hitBackendId: number,
+  sessionId?: string,
+): Promise<boolean> {
+  return (await evaluateHitAcceptance(ctx, targetBackendId, hitBackendId, sessionId)) === 'accepted';
+}
+
+/** 获取某个 `backendNodeId` 的紧凑标签描述（防 DOM Clobbering，伪元素退回 `DOM.describeNode`）。 */
 export async function describeDomNode(ctx: PageContext, backendNodeId: number, sessionId?: string): Promise<string> {
   const nodeId = await nodeIdFor(ctx, backendNodeId, sessionId).catch(() => 0);
-  if (!nodeId) return '未知元素';
-  const desc = await evalOnNode(
-    ctx,
-    nodeId,
-    `(el) => {
-      if (!el || el.nodeType !== 1) return '未知元素';
-      let tag = '';
-      try { tag = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName').get.call(el).toLowerCase(); } catch { tag = 'element'; }
-      const id = typeof el.getAttribute === 'function' ? el.getAttribute('id') : '';
-      const cls = typeof el.getAttribute === 'function' ? (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).slice(0, 3).join('.') : '';
-      return tag + (id ? '#' + id : '') + (cls ? '.' + cls : '');
-    }`,
-    sessionId,
-  ).catch(() => null);
-  return typeof desc === 'string' && desc ? desc : '未知元素';
+  if (nodeId) {
+    const desc = await evalOnNode(
+      ctx,
+      nodeId,
+      `(el) => {
+        if (!el || el.nodeType !== 1) return '';
+        let tag = '';
+        try { tag = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName').get.call(el).toLowerCase(); } catch { tag = 'element'; }
+        const id = typeof el.getAttribute === 'function' ? el.getAttribute('id') : '';
+        const cls = typeof el.getAttribute === 'function' ? (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).slice(0, 3).join('.') : '';
+        return tag + (id ? '#' + id : '') + (cls ? '.' + cls : '');
+      }`,
+      sessionId,
+    ).catch(() => null);
+    if (typeof desc === 'string' && desc) return desc;
+  }
+  const described = await ctx
+    .sendOn<{ node?: { localName?: string; nodeName?: string; pseudoType?: string } }>(sessionId, 'DOM.describeNode', {
+      backendNodeId,
+    })
+    .catch(() => null);
+  const n = described?.node;
+  if (n?.pseudoType) return `::${n.pseudoType}`;
+  const tag = (n?.localName || n?.nodeName || '').toLowerCase();
+  return tag && tag !== '#text' ? tag : '未知元素';
 }

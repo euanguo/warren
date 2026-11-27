@@ -26,13 +26,37 @@ export async function evaluate(
     result: { type: string; value?: unknown; objectId?: string };
     exceptionDetails?: { text?: string; exception?: { description?: string } };
   };
+  const activeFrameId = ctx.activeFrameId?.();
+  let sessionId: string | undefined;
+  let contextId: number | undefined;
+  if (activeFrameId) {
+    const matchedChild = ctx.childSessions().find((c) => c.frameId === activeFrameId);
+    if (matchedChild) {
+      sessionId = matchedChild.sessionId;
+    } else {
+      // 同源子 frame / 多层嵌套 frame：创建该帧专属隔离世界（零 Runtime.enable 隐身开销），
+      // 使其 document / location / DOM 查询精准落在该子帧内。
+      const world = await ctx
+        .sendOn<{ executionContextId?: number }>(undefined, 'Page.createIsolatedWorld', {
+          frameId: activeFrameId,
+          worldName: 'warren-frame-eval',
+        })
+        .catch(() => null);
+      if (typeof world?.executionContextId !== 'number') {
+        throw richErr('TARGET_NOT_FOUND', `活动 frame（${activeFrameId}）已失效，请重新 browser frame list 并选择`);
+      }
+      contextId = world.executionContextId;
+    }
+  }
+
   const evaluateOnce = (returnByValue: boolean) =>
     withTimeout(
-      ctx.send<EvalResult>('Runtime.evaluate', {
+      ctx.sendOn<EvalResult>(sessionId, 'Runtime.evaluate', {
         expression: t,
         returnByValue,
         awaitPromise: true,
         userGesture: false,
+        ...(contextId !== undefined ? { contextId } : {}),
       }),
       timeoutMs,
       'evaluate timed out（页面侧不保证停下，必要时 reload/close，见 Ego 同款 mayHaveLateEffects）',
@@ -50,7 +74,7 @@ export async function evaluate(
     if (objectId) {
       try {
         const called = await withTimeout(
-          ctx.send<EvalResult>('Runtime.callFunctionOn', {
+          ctx.sendOn<EvalResult>(sessionId, 'Runtime.callFunctionOn', {
             objectId,
             functionDeclaration: 'function (arg) { return this(arg); }',
             arguments: [{ value: arg }],
@@ -65,7 +89,7 @@ export async function evaluate(
         }
         value = called.result?.type === 'undefined' ? null : (called.result?.value ?? null);
       } finally {
-        await ctx.send('Runtime.releaseObject', { objectId }).catch(() => {});
+        await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId }).catch(() => {});
       }
     }
   }

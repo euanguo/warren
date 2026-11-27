@@ -247,6 +247,44 @@ export async function fill(
         }
       }
       await checkActionable(ctx, backendNodeId, requiredStates('fill'), sessionId);
+      // 若输入框位于局部滚动容器内且中心点正被同级悬浮条/底栏半遮挡（如 uitp:overlapped），
+      // 主动尝试 center/start 滚出遮挡区，避免页面 input 监听因 elementFromPoint 未命中而清空输入。
+      const checkCenterHit = async () => {
+        const nid = await nodeIdFor(ctx, backendNodeId, sessionId).catch(() => 0);
+        if (!nid) return true;
+        const ok = await evalOnNode(
+          ctx,
+          nid,
+          `(el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return true;
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            if (cx < 0 || cy < 0 || cx >= innerWidth || cy >= innerHeight) return false;
+            let hit = document.elementFromPoint(cx, cy);
+            while (hit && hit.shadowRoot) {
+              const inner = hit.shadowRoot.elementFromPoint(cx, cy);
+              if (!inner || inner === hit) break;
+              hit = inner;
+            }
+            const parentOf = (n) => n.assignedSlot || n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+            let cur = hit;
+            while (cur) {
+              if (cur === el) return true;
+              cur = parentOf(cur);
+            }
+            return Boolean(hit && hit.nodeType === 1 && hit.tagName === 'LABEL' && hit.control === el);
+          }`,
+          sessionId,
+        ).catch(() => true);
+        return ok === true;
+      };
+      if (!(await checkCenterHit())) {
+        await scrollIntoView(ctx, backendNodeId, 1, sessionId);
+        if (!(await checkCenterHit())) {
+          await scrollIntoView(ctx, backendNodeId, 3, sessionId);
+        }
+      }
       const fillRect = await boxRect(ctx, backendNodeId, sessionId).catch(() => undefined);
       if (fillRect) {
         // 严禁把填进去的 value 放进 label，避免密码/凭据明文出现在遮罩层
