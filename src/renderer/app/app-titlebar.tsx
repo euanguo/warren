@@ -204,7 +204,7 @@ export function AppTitlebar({
             aria-label="返回环境"
             title="返回环境工作台 (Esc)"
             onClick={onBackToEnvironments}
-            className="max-w-[220px] text-muted-foreground hover:text-foreground"
+            className="h-[var(--control-height-icon)] max-w-[220px] rounded-[var(--control-radius)] text-muted-foreground hover:text-foreground"
           >
             <Icon name="ChevronLeft" />
             <span className="truncate">返回环境{environment ? ` · ${environment.name}` : ''}</span>
@@ -216,7 +216,7 @@ export function AppTitlebar({
           aria-label="全局视图"
           data-slot="global-nav"
           className={cn(
-            'absolute left-1/2 flex -translate-x-1/2 items-center gap-[3px] rounded-[var(--control-radius)] border border-border bg-tabs-bar p-[3px]',
+            'absolute left-1/2 flex h-[var(--control-height-icon)] -translate-x-1/2 items-center gap-[3px] rounded-[var(--control-radius)] bg-tabs-bar p-[3px] [box-shadow:inset_0_0_0_1px_var(--border)]',
             NO_DRAG_CLASS,
           )}
         >
@@ -233,11 +233,11 @@ export function AppTitlebar({
             aria-current={route === 'settings' ? 'page' : undefined}
             onClick={() => onOpenSettings()}
             className={cn(
-              'relative z-10 hover:bg-transparent active:scale-100',
+              'relative z-10 h-full border-0 hover:bg-transparent active:scale-100',
               route === 'settings' ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Icon name="Settings" />
+            <Icon name="Settings" className="size-3.5" />
             <span>设置</span>
           </Button>
           {railPages.map((page) => {
@@ -254,7 +254,7 @@ export function AppTitlebar({
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onOpenPluginPage(page.pluginId, page.id)}
                 className={cn(
-                  'relative z-10 hover:bg-transparent active:scale-100',
+                  'relative z-10 h-full border-0 hover:bg-transparent active:scale-100',
                   active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -330,7 +330,10 @@ export function AppTitlebar({
             <Icon name="ChevronDown" className="size-3 shrink-0 text-muted-foreground" />
           </button>
         ) : (
-          <span data-slot="env-capsule" className="px-1.5 text-xs text-muted-foreground">
+          <span
+            data-slot="env-capsule"
+            className="inline-flex h-[var(--control-height-icon)] items-center px-1.5 text-xs text-muted-foreground"
+          >
             未选择环境
           </span>
         )}
@@ -378,7 +381,7 @@ export function AppTitlebar({
             data-slot="control-pill"
             data-owner={agentOwner}
             className={cn(
-              'mr-1 flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none',
+              'mr-1 flex h-[var(--control-height-icon)] items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none',
               agentOwner === 'agent' && 'border-accent-strong bg-accent-soft',
               agentOwner === 'human' && 'border-success/40 bg-success-soft',
               agentOwner === 'none' && 'border-border-strong bg-control',

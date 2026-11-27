@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppTitlebar } from '@/app/app-titlebar';
 import { PanelResizer } from '@/components/ui/panel-resizer';
 import { Switch } from '@/components/ui/switch';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -208,5 +209,76 @@ describe('OpenBot 设计体系迁移与可配置配色皮肤回归测试', () =>
 
     fireEvent.click(document.querySelector('[data-slot="inspector-close"]')!);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('AppTitlebar 顶栏环境胶囊、空间切换器与全局导航统一锁定为 --control-height-icon（28px）', () => {
+    const env = makeEnv();
+    env.spaces = [
+      { id: 'person', label: '我的', owner: 'none', tabs: [makeTab('t1', '首页')] },
+      { id: 'agent', label: 'Agent', owner: 'none', tabs: [] },
+    ];
+    const baseProps = {
+      environment: env,
+      groups: [],
+      activeSpaceId: 'person' as const,
+      tabs: [makeTab('t1', '首页')],
+      activeTabId: 't1',
+      running: true,
+      locked: false,
+      canNavigate: true,
+      sidebarOpen: true,
+      railPages: [],
+      pluginActions: [],
+      onToggleSidebar: vi.fn(),
+      onSpaceSelect: vi.fn(),
+      onTabSelect: vi.fn(),
+      onTabClose: vi.fn(),
+      onTabCreate: vi.fn(),
+      onTabReload: vi.fn(),
+      onTabHardReload: vi.fn(),
+      onTabCloseOthers: vi.fn(),
+      onTabCloseRight: vi.fn(),
+      onTabReorder: vi.fn(),
+      onTabToggleMute: vi.fn(),
+      onStart: vi.fn(),
+      onStop: vi.fn(),
+      onRemove: vi.fn(),
+      onMoveToGroup: vi.fn(),
+      onRunPluginAction: vi.fn(),
+      onTakeover: vi.fn(),
+      onRelease: vi.fn(),
+      onOpenCommandBar: vi.fn(),
+      onOpenSettings: vi.fn(),
+      onOpenPluginPage: vi.fn(),
+      onBackToEnvironments: vi.fn(),
+    };
+
+    const { rerender } = render(
+      <TooltipProvider>
+        <AppTitlebar {...baseProps} route="environments" />
+      </TooltipProvider>,
+    );
+
+    const envCapsule = document.querySelector<HTMLElement>('[data-slot="env-capsule"]')!;
+    const spaceSwitcher = document.querySelector<HTMLElement>('[data-slot="space-switcher"]')!;
+    const personBtn = spaceSwitcher.querySelector<HTMLElement>('[data-space="person"]')!;
+
+    expect(envCapsule.className).toContain('h-[var(--control-height-icon)]');
+    expect(spaceSwitcher.className).toContain('h-[var(--control-height-icon)]');
+    expect(spaceSwitcher.className).toContain('[box-shadow:inset_0_0_0_1px_var(--border)]');
+    expect(personBtn.className).toContain('h-full');
+    expect(personBtn.className).not.toContain('h-[var(--control-size-xs)]');
+
+    rerender(
+      <TooltipProvider>
+        <AppTitlebar {...baseProps} route="settings" />
+      </TooltipProvider>,
+    );
+
+    const settingsBack = document.querySelector<HTMLElement>('[data-slot="settings-back"]')!;
+    const globalNav = document.querySelector<HTMLElement>('[data-slot="global-nav"]')!;
+    expect(settingsBack.className).toContain('h-[var(--control-height-icon)]');
+    expect(globalNav.className).toContain('h-[var(--control-height-icon)]');
+    expect(globalNav.className).toContain('[box-shadow:inset_0_0_0_1px_var(--border)]');
   });
 });

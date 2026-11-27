@@ -55,7 +55,7 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
     <div
       ref={containerRef}
       data-slot="space-switcher"
-      className="relative flex shrink-0 items-center gap-[3px] rounded-[var(--control-radius)] border border-border bg-tabs-bar p-[3px]"
+      className="relative flex h-[var(--control-height-icon)] shrink-0 items-center gap-[3px] rounded-[var(--control-radius)] bg-tabs-bar p-[3px] [box-shadow:inset_0_0_0_1px_var(--border)]"
     >
       <span ref={thumbRef} aria-hidden data-slot="space-switcher-thumb" className="warren-sliding-pill opacity-0" />
       {spaces.map((space) => {
@@ -75,7 +75,7 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
             size="xs"
             variant="ghost"
             className={cn(
-              'relative z-10 gap-1 hover:bg-transparent active:scale-100',
+              'relative z-10 h-full gap-1 border-0 hover:bg-transparent active:scale-100',
               active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
             data-space={space.id}
