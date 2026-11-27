@@ -5,6 +5,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { EnvironmentSidebar } from '@/features/environments/environment-sidebar';
 import { EnvironmentTabstrip } from '@/features/environments/environment-tabstrip';
+import { PluginCard } from '@/features/plugins/plugin-card';
 import { MemoryPanel } from '@/features/settings/memory-panel';
 import { SettingsPage } from '@/features/settings/settings-page';
 import type { Environment, MemorySnapshot, TabState } from '@shared/types';
@@ -180,7 +181,11 @@ describe('内存管理面板与快捷入口', () => {
     const clearAllCaches = vi.fn(async () => ({ cleared: 2 }));
     const reclaimShellSurfaces = vi.fn(async () => ({ reclaimed: 1 }));
     const tabSleep = vi.fn(async () => ({ ok: true }));
-    const setSettings = vi.fn(async (patch: Record<string, unknown>) => patch);
+    const setSettings = vi.fn(async (patch: Partial<import('@shared/types').AppSettings>) => ({
+      controlPolicy: 'ask' as const,
+      pluginPolicy: 'ask' as const,
+      ...patch,
+    }));
 
     installMockEnvApi({
       memorySnapshot: vi.fn(async () => snap),
@@ -191,16 +196,16 @@ describe('内存管理面板与快捷入口', () => {
       tabSleep,
       setSettings,
       settings: vi.fn(async () => ({
-        controlPolicy: 'ask',
-        pluginPolicy: 'ask',
-        theme: 'dark',
+        controlPolicy: 'ask' as const,
+        pluginPolicy: 'ask' as const,
+        theme: 'dark' as const,
         maxRunning: 8,
         idleHibernateMinutes: 10,
         memorySoftLimitMb: 6144,
         tabSleepMinutes: 20,
         lazyRestoreTabs: true,
         throttleBackgroundTabs: true,
-        lruEvictAction: 'hibernate',
+        lruEvictAction: 'hibernate' as const,
         pinnedEnvIds: [],
       })),
     });
@@ -253,6 +258,69 @@ describe('内存管理面板与快捷入口', () => {
           lruEvictAction: 'hibernate',
         }),
       );
+    });
+
+    // 高级阈值默认收起，点击可展开
+    const advToggle = document.querySelector('[data-slot="memory-advanced-toggle"]') as HTMLButtonElement;
+    expect(advToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[data-slot="memory-soft-limit"]')).toBeNull();
+    fireEvent.click(advToggle);
+    expect(advToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(document.querySelector('[data-slot="memory-soft-limit"]')).not.toBeNull();
+  });
+
+  it('PluginCard 保存非 secret 设置项后保留输入框内容，卸载前走确认浮层并调用 pluginUninstall', async () => {
+    const demoPlugin = {
+      id: 'com.demo.p',
+      name: '示例插件',
+      version: '1.0.0',
+      apiVersion: '4',
+      packageName: 'demo-p',
+      runtime: 'sandbox' as const,
+      enabled: true,
+      status: 'running' as const,
+      permissions: [],
+      granted: [],
+      needsConfirmation: [],
+      settings: [
+        { key: 'endpoint', label: '接口地址', type: 'string' as const, value: 'https://a.test', configured: true },
+      ],
+      skillExposed: false,
+      contributes: { commands: [], settings: [], surfaces: [], rpc: [] },
+      dir: '/tmp/plugins/com.demo.p',
+      installedAt: '2026-01-01T00:00:00.000Z',
+      digest: '0'.repeat(64),
+      source: 'path:/tmp/plugins/com.demo.p',
+      resolved: '/tmp/plugins/com.demo.p',
+    };
+    const pluginConfigSet = vi.fn(async () => demoPlugin);
+    const pluginUninstall = vi.fn(async () => {});
+    const openOverlay = vi.fn(async () => true);
+    installMockEnvApi({
+      pluginConfigSet,
+      pluginUninstall,
+      openOverlay: openOverlay as unknown as import('@shared/types').EnvApi['openOverlay'],
+    });
+
+    const onChanged = vi.fn();
+    render(
+      <TooltipProvider>
+        <PluginCard plugin={demoPlugin} onChanged={onChanged} />
+      </TooltipProvider>,
+    );
+
+    const input = screen.getByDisplayValue('https://a.test') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'https://b.test' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      expect(pluginConfigSet).toHaveBeenCalledWith('com.demo.p', 'endpoint', 'https://b.test');
+    });
+    expect(input.value).toBe('https://b.test');
+
+    fireEvent.click(screen.getByRole('button', { name: '卸载插件 示例插件' }));
+    await waitFor(() => {
+      expect(openOverlay).toHaveBeenCalledWith(expect.objectContaining({ kind: 'confirm', destructive: true }));
+      expect(pluginUninstall).toHaveBeenCalledWith('com.demo.p');
     });
   });
 

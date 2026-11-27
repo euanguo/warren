@@ -78,8 +78,9 @@ export class EnvironmentNetOps {
     this.#net.get(id)?.detach();
   }
 
-  /** 环境被删：连拦截器一起丢。 */
+  /** 环境被删：先摘掉 protocol handler 与到期定时器，再移出表。 */
   drop(id: string): void {
+    this.#net.get(id)?.detach();
     this.#net.delete(id);
   }
 
@@ -230,7 +231,7 @@ export class EnvironmentNetOps {
     if (action !== 'stop') {
       throw Object.assign(new Error(`未知动作 ${action}（start|stop）`), { code: 'BAD_REQUEST' });
     }
-    const entries = net.stopRecording();
+    const entries = await net.stopRecording();
     let artifact: { path: string; bytes: number; sha256: string } | undefined;
     if (output) {
       const target = guardSavePath(output);

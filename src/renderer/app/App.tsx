@@ -60,8 +60,8 @@ export function App() {
   const activeSpace = (current?.spaces ?? []).find((space) => space.id === activeSpaceId);
   const tabs = activeSpace?.tabs ?? current?.tabs ?? [];
   const activeTabId = activeSpace?.activeTabId ?? current?.activeTabId;
-  const locked = activeSpaceId === 'agent' && activeSpace?.owner !== 'human';
-  const canNavigate = Boolean(running) && (activeSpaceId === 'person' || activeSpace?.owner === 'human');
+  const locked = activeSpaceId === 'agent' && activeSpace?.owner === 'agent';
+  const canNavigate = Boolean(running) && !locked;
 
   /*
    * 用实测宽度判断侧栏是否收起（不依赖 Panel.onResize：命令式 collapse() 不触发它，见 AGENTS.md）。

@@ -383,12 +383,12 @@ export function AppTitlebar({
               tone={agentOwner === 'agent' ? 'info' : agentOwner === 'human' ? 'success' : 'idle'}
               className={cn(agentOwner === 'agent' && 'animate-pulse')}
             />
-            <span className="max-w-[132px] truncate text-foreground">
+            <span className="max-w-[148px] truncate text-foreground">
               {agentOwner === 'agent'
                 ? `${environment.leaseLabel || 'Agent'} 操作中`
                 : agentOwner === 'human'
                   ? '你正在接管'
-                  : 'Agent 空闲（只读）'}
+                  : 'Agent 空闲 · 可自由操作'}
             </span>
             {agentOwner === 'human' ? (
               <Button
@@ -404,6 +404,7 @@ export function AppTitlebar({
               <Button
                 size="xs"
                 variant={agentOwner === 'agent' ? 'ghost' : 'outline'}
+                title={agentOwner === 'agent' ? '立即中止 Agent 租约并接管页面' : '锁定 Agent 空间，暂停 AI 自动介入'}
                 className={cn(
                   'h-[22px] rounded-full px-2.5',
                   agentOwner === 'agent' &&
@@ -412,7 +413,7 @@ export function AppTitlebar({
                 onClick={() => onTakeover(environment.id)}
               >
                 <Icon name="Grab" />
-                {agentOwner === 'agent' ? '接管' : '接管编辑'}
+                {agentOwner === 'agent' ? '接管' : '暂停 AI'}
               </Button>
             )}
           </div>

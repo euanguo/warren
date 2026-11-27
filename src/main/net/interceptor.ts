@@ -36,6 +36,7 @@ export class NetInterceptor {
   #replaying = false;
   #har: HarEntry[] = [];
   #harBytes = 0;
+  #pendingCaptures = new Set<Promise<void>>();
   /** 下一条规则的过期定时器。没有会过期的规则时是 undefined。 */
   #expiryTimer?: ReturnType<typeof setTimeout>;
   /** 注册给 session 的 handler 必须每次都是同一个引用，`unhandle` 才对得上。 */
@@ -196,9 +197,15 @@ export class NetInterceptor {
     return this.#har.filter((entry) => typeof entry.body === 'string');
   }
 
-  stopRecording(): HarEntry[] {
+  async stopRecording(): Promise<HarEntry[]> {
     this.#recording = false;
     this.#sync();
+    if (this.#pendingCaptures.size > 0) {
+      await Promise.race([
+        Promise.allSettled([...this.#pendingCaptures]),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
+    }
     return this.#har;
   }
 
@@ -343,11 +350,39 @@ export class NetInterceptor {
     this.#onHit?.(hit);
   }
 
+  /** 流式读取响应体，严格按字节上限截断并主动 cancel，避免 chunked 大流撑爆主进程内存。 */
+  async #readBoundedText(response: Response, limitBytes: number): Promise<string> {
+    if (!response.body) return (await response.text()).slice(0, limitBytes);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    const chunks: string[] = [];
+    let totalBytes = 0;
+    try {
+      while (totalBytes < limitBytes) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value || value.byteLength === 0) continue;
+        const remain = limitBytes - totalBytes;
+        const slice = value.byteLength > remain ? value.subarray(0, remain) : value;
+        chunks.push(decoder.decode(slice, { stream: true }));
+        totalBytes += slice.byteLength;
+        if (totalBytes >= limitBytes) {
+          await reader.cancel().catch(() => {});
+          break;
+        }
+      }
+      chunks.push(decoder.decode());
+      return chunks.join('');
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   /**
    * 录一条往返。
    *
    * 用 `clone()` 读副本，绝不消费真正要返回给页面的那个 body；只记文本类，
-   * 二进制和超限的直接跳过（记了也回放不了，还会把内存吃满）。
+   * 二进制和超限的直接流式截断/跳过（记了也回放不了，还会把内存吃满）。
    */
   #capture(request: Request, response: Response): void {
     if (!this.#recording) return;
@@ -357,10 +392,8 @@ export class NetInterceptor {
       if (!/^text\/|application\/(json|javascript|xml|x-www-form-urlencoded)/i.test(contentType)) return;
       if (Number.isFinite(length) && length > HAR_BODY_LIMIT) return;
       const clone = response.clone();
-      void clone
-        .text()
-        .then((body) => {
-          const clipped = body.slice(0, HAR_BODY_LIMIT);
+      const task = this.#readBoundedText(clone, HAR_BODY_LIMIT)
+        .then((clipped) => {
           const entryBytes = Buffer.byteLength(clipped, 'utf8');
           this.#har.push({
             at: new Date().toISOString(),
@@ -378,7 +411,11 @@ export class NetInterceptor {
         })
         .catch(() => {
           // 录制永远不能影响请求
+        })
+        .finally(() => {
+          this.#pendingCaptures.delete(task);
         });
+      this.#pendingCaptures.add(task);
     } catch {
       // 同上
     }

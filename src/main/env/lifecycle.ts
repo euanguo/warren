@@ -126,6 +126,7 @@ export interface LifecycleDeps {
   closeEnvDevTools: (spaces: EnvironmentSpaces) => void;
   destroyAllDevTools: () => void;
   onChange: () => void;
+  onSweep?: () => void;
   emitBusEvent: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
   maxRunning?: number;
   idleMs?: number;
@@ -184,7 +185,7 @@ export class EnvLifecycle {
     this.#tabSleepMs = deps.tabSleepMs ?? 0;
     this.#lazyRestoreTabs = deps.lazyRestoreTabs ?? true;
     this.#throttleBackgroundTabs = deps.throttleBackgroundTabs ?? true;
-    this.#lruEvictAction = deps.lruEvictAction ?? 'stop';
+    this.#lruEvictAction = deps.lruEvictAction ?? 'hibernate';
     if (deps.pinnedEnvIds) {
       for (const id of deps.pinnedEnvIds) this.#pinned.add(id);
     }
@@ -547,8 +548,9 @@ export class EnvLifecycle {
     return slept;
   }
 
-  /** 定时扫描：闲置到点且没在被用的环境进休眠，同时休眠超时的后台非激活标签。 */
+  /** 定时扫描：清理过期租约，闲置到点且没在被用的环境进休眠，同时休眠超时的后台非激活标签。 */
   sweepIdle(): void {
+    this.#deps.onSweep?.();
     const now = this.#now();
     if (this.#idleMs > 0) {
       const candidates = [...this.#spaces.keys()].map((id) => ({

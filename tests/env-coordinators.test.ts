@@ -208,19 +208,24 @@ test('LeaseCoordinator：acquire / renew / release / takeover 完整流转与 bu
     now: () => now,
   });
 
-  // 选中时预建遮罩
+  // 人机协作 2.0：Agent Space 空闲时绝不挂载护盾，允许人工直接导航和写入
+  const getShield = () => shield;
   coordinator.syncShield('alpha', { createIfMissing: true });
-  assert.equal(shield?.attached, true);
+  assert.equal(getShield(), undefined);
+  assert.equal(coordinator.canHumanNavigate('alpha', 'agent'), true);
+  coordinator.assertHumanAgentWritable('alpha');
 
   // Person Space 不允许申请 lease
   assert.throws(() => coordinator.acquire('alpha', 'agent', 'cli', 'person'), { code: 'BAD_REQUEST' });
 
-  // Agent 获取租约并发射 lease.changed
+  // Agent 获取租约并发射 lease.changed，此时才按需创建并挂载护盾、锁定人工写入
   const first = coordinator.acquire('alpha', 'agent', 'cli', 'agent');
   assert.equal(first.owner, 'agent');
   assert.equal(coordinator.isAgentControlling('alpha'), true);
+  assert.equal(coordinator.canHumanNavigate('alpha', 'agent'), false);
   assert.throws(() => coordinator.assertHumanAgentWritable('alpha'), { code: 'ENV_BUSY' });
-  assert.equal(shield?.label, 'cli');
+  assert.equal(getShield()?.attached, true);
+  assert.equal(getShield()?.label, 'cli');
   assert.ok(raiseCount >= 1);
   assert.equal(busEvents.at(-1)?.type, 'lease.changed');
   assert.deepEqual(busEvents.at(-1)?.payload, {
@@ -279,18 +284,19 @@ test('LeaseCoordinator：acquire / renew / release / takeover 完整流转与 bu
     true,
   );
 
-  // agent release 与 human release 都保持当前所在视图（不强行跳回 person space），并重挂空闲遮罩
+  // agent release 与 human release 都保持当前所在视图（不强行跳回 person space），且空闲态绝不重挂遮罩
   coordinator.release('alpha', autoTaken.leaseId, 'agent');
   assert.equal(busEvents.at(-1)?.payload.owner, 'none');
   assert.equal(busEvents.at(-1)?.payload.space, 'agent');
   assert.equal(activeSpace, 'agent');
-  assert.equal(shield?.attached, true);
+  assert.equal(getShield()?.attached, false);
+  assert.equal(coordinator.canHumanNavigate('alpha', 'agent'), true);
 
   const humanLease = coordinator.takeover('alpha', 'human', 'agent');
-  assert.equal(shield?.attached, false);
+  assert.equal(getShield()?.attached, false);
   coordinator.release('alpha', humanLease.leaseId, 'human');
   assert.equal(activeSpace, 'agent');
-  assert.equal(shield?.attached, true);
+  assert.equal(getShield()?.attached, false);
 });
 
 test('LeaseCoordinator：ensureOperable / assertInputOnScreen / assertActiveTab 护栏', () => {
@@ -555,18 +561,19 @@ test('EnvLifecycle：start / LRU 回收 / hibernate / wake / sweepIdle / stop', 
   await lifecycle.start('b');
   lifecycle.touch('b');
 
-  // 启动第 3 个环境 c，达到 maxRunning=2：a 被选中不能回收，因此 b 被 LRU 回收
+  // 启动第 3 个环境 c，达到 maxRunning=2：a 被选中不能回收，因此 b 默认优先休眠（保留登录态）
   now += 1_000;
   await lifecycle.start('c');
   lifecycle.touch('c');
   assert.equal(lifecycle.isRunning('a'), true);
   assert.equal(lifecycle.isRunning('b'), false);
+  assert.equal(lifecycle.isDormant('b'), true);
   assert.equal(lifecycle.isRunning('c'), true);
   assert.deepEqual(
     busEvents
       .filter((e) => e.type === 'env.status')
       .map((e) => `${e.environmentId}:${e.payload.status}:${e.payload.reason}`),
-    ['a:running:start', 'b:running:start', 'b:stopped:evicted', 'c:running:start'],
+    ['a:running:start', 'b:running:start', 'b:dormant:LRU 并发上限 2', 'c:running:start'],
   );
 
   // c 正在忙碌（netBusy）时，sweepIdle 不休眠它
@@ -594,7 +601,8 @@ test('EnvLifecycle：start / LRU 回收 / hibernate / wake / sweepIdle / stop', 
   assert.equal(busEvents.at(-1)?.payload.status, 'running');
   assert.equal(busEvents.at(-1)?.payload.reason, 'wake');
 
-  // restoreRunning 会跳过休眠中的环境、拉起未运行的环境
+  // restoreRunning 会跳过休眠中的环境、拉起已停止的环境
+  lifecycle.stop('b');
   lifecycle.hibernate('c', 'manual');
   const restored = await lifecycle.restoreRunning(['b', 'c', 'missing']);
   assert.deepEqual(restored, ['b']);
@@ -713,29 +721,30 @@ test('LeaseCoordinator：运行期调整租约时长与控制胶囊显隐', () =
     now: () => now,
   });
 
+  // 人机协作 2.0：空闲态不建护盾也不播 AI 动作轨迹
+  const getShield = () => shield;
   coordinator.syncShield('alpha', { createIfMissing: true });
-  assert.equal(shield?.mode, 'idle');
-  // 空闲态不播 AI 动作轨迹
+  assert.equal(getShield(), undefined);
   coordinator.showVisualAction('alpha', { kind: 'click', x: 120, y: 80 });
-  assert.equal(shield?.actions.length, 0);
+  assert.equal(getShield(), undefined);
 
   coordinator.setLeaseTtlMs(120_000);
   const lease = coordinator.acquire('alpha', 'agent', 'Codex', 'agent');
   assert.equal(lease.expiresAt, now + 120_000);
-  assert.equal(shield?.mode, 'agent');
-  assert.equal(shield?.showPill, true);
+  assert.equal(getShield()?.mode, 'agent');
+  assert.equal(getShield()?.showPill, true);
 
   // AI 持锁且可见时，动作坐标准确推给遮罩层
   coordinator.showVisualAction('alpha', { kind: 'click', x: 160, y: 240, label: 'Submit' });
-  assert.deepEqual(shield?.actions, [{ kind: 'click', x: 160, y: 240 }]);
+  assert.deepEqual(getShield()?.actions, [{ kind: 'click', x: 160, y: 240 }]);
 
   // 人工接管后立即切回 idle 并停止播报
   coordinator.takeover('alpha', 'human', 'agent');
-  assert.equal(shield?.attached, false);
-  assert.equal(shield?.mode, 'idle');
+  assert.equal(getShield()?.attached, false);
+  assert.equal(getShield()?.mode, 'idle');
   coordinator.showVisualAction('alpha', { kind: 'click', x: 200, y: 300 });
-  assert.equal(shield?.actions.length, 1);
+  assert.equal(getShield()?.actions.length, 1);
 
   coordinator.setShowControlPill(false);
-  assert.equal(shield?.showPill, false);
+  assert.equal(getShield()?.showPill, false);
 });

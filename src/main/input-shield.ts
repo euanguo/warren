@@ -1,20 +1,15 @@
 import { WebContentsView } from 'electron';
-import {
-  buildShieldHtml,
-  type ShieldMode,
-  type ShieldTheme,
-  type ShieldVisualAction,
-} from './domain/input-shield-view.ts';
+import { buildShieldHtml, type ShieldMode, type ShieldTheme, type ShieldVisualAction } from './ui/input-shield-view.ts';
 import type { WindowLayerManager } from './ui/layer-manager.ts';
 
-export type { ShieldMode, ShieldTheme, ShieldVisualAction } from './domain/input-shield-view.ts';
+export type { ShieldMode, ShieldTheme, ShieldVisualAction } from './ui/input-shield-view.ts';
 
 /**
- * Agent 空间透明输入遮罩与实时动作轨迹动画层（渲染于 `'shield'` 原生槽位，零注入目标网页 DOM）。
+ * Agent 空间轻量纯 CSS 透明输入护盾（渲染于 `'shield'` 原生槽位，零注入目标网页 DOM、零 WebGL 开销）。
  *
- * - `mode === 'agent'`：三层 EGO 风格 WebGL 着色器（流光面纱 + 点阵星火轨迹 + Poisson 滚动流光边框）及 AI 光标/锚框；
- * - `mode === 'idle'` / 隐藏 / 卸载：静默细灰边并彻底停止 WebGL rAF 循环，避免后台 GPU 持续占用；
- * - 仅在用户误点遮罩时在光标附近弹 1.8s 轻提示，WebGL 不可用时自动降级回 CSS 呼吸边框。
+ * - 仅在 Agent 实际持有租约控制页面时挂载（`mode === 'agent'`），展示边缘流光、元素锚框与点击波纹；
+ * - Agent Space 空闲或人工接管时不挂载护盾，人工可直接自由交互与导航；
+ * - 即使关闭底部控制胶囊，误点护盾仍闪出非阻塞提示，杜绝静默吞点击。
  */
 export class InputShield {
   #view: WebContentsView;

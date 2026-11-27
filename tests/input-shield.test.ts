@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildShieldHtml, SHIELD_PALETTES, shouldShieldAnimate } from '../src/main/domain/input-shield-view.ts';
+import { buildShieldHtml, shouldShieldAnimate } from '../src/main/ui/input-shield-view.ts';
 
-test('shouldShieldAnimate：仅在挂载+可见+agent+未开启减弱动态时开启渲染循环', () => {
+test('shouldShieldAnimate：仅在挂载+可见+agent+未开启减弱动态时启用动态光效', () => {
   assert.equal(
     shouldShieldAnimate({ attached: true, visible: true, mode: 'agent', reducedMotion: false, hidden: false }),
     true,
@@ -17,17 +17,17 @@ test('shouldShieldAnimate：仅在挂载+可见+agent+未开启减弱动态时�
   );
 });
 
-test('buildShieldHtml：包含 EGO 三层 WebGL 着色器、浅深色板、降级回落与停帧探针', () => {
+test('buildShieldHtml：采用轻量纯 CSS 护盾（零 WebGL/rAF），并修复 showControlPill=false 误点黑洞', () => {
   const html = buildShieldHtml();
-  assert.ok(html.includes('id="shield-gl"'));
-  assert.ok(html.includes('fbm_norm'));
-  assert.ok(html.includes('fbm_grid'));
-  assert.ok(html.includes('sampleStroke'));
-  assert.ok(html.includes('uTrail[15]'));
-  assert.ok(html.includes("powerPreference: 'low-power'"));
-  assert.ok(html.includes('webgl-fallback'));
+  assert.equal(html.includes('id="shield-gl"'), false);
+  assert.equal(html.includes('getContext('), false);
+  assert.equal(html.includes('requestAnimationFrame'), false);
+  assert.ok(html.includes('id="aura"'));
+  assert.ok(html.includes('id="sweep"'));
+  assert.ok(html.includes('id="target-box"'));
+  assert.ok(html.includes('id="ripple"'));
+  assert.ok(html.includes('prefers-reduced-motion: reduce'));
   assert.ok(html.includes('__warrenShieldStats'));
   assert.ok(html.includes('warren-action://takeover'));
-  assert.ok(html.includes(JSON.stringify(SHIELD_PALETTES.dark.borderAccent)));
-  assert.ok(html.includes(JSON.stringify(SHIELD_PALETTES.light.borderAccent)));
+  assert.ok(html.includes('点击顶栏「接管」可暂停'));
 });

@@ -25,6 +25,8 @@ export type DevToolsSplitterInput =
 
 export interface DevToolsHostOptions {
   createSplitterView?: SplitterViewFactory;
+  /** 由外部 ViewCoordinator 统一计算模拟视口（如 mobile-390）并下发 page bounds 时设为 false，防止覆写模拟框尺寸。 */
+  managePageBounds?: boolean;
   onLayoutChanged?: () => void;
   onSizeCommitted?: (mode: DockedDevToolsMode, size: number) => void;
   initialSizes?: { right?: number; bottom?: number };
@@ -70,6 +72,7 @@ export class DevToolsHost {
   #createSplitterView?: SplitterViewFactory;
   #isHostFocused: () => boolean;
   #onStateChanged: () => void;
+  #managePageBounds: boolean;
   #onLayoutChanged?: () => void;
   #onSizeCommitted?: (mode: DockedDevToolsMode, size: number) => void;
   #dockMode: DevToolsDockMode = 'right';
@@ -98,6 +101,7 @@ export class DevToolsHost {
     this.#createDockView = createDockView;
     this.#isHostFocused = isHostFocused;
     this.#createSplitterView = options?.createSplitterView;
+    this.#managePageBounds = options?.managePageBounds ?? true;
     this.#onLayoutChanged = options?.onLayoutChanged;
     this.#onSizeCommitted = options?.onSizeCommitted;
     this.#theme = options?.theme ?? 'dark';
@@ -641,7 +645,9 @@ export class DevToolsHost {
 
   #layoutActive(): void {
     const split = this.computeSplitBounds();
-    this.#layers.setBounds('page', split.page);
+    if (this.#managePageBounds) {
+      this.#layers.setBounds('page', split.page);
+    }
     if (split.devtools) {
       this.#layers.setBounds('devtools', split.devtools);
     }

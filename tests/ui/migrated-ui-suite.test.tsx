@@ -156,17 +156,33 @@ describe('无头迁移：原 scripts/regress/ui.cjs 核心外壳 / 工作台 / �
     expect(document.querySelector('[data-slot="env-capsule"]')).not.toBeNull();
     expect(document.querySelector('[data-slot="control-pill"]')).toBeNull();
 
-    // 切到 Agent Space（只读）
+    // 切到 Agent Space（空闲时人工可自由操作，同时提供「暂停 AI」锁定按钮）
     fireEvent.click(document.querySelector('[data-space="agent"]')!);
     expect(onSpaceSelect).toHaveBeenCalledWith('cap', 'agent');
 
     rerender(
       <TooltipProvider>
-        <AppTitlebar {...baseProps} activeSpaceId="agent" locked />
+        <AppTitlebar {...baseProps} activeSpaceId="agent" locked={false} />
       </TooltipProvider>,
     );
-    expect(document.querySelector('[data-slot="control-pill"]')?.textContent).toContain('Agent 空闲（只读）');
-    fireEvent.click(screen.getByRole('button', { name: '接管编辑' }));
+    expect(document.querySelector('[data-slot="control-pill"]')?.textContent).toContain('Agent 空闲 · 可自由操作');
+    fireEvent.click(screen.getByRole('button', { name: '暂停 AI' }));
+    expect(onTakeover).toHaveBeenCalledWith('cap');
+
+    // Agent 正在控制时显示「操作中」与「接管」
+    const agentEnv: Environment = {
+      ...env,
+      owner: 'agent',
+      leaseLabel: 'Codex',
+      spaces: env.spaces!.map((space) => (space.id === 'agent' ? { ...space, owner: 'agent' } : space)),
+    };
+    rerender(
+      <TooltipProvider>
+        <AppTitlebar {...baseProps} environment={agentEnv} activeSpaceId="agent" locked />
+      </TooltipProvider>,
+    );
+    expect(document.querySelector('[data-slot="control-pill"]')?.textContent).toContain('Codex 操作中');
+    fireEvent.click(screen.getByRole('button', { name: '接管' }));
     expect(onTakeover).toHaveBeenCalledWith('cap');
 
     // 人接管后显示「你正在接管」与「交还」

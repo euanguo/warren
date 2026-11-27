@@ -560,25 +560,31 @@ test('LeaseCoordinator 全局单实例复用 InputShield，切换环境不重复
     now: () => 10_000,
   });
 
-  // 挂载到 env-a -> 建出唯一护盾
+  // 人机协作 2.0：空闲 Agent Space 不创建护盾，避免无谓消耗渲染进程
   leases.syncShield('env-a', { createIfMissing: true });
+  assert.equal(createCalls, 0);
+  assert.equal(leases.shieldAttached('env-a'), false);
+  assert.equal(leases.canHumanNavigate('env-a', 'agent'), true);
+
+  // Agent 持权 env-a -> 建出唯一护盾并挂载
+  leases.acquire('env-a', 'agent', 'Claude', 'agent');
   assert.equal(createCalls, 1);
   assert.equal(leases.shieldAttached('env-a'), true);
   assert.deepEqual(leases.shieldProcessInfos(), [{ pid: 9999, label: 'Agent 输入护盾' }]);
 
-  // 切到 env-b -> 复用同一个护盾实例，不二次创建
+  // 切到 env-b 且 Agent 持权 env-b -> 复用同一个护盾实例，不二次创建
   selectedId = 'env-b';
   leases.syncShield('env-a');
-  leases.syncShield('env-b', { createIfMissing: true });
+  leases.acquire('env-b', 'agent', 'Codex', 'agent');
   assert.equal(createCalls, 1);
   assert.equal(leases.shieldAttached('env-a'), false);
   assert.equal(leases.shieldAttached('env-b'), true);
-
-  // Agent 持权 env-b，点击护盾接管按钮必须接管 env-b（而非最初创建的 env-a）
-  leases.acquire('env-b', 'agent', 'Codex', 'agent');
   assert.deepEqual(leaseStateChanges.at(-1), { id: 'env-b', active: true });
+
+  // 点击护盾接管按钮必须接管 env-b（而非最初创建的 env-a），立即摘除护盾并恢复人工可写
   takeoverCallback?.();
   assert.equal(leases.isAgentControlling('env-b'), false);
+  assert.equal(leases.shieldAttached('env-b'), false);
   assert.equal(leases.canHumanNavigate('env-b', 'agent'), true);
   assert.deepEqual(leaseStateChanges.at(-1), { id: 'env-b', active: false });
 

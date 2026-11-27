@@ -121,13 +121,36 @@ export class LeaseCoordinator {
     return this.#leases.get(id);
   }
 
-  /** 读取未过期租约；若已过期顺带清理并返回 undefined（供状态装饰用）。 */
+  /** 纯只读读取未过期租约，不触发任何副作用（供状态装饰使用）。 */
+  liveLease(id: string): LeaseHandle | undefined {
+    const lease = this.#leases.get(id);
+    if (!lease || lease.expiresAt <= this.#now()) return undefined;
+    return lease;
+  }
+
+  /** 显式清理所有已过期租约并同步护盾/降频状态（由定时清扫或写路径调用，不放在读路径里）。 */
+  pruneExpiredLeases(): number {
+    const now = this.#now();
+    let pruned = 0;
+    for (const [id, lease] of this.#leases) {
+      if (lease.expiresAt <= now) {
+        this.#leases.delete(id);
+        this.#deps.onLeaseStateChanged?.(id, false);
+        this.syncShield(id);
+        pruned += 1;
+      }
+    }
+    return pruned;
+  }
+
+  /** 读取未过期租约；若已过期顺带清理并返回 undefined。 */
   pruneAndGetLiveLease(id: string): LeaseHandle | undefined {
     const lease = this.#leases.get(id);
     if (!lease) return undefined;
     if (lease.expiresAt <= this.#now()) {
       this.#leases.delete(id);
       this.#deps.onLeaseStateChanged?.(id, false);
+      this.syncShield(id);
       return undefined;
     }
     return lease;
@@ -151,10 +174,13 @@ export class LeaseCoordinator {
     return lease && lease.expiresAt > this.#now() && lease.space === 'agent' ? lease.owner : 'none';
   }
 
+  /**
+   * 人机协作 2.0：我的空间永远可写；Agent Space 仅在 Agent 实际持有有效租约期间锁定，
+   * 空闲时（owner === 'none'）与人工接管态（owner === 'human'）均允许人工直接交互和导航。
+   */
   canHumanNavigate(id: string, space: SpaceId): boolean {
     if (space === 'person') return true;
-    const lease = this.#leases.get(id);
-    return Boolean(lease && lease.space === 'agent' && lease.owner === 'human' && lease.expiresAt > this.#now());
+    return !this.isAgentControlling(id);
   }
 
   isAgentControlling(id: string): boolean {
@@ -164,10 +190,7 @@ export class LeaseCoordinator {
 
   assertHumanAgentWritable(id: string): void {
     const lease = this.#leases.get(id);
-    if (!lease || lease.expiresAt <= this.#now() || lease.space !== 'agent') {
-      throw Object.assign(new Error(`Agent Space ${id} is not leased`), { code: 'ENV_NOT_LEASED' });
-    }
-    if (lease.owner !== 'human') {
+    if (lease && lease.expiresAt > this.#now() && lease.space === 'agent' && lease.owner === 'agent') {
       throw Object.assign(new Error(`Agent Space ${id} is controlled by ${lease.owner}`), { code: 'ENV_BUSY' });
     }
   }
@@ -234,17 +257,15 @@ export class LeaseCoordinator {
   }
 
   /**
-   * 遮罩只跟当前选中环境的 Agent Space 走：全局复用单一 InputShield 实例，
-   * 仅当某环境被选中且处于 Agent Space 且非人接管态时挂载并置顶。
+   * 护盾只跟当前选中且正由 Agent 持权控制的 Agent Space 走：
+   * 空闲态（owner === 'none'）与人工接管态（owner === 'human'）绝不挂载遮罩，零误拦、零多余进程。
    */
   syncShield(id: string, options: { createIfMissing?: boolean } = {}): void {
     const lease = this.#leases.get(id);
-    // 遮罩只盖**正在显示的那个**环境：agent 持着别的环境的 lease 时，
-    // 不该把当前显示的页面盖住（人看到的是「AI 在操作」，但 AI 在别处）。
-    const humanOwnsAgent = Boolean(
-      lease && lease.space === 'agent' && lease.owner === 'human' && lease.expiresAt > this.#now(),
+    const agentControlling = Boolean(
+      lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
     );
-    const active = this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent' && !humanOwnsAgent;
+    const active = this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent' && agentControlling;
     if (!active) {
       if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
         this.#sharedShield.setMode?.('idle');
@@ -270,12 +291,8 @@ export class LeaseCoordinator {
     this.#shieldDetachedAt = 0;
     this.#sharedShield.setShowControlPill?.(this.#showControlPill);
     this.#sharedShield.setTheme?.(this.#shieldTheme);
-    const agentControlling = Boolean(
-      lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
-    );
-    const caller = agentControlling ? lease?.label : undefined;
-    this.#sharedShield.setMode?.(agentControlling ? 'agent' : 'idle');
-    this.#sharedShield.setCallerLabel(caller);
+    this.#sharedShield.setMode?.('agent');
+    this.#sharedShield.setCallerLabel(lease?.label);
     this.#sharedShield.setVisible(this.#deps.getViewVisible());
     this.#deps.attachAndRaiseShield(this.#sharedShield, this.#deps.getPageBounds());
   }
@@ -318,7 +335,7 @@ export class LeaseCoordinator {
         }
         current.expiresAt = renewLease(env, current.leaseId, ttl, now).leaseExpiresAt ?? now + ttl;
         if (label) current.label = label;
-        this.syncShield(id);
+        this.syncShield(id, { createIfMissing: owner === 'agent' });
         this.#deps.onChange();
         return current;
       }
@@ -358,7 +375,7 @@ export class LeaseCoordinator {
       leaseId: lease.leaseId,
       ...(label ? { label } : {}),
     });
-    this.syncShield(id);
+    this.syncShield(id, { createIfMissing: owner === 'agent' });
     this.#deps.onChange();
     return lease;
   }
@@ -435,7 +452,7 @@ export class LeaseCoordinator {
     const ttl = this.#ttl();
     lease.expiresAt = renewLease(env, leaseId, ttl, now).leaseExpiresAt ?? now + ttl;
     this.#deps.touch(id);
-    this.syncShield(id);
+    this.syncShield(id, { createIfMissing: lease.owner === 'agent' });
     this.#deps.onChange();
     return lease;
   }

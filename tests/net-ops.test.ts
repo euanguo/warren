@@ -68,7 +68,7 @@ function fakeInterceptor(): NetInterceptable & {
     startRecording() {
       self.recording = true;
     },
-    stopRecording() {
+    async stopRecording() {
       self.recording = false;
       return [] as HarEntry[];
     },
@@ -86,8 +86,11 @@ function fakeInterceptor(): NetInterceptable & {
     capturedBodies() {
       return self.bodiesTable;
     },
+    detached: 0,
     attach() {},
-    detach() {},
+    detach() {
+      self.detached += 1;
+    },
   };
   return self as unknown as NetInterceptable & typeof self;
 }

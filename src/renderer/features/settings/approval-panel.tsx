@@ -7,9 +7,9 @@ import { cn } from '@/lib/utils';
 import type { AppSettings, ApprovalMode, ControlPolicy, Environment, PluginPolicy } from '@shared/types';
 
 const CONTROL_LABELS: Record<ControlPolicy, string> = {
-  ask: '要人点头（默认）',
-  'agent-created': 'AI 建的环境自动放行',
-  auto: '一律自动放行',
+  ask: '保护人工接管，交还前拒绝 AI 抢回（默认）',
+  'agent-created': 'AI 建的环境允许自动恢复控制',
+  auto: '允许 AI 随时自动恢复控制',
 };
 
 const PLUGIN_LABELS: Record<PluginPolicy, string> = {
@@ -19,8 +19,8 @@ const PLUGIN_LABELS: Record<PluginPolicy, string> = {
 
 const ENV_LABELS: Record<ApprovalMode, string> = {
   inherit: '跟随全局',
-  ask: '总是要审批',
-  auto: '自动放行',
+  ask: '保护人工接管',
+  auto: '允许 AI 自动恢复',
 };
 
 const LEASE_TTL_LABELS: Record<string, string> = {
@@ -65,7 +65,7 @@ export function ApprovalPanel({ environments }: { environments: Environment[] })
       <div className={cn(cardSurfaceClass, 'flex flex-col gap-4')}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium">控制权门控</span>
+            <span className="text-xs font-medium">人工接管保护策略</span>
             <Select
               value={settings.controlPolicy}
               onValueChange={(value) => void save({ controlPolicy: value as ControlPolicy })}
@@ -81,7 +81,9 @@ export function ApprovalPanel({ environments }: { environments: Environment[] })
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-[11px] text-muted-foreground">人从 AI 手里接管后，未放行前 AI 不能抢回控制权。</span>
+            <span className="text-[11px] text-muted-foreground">
+              Agent 空间空闲时人工可直接操作；仅在人工点「接管 / 暂停 AI」后，按此策略决定 AI 能否抢回控制权。
+            </span>
           </div>
 
           <div className="flex flex-col gap-1.5">

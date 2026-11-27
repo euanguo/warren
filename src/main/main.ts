@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  crashReporter,
   Menu,
   nativeImage,
   nativeTheme,
@@ -19,6 +20,7 @@ import { makeEvent } from './domain/environment';
 import { EnvironmentManager } from './environments';
 import { isOpenableExternalUrl } from './external-url';
 import { registerIpcRoutes } from './ipc-routes.ts';
+import { createMainLogger } from './logger.ts';
 import { MemoryMonitor } from './memory-monitor.ts';
 import { warrenPaths } from './paths.ts';
 import { registerPluginProtocol } from './plugin-protocol.ts';
@@ -43,6 +45,31 @@ app.setPath('userData', paths.app);
 app.setPath('sessionData', paths.app);
 app.setPath('logs', paths.logs);
 app.setPath('crashDumps', paths.crashDumps);
+
+const logger = createMainLogger(paths.logs);
+try {
+  crashReporter.start({ uploadToServer: false });
+} catch (error) {
+  logger.warn('crash-reporter', '启动本地崩溃转储失败', error);
+}
+
+process.on('uncaughtException', (error) => {
+  logger.error('process', 'uncaughtException', error);
+  console.error('[main] uncaughtException:', error);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error('process', 'unhandledRejection', reason);
+  console.error('[main] unhandledRejection:', reason);
+});
+app.on('render-process-gone', (_event, wc, details) => {
+  logger.error('renderer', `render-process-gone (reason=${details.reason}, exitCode=${details.exitCode})`, {
+    url: wc.isDestroyed() ? '' : wc.getURL(),
+  });
+});
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit') return;
+  logger.error('child-process', `child-process-gone (type=${details.type}, reason=${details.reason})`, details);
+});
 
 // 单实例互斥锁（按 userData 目录隔离，隔离 WARREN_HOME 的冒烟/测试实例互不冲突）
 const gotSingleInstanceLock = app.requestSingleInstanceLock();

@@ -77,6 +77,22 @@ export function resolveErrorDetails(error: unknown, ctx: RemedyContext = {}): Er
       hint ??= '目标不支持直接输入或选值，请检查控件类型与可用选项';
       remedy ??= `warren browser snapshot ${env} -i`;
       break;
+    case 'ENV_BUSY':
+      hint ??= `环境 ${env} 的 Agent Space 当前正被其他调用方或人工接管锁定，可加 --wait 等待释放`;
+      remedy ??= `warren env acquire ${env} --wait=10000`;
+      break;
+    case 'ENV_NOT_VISIBLE':
+      hint ??= '页面视图当前被应用内浮层或设置页遮挡，切回环境工作台后再试';
+      remedy ??= `warren env list`;
+      break;
+    case 'TAB_NOT_VISIBLE':
+      hint ??= '目标标签不是当前激活标签，请先切换到目标标签再执行输入操作';
+      remedy ??= `warren tab list ${env}`;
+      break;
+    case 'FILL_UNCONFIRMED':
+      hint ??= '输入后回读未匹配期望值，可能被受控组件拦截或焦点偏移，请先检查页面快照';
+      remedy ??= `warren browser snapshot ${env} -i`;
+      break;
     case 'TIMEOUT':
       hint ??= '等待超时，建议查看当前页面信息与控制台/网络错误';
       remedy ??= `warren browser info ${env}`;
@@ -106,6 +122,10 @@ export function sampleBuiltInRemedies(): string[] {
     'TARGET_OCCLUDED',
     'NOT_ACTIONABLE',
     'TARGET_NOT_FILLABLE',
+    'ENV_BUSY',
+    'ENV_NOT_VISIBLE',
+    'TAB_NOT_VISIBLE',
+    'FILL_UNCONFIRMED',
     'TIMEOUT',
   ];
   const out: string[] = [];

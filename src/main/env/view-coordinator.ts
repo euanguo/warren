@@ -133,6 +133,8 @@ export class EnvViewCoordinator {
               backgroundThrottling: false,
             },
           }),
+        // 页面槽位尺寸由 ViewCoordinator 结合模拟视口预设统一计算，禁止 DevToolsHost 直接覆盖 page bounds
+        managePageBounds: false,
         onLayoutChanged: () => {
           if (this.#selected) this.reapplySplitBounds(this.#selected, { syncEmulation: false });
         },
@@ -709,6 +711,11 @@ export class EnvViewCoordinator {
     }
     this.#deps.onChange();
     return { preset };
+  }
+
+  clearEnvPresets(id: string): void {
+    this.#presets.delete(`${id}:person`);
+    this.#presets.delete(`${id}:agent`);
   }
 
   getViewportPreset(id: string, space: SpaceId): { preset: ViewportPresetId } {

@@ -18,17 +18,32 @@ export type { NetAction, NetRule };
  */
 export const PASSTHROUGH_PRIORITY = 1_000_000;
 
-/** URL 是否命中模式。默认 glob **全匹配**（要部分匹配就两端写 `*`），`isRegex` 时按正则。 */
+const MAX_COMPILED_PATTERNS = 512;
+const compiledPatterns = new Map<string, RegExp | null>();
+
+function getCompiledPattern(pattern: string, isRegex: boolean): RegExp | null {
+  const key = `${isRegex ? 'r' : 'g'}:${pattern}`;
+  const cached = compiledPatterns.get(key);
+  if (cached !== undefined) return cached;
+  let compiled: RegExp | null = null;
+  try {
+    compiled = isRegex ? new RegExp(pattern) : globToRegExp(pattern);
+  } catch {
+    compiled = null;
+  }
+  if (compiledPatterns.size >= MAX_COMPILED_PATTERNS) {
+    const oldest = compiledPatterns.keys().next().value;
+    if (oldest !== undefined) compiledPatterns.delete(oldest);
+  }
+  compiledPatterns.set(key, compiled);
+  return compiled;
+}
+
+/** URL 是否命中模式。默认 glob **全匹配**（要部分匹配就两端写 `*`），`isRegex` 时按正则；编译结果带上限缓存。 */
 export function matchUrl(pattern: string, url: string, isRegex = false): boolean {
   if (typeof pattern !== 'string' || !pattern) return false;
-  if (isRegex) {
-    try {
-      return new RegExp(pattern).test(url);
-    } catch {
-      return false; // 非法正则当作不命中，别让一条坏规则把整条链路弄崩
-    }
-  }
-  return globToRegExp(pattern).test(url);
+  const compiled = getCompiledPattern(pattern, isRegex);
+  return compiled ? compiled.test(url) : false;
 }
 
 /** 规则过期了没。没有 `expiresAt` 的规则永不过期。 */
@@ -56,16 +71,21 @@ export function nextExpiry(rules: NetRule[], now = Date.now()): number | undefin
   return next;
 }
 
-/** 挑出命中的规则：enabled + 没过期 + method 匹配 + URL 命中，priority 降序取第一个。没有就 null。 */
+/** 挑出命中的规则：单趟零分配扫描（enabled + 未过期 + method 匹配 + URL 命中，priority 降序，同级先加优先）。 */
 export function pickRule(rules: NetRule[], url: string, method = 'GET', now = Date.now()): NetRule | null {
   const upper = method.toUpperCase();
-  const hit = rules
-    .filter((rule) => isActive(rule, now))
-    .filter((rule) => !rule.match.method || rule.match.method.toUpperCase() === upper)
-    .filter((rule) => matchUrl(rule.match.url, url, rule.match.isRegex))
-    // 稳定排序：相同 priority 保持规则表顺序，先加的先生效
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
-  return hit[0] ?? null;
+  let best: NetRule | null = null;
+  let bestPriority = -Infinity;
+  for (const rule of rules) {
+    const priority = rule.priority ?? 0;
+    if (best !== null && priority <= bestPriority) continue;
+    if (!isActive(rule, now)) continue;
+    if (rule.match.method && rule.match.method.toUpperCase() !== upper) continue;
+    if (!matchUrl(rule.match.url, url, rule.match.isRegex)) continue;
+    best = rule;
+    bestPriority = priority;
+  }
+  return best;
 }
 
 /** 正则里用的字面量转义。HAR 回放要按**精确 URL** 匹配（glob 会把 `?` 当单字符通配）。 */

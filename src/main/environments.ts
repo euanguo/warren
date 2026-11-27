@@ -141,10 +141,16 @@ export class EnvironmentManager {
       clearSelectedIf: (id) => this.#views.clearSelectedIf(id),
       getSelectedId: () => this.#views.selected,
       hasLiveLease: (id) => this.#leases.hasLiveLease(id),
-      clearLeaseAndShield: (id) => this.#leases.clearEnv(id),
+      clearLeaseAndShield: (id) => {
+        this.#leases.clearEnv(id);
+        this.#views.clearEnvPresets(id);
+      },
       closeEnvDevTools: (spaces) => this.#views.closeEnvDevTools(spaces),
       destroyAllDevTools: () => this.#views.destroyAllDevTools(),
       onChange,
+      onSweep: () => {
+        if (this.#leases.pruneExpiredLeases() > 0) this.#onChange();
+      },
       emitBusEvent: (type, envId, payload) => this.#emitBusEvent(type, envId, payload),
     });
   }
@@ -397,6 +403,7 @@ export class EnvironmentManager {
     return { cleared };
   }
   memoryInputs(): { environments: RawEnvProcessInfo[]; shellProcesses: RawShellProcessInfo[] } {
+    this.#leases.pruneExpiredLeases();
     const now = Date.now();
     const environments: RawEnvProcessInfo[] = this.#store.list().map((env) => {
       const spaces = this.#lifecycle.spacesFor(env.id);
@@ -597,7 +604,7 @@ export class EnvironmentManager {
   }
 
   #decorate(env: Environment): Environment {
-    const lease = this.#leases.pruneAndGetLiveLease(env.id);
+    const lease = this.#leases.liveLease(env.id);
     const spaces = this.#lifecycle.spacesFor(env.id);
     const activeSpaceId = spaces?.active ?? 'person';
     const tabs = spaces?.[activeSpaceId];
