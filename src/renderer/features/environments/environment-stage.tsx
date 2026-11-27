@@ -132,7 +132,9 @@ export function EnvironmentStage({
   const activeSpace = (current?.spaces ?? []).find((space) => space.id === activeSpaceId);
   const tabs = activeSpace?.tabs ?? current?.tabs ?? [];
   const activeTabId = activeSpace?.activeTabId ?? current?.activeTabId;
-  const locked = activeSpaceId === 'agent' && activeSpace?.owner === 'agent';
+  const locked =
+    activeSpaceId === 'agent' &&
+    (activeSpace?.owner === 'agent' || Boolean(activeSpace?.agentSession?.active ?? current?.agentSession?.active));
   const canNavigate = running && !locked;
   const canStartOnSubmit = Boolean(current && !running);
   const currentUrl = nav?.url || current?.currentUrl || '';

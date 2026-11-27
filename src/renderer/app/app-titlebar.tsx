@@ -55,6 +55,7 @@ interface Props {
   onRunPluginAction: (pluginId: string, command: string, envId: string) => void;
   onTakeover: (id: string) => void;
   onRelease: (id: string) => void;
+  onFinishAgentSession?: (id: string) => void;
   onOpenCommandBar: () => void;
   onOpenSettings: (section?: SettingsSection) => void;
   onOpenPluginPage: (pluginId: string, surfaceId: string) => void;
@@ -101,6 +102,7 @@ export function AppTitlebar({
   onRunPluginAction,
   onTakeover,
   onRelease,
+  onFinishAgentSession,
   onOpenCommandBar,
   onOpenSettings,
   onOpenPluginPage,
@@ -140,8 +142,13 @@ export function AppTitlebar({
     return () => observer.disconnect();
   }, [isGlobalMode, activeGlobalKey, railPages.length]);
 
-  const agentOwner =
-    (environment?.spaces ?? []).find((space) => space.id === 'agent')?.owner ?? environment?.owner ?? 'none';
+  const agentSpace = (environment?.spaces ?? []).find((space) => space.id === 'agent');
+  const agentOwner = agentSpace?.owner ?? environment?.owner ?? 'none';
+  const agentSession = agentSpace?.agentSession ?? environment?.agentSession;
+  const agentOperating = agentOwner === 'agent' || Boolean(agentSession?.active);
+  const effectiveOwner = agentOwner === 'human' ? 'human' : agentOperating ? 'agent' : 'none';
+  const agentPhase = agentOwner === 'agent' ? 'acting' : (agentSession?.phase ?? 'thinking');
+  const agentCaller = agentSession?.label || environment?.leaseLabel || 'Agent';
 
   const openCurrentEnvMenu = (event: MouseEvent) => {
     if (!environment) return;
@@ -385,26 +392,27 @@ export function AppTitlebar({
         {environment && running && activeSpaceId === 'agent' && (
           <div
             data-slot="control-pill"
-            data-owner={agentOwner}
+            data-owner={effectiveOwner}
+            data-phase={effectiveOwner === 'agent' ? agentPhase : undefined}
             className={cn(
               'mr-1 flex h-[var(--control-height-icon)] items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none',
-              agentOwner === 'agent' && 'border-accent-strong bg-accent-soft',
-              agentOwner === 'human' && 'border-success/40 bg-success-soft',
-              agentOwner === 'none' && 'border-border-strong bg-control',
+              effectiveOwner === 'agent' && 'border-accent-strong bg-accent-soft',
+              effectiveOwner === 'human' && 'border-success/40 bg-success-soft',
+              effectiveOwner === 'none' && 'border-border-strong bg-control',
             )}
           >
             <StatusDot
-              tone={agentOwner === 'agent' ? 'info' : agentOwner === 'human' ? 'success' : 'idle'}
-              className={cn(agentOwner === 'agent' && 'animate-pulse')}
+              tone={effectiveOwner === 'agent' ? 'info' : effectiveOwner === 'human' ? 'success' : 'idle'}
+              className={cn(effectiveOwner === 'agent' && 'animate-pulse')}
             />
             <span className="max-w-[148px] truncate text-foreground">
-              {agentOwner === 'agent'
-                ? `${environment.leaseLabel || 'Agent'} 操作中`
-                : agentOwner === 'human'
+              {effectiveOwner === 'agent'
+                ? `${agentCaller} ${agentPhase === 'thinking' ? '思考中' : '操作中'}`
+                : effectiveOwner === 'human'
                   ? '你正在接管'
                   : 'Agent 空闲 · 可自由操作'}
             </span>
-            {agentOwner === 'human' ? (
+            {effectiveOwner === 'human' ? (
               <Button
                 size="xs"
                 variant="secondary"
@@ -414,20 +422,42 @@ export function AppTitlebar({
                 <Icon name="Release" />
                 交还
               </Button>
+            ) : effectiveOwner === 'agent' ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  title="立即暂停 AI 写入并接管页面"
+                  className="h-[22px] rounded-full border border-accent-strong bg-accent-soft px-2.5 text-accent-text hover:bg-accent-strong/50"
+                  onClick={() => onTakeover(environment.id)}
+                >
+                  <Icon name="Grab" />
+                  接管
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  data-slot="finish-agent-session"
+                  title="结束 AI 托管模式并关闭蒙层"
+                  className="h-[22px] rounded-full px-2 text-muted-foreground hover:bg-danger-soft hover:text-danger-text"
+                  onClick={() =>
+                    onFinishAgentSession ? onFinishAgentSession(environment.id) : onRelease(environment.id)
+                  }
+                >
+                  <Icon name="Stop" />
+                  结束
+                </Button>
+              </div>
             ) : (
               <Button
                 size="xs"
-                variant={agentOwner === 'agent' ? 'ghost' : 'outline'}
-                title={agentOwner === 'agent' ? '立即中止 Agent 租约并接管页面' : '锁定 Agent 空间，暂停 AI 自动介入'}
-                className={cn(
-                  'h-[22px] rounded-full px-2.5',
-                  agentOwner === 'agent' &&
-                    'border border-accent-strong bg-accent-soft text-accent-text hover:bg-accent-strong/50',
-                )}
+                variant="outline"
+                title="锁定 Agent 空间，暂停 AI 自动介入"
+                className="h-[22px] rounded-full px-2.5"
                 onClick={() => onTakeover(environment.id)}
               >
                 <Icon name="Grab" />
-                {agentOwner === 'agent' ? '接管' : '暂停 AI'}
+                暂停 AI
               </Button>
             )}
           </div>

@@ -102,7 +102,8 @@ export class EnvironmentManager {
       recordEvent: (type, message, actor, envId) => this.#store.record(makeEvent(type, message, actor, envId)),
       onChange,
       emitBusEvent: (type, envId, payload) => this.#emitBusEvent(type, envId, payload),
-      createShield: (_id, onTakeover) => new InputShield({ layers: this.#views.layers, onTakeover }),
+      createShield: (_id, onTakeover, onFinish) =>
+        new InputShield({ layers: this.#views.layers, onTakeover, onFinish }),
       attachAndRaiseShield: (shield, bounds) => {
         const inputShield = shield as InputShield;
         inputShield.attach(this.#window, bounds);
@@ -503,8 +504,11 @@ export class EnvironmentManager {
   ): LeaseHandle {
     return this.#leases.acquire(id, owner, label, space, existingLeaseId);
   }
-  release(id: string, leaseId: string, actor: 'agent' | 'human' = 'agent'): void {
-    this.#leases.release(id, leaseId, actor);
+  release(id: string, leaseId: string, actor: 'agent' | 'human' = 'agent', options?: { keepSession?: boolean }): void {
+    this.#leases.release(id, leaseId, actor, options);
+  }
+  finishAgentSession(id: string, actor: 'agent' | 'human' = 'agent'): { finished: boolean } {
+    return this.#leases.finishAgentSession(id, actor);
   }
   takeover(id: string, label = 'human', space: SpaceId = 'agent'): LeaseHandle {
     return this.#leases.takeover(id, label, space);
@@ -596,12 +600,14 @@ export class EnvironmentManager {
   #spaceStates(id: string): EnvironmentSpace[] {
     const spaces = this.#lifecycle.spacesFor(id);
     if (!spaces) return [];
+    const agentSession = this.#leases.agentSession(id);
     return SPACE_IDS.map((space) => {
       const manager = spaces[space];
       return {
         id: space,
         label: spaceLabel(space),
         owner: this.#leases.spaceOwner(id, space),
+        ...(space === 'agent' && agentSession ? { agentSession } : {}),
         tabs: manager.list(),
         activeTabId: manager.activeId,
       };
@@ -610,6 +616,7 @@ export class EnvironmentManager {
 
   #decorate(env: Environment): Environment {
     const lease = this.#leases.liveLease(env.id);
+    const agentSession = this.#leases.agentSession(env.id);
     const spaces = this.#lifecycle.spacesFor(env.id);
     const activeSpaceId = spaces?.active ?? 'person';
     const tabs = spaces?.[activeSpaceId];
@@ -619,8 +626,9 @@ export class EnvironmentManager {
       status: spaces ? 'running' : this.#lifecycle.isDormant(env.id) ? 'dormant' : 'stopped',
       owner: lease ? lease.owner : 'none',
       leaseId: lease?.leaseId,
-      leaseLabel: lease?.label,
+      leaseLabel: lease?.label ?? agentSession?.label,
       leaseExpiresAt: lease?.expiresAt,
+      ...(agentSession ? { agentSession } : {}),
       currentUrl: active?.url || env.currentUrl,
       title: active?.title || env.title,
       error: active?.error,

@@ -52,6 +52,23 @@ export interface Group {
   updatedAt: string;
 }
 
+export type AgentSessionPhase = 'acting' | 'thinking';
+
+/**
+ * Agent Space 的显式托管会话态（与底层瞬时写锁 Lease 正交解耦）：
+ * - AI 首次发起 Agent 写操作时自动进入，单条命令结束释放写锁时保持常驻并切为 `thinking`；
+ * - 仅当 AI 主动调用 `env.finish` / 显式 `env.release`，或人手动点击「结束」/「接管」时退出。
+ */
+export interface AgentSessionState {
+  active: boolean;
+  phase: AgentSessionPhase;
+  label: string;
+  startedAt: number;
+  lastActivityAt: number;
+  lastAction?: string;
+  actionCount: number;
+}
+
 export interface Environment {
   id: string;
   name: string;
@@ -72,6 +89,8 @@ export interface Environment {
   leaseId?: string;
   leaseLabel?: string;
   leaseExpiresAt?: number;
+  /** Agent Space 托管运行会话态（存在即表示 AI 正在持续托管，蒙层常驻） */
+  agentSession?: AgentSessionState;
   error?: string;
   /** 所属分组；undefined = 未分组 */
   groupId?: string;
@@ -93,6 +112,8 @@ export interface EnvironmentSpace {
   id: SpaceId;
   label: string;
   owner: ControlOwner;
+  /** 仅 Agent Space 在 AI 托管会话期间携带 */
+  agentSession?: AgentSessionState;
   tabs: TabState[];
   activeTabId?: string;
 }

@@ -1,8 +1,21 @@
 import { WebContentsView } from 'electron';
-import { buildShieldHtml, type ShieldMode, type ShieldTheme, type ShieldVisualAction } from './ui/input-shield-view.ts';
+import {
+  buildShieldHtml,
+  type ShieldMode,
+  type ShieldPhase,
+  type ShieldSessionSnapshot,
+  type ShieldTheme,
+  type ShieldVisualAction,
+} from './ui/input-shield-view.ts';
 import type { WindowLayerManager } from './ui/layer-manager.ts';
 
-export type { ShieldMode, ShieldTheme, ShieldVisualAction } from './ui/input-shield-view.ts';
+export type {
+  ShieldMode,
+  ShieldPhase,
+  ShieldSessionSnapshot,
+  ShieldTheme,
+  ShieldVisualAction,
+} from './ui/input-shield-view.ts';
 
 /**
  * Agent 空间轻量纯 CSS 透明输入护盾（渲染于 `'shield'` 原生槽位，零注入目标网页 DOM、零 WebGL 开销）。
@@ -21,18 +34,26 @@ export class InputShield {
   #mode: ShieldMode = 'idle';
   #theme: ShieldTheme = 'dark';
   #showControlPill = true;
+  #phase: ShieldPhase = 'acting';
+  #startedAt = 0;
+  #lastActivityAt = 0;
+  #lastAction?: string;
+  #actionCount = 0;
   #onTakeover?: () => void;
+  #onFinish?: () => void;
 
   constructor(options: {
     layers: WindowLayerManager;
     showControlPill?: boolean;
     theme?: ShieldTheme;
     onTakeover?: () => void;
+    onFinish?: () => void;
   }) {
     this.#layers = options.layers;
     this.#showControlPill = options.showControlPill ?? true;
     this.#theme = options.theme ?? 'dark';
     this.#onTakeover = options.onTakeover;
+    this.#onFinish = options.onFinish;
     this.#view = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
@@ -46,6 +67,9 @@ export class InputShield {
       if (url.startsWith('warren-action://takeover')) {
         event.preventDefault();
         this.#onTakeover?.();
+      } else if (url.startsWith('warren-action://finish')) {
+        event.preventDefault();
+        this.#onFinish?.();
       }
     });
     this.#view.webContents.on('dom-ready', () => {
@@ -98,6 +122,22 @@ export class InputShield {
     this.#pushState();
   }
 
+  setSession(session: ShieldSessionSnapshot): void {
+    const unchanged =
+      this.#phase === session.phase &&
+      this.#startedAt === session.startedAt &&
+      this.#lastActivityAt === session.lastActivityAt &&
+      this.#lastAction === session.lastAction &&
+      this.#actionCount === session.actionCount;
+    if (unchanged) return;
+    this.#phase = session.phase;
+    this.#startedAt = session.startedAt;
+    this.#lastActivityAt = session.lastActivityAt;
+    this.#lastAction = session.lastAction;
+    this.#actionCount = session.actionCount;
+    this.#pushState();
+  }
+
   showAction(action: ShieldVisualAction): void {
     if (!this.#attached || !this.#visible || !this.#ready || this.#mode !== 'agent') return;
     if (this.#view.webContents.isDestroyed()) return;
@@ -116,6 +156,11 @@ export class InputShield {
       caller: this.#callerLabel,
       mode: this.#mode,
       theme: this.#theme,
+      phase: this.#phase,
+      startedAt: this.#startedAt,
+      lastActivityAt: this.#lastActivityAt,
+      lastAction: this.#lastAction ?? '',
+      actionCount: this.#actionCount,
       showControlPill: this.#showControlPill,
       attached: this.#attached,
       visible: this.#visible,

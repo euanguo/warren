@@ -11,8 +11,12 @@ interface Props {
   onSelect: (space: SpaceId) => void;
 }
 
+function isAgentSpaceOperating(space?: EnvironmentSpace): boolean {
+  return space?.owner === 'agent' || Boolean(space?.agentSession?.active);
+}
+
 function agentTone(space?: EnvironmentSpace): StatusDotTone {
-  if (space?.owner === 'agent') return 'info';
+  if (isAgentSpaceOperating(space)) return 'info';
   if (space?.owner === 'human') return 'success';
   return 'idle';
 }
@@ -60,14 +64,16 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
       <span ref={thumbRef} aria-hidden data-slot="space-switcher-thumb" className="warren-sliding-pill opacity-0" />
       {spaces.map((space) => {
         const active = space.id === activeSpaceId;
-        const agentRunning = space.id === 'agent' && space.owner === 'agent';
+        const agentRunning = space.id === 'agent' && isAgentSpaceOperating(space);
+        const agentCaller = space.agentSession?.label || leaseLabel || 'AI';
+        const agentThinking = space.owner !== 'agent' && space.agentSession?.phase === 'thinking';
         const agentState =
           space.id === 'agent'
-            ? space.owner === 'agent'
-              ? `${leaseLabel || 'AI'} 操作中${active ? '' : ' · 点击查看'}`
+            ? agentRunning
+              ? `${agentCaller} ${agentThinking ? '思考中（托管常驻）' : '操作中'}${active ? '' : ' · 点击查看'}`
               : space.owner === 'human'
                 ? '你接管中'
-                : 'Agent 空间空闲（只读）'
+                : 'Agent 空间空闲（可自由操作）'
             : '';
         return (
           <Button

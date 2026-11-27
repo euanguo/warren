@@ -139,7 +139,9 @@ export function App() {
   const activeSpace = (current?.spaces ?? []).find((space) => space.id === activeSpaceId);
   const tabs = activeSpace?.tabs ?? current?.tabs ?? [];
   const activeTabId = activeSpace?.activeTabId ?? current?.activeTabId;
-  const locked = activeSpaceId === 'agent' && activeSpace?.owner === 'agent';
+  const locked =
+    activeSpaceId === 'agent' &&
+    (activeSpace?.owner === 'agent' || Boolean(activeSpace?.agentSession?.active ?? current?.agentSession?.active));
   const canNavigate = Boolean(running) && !locked;
 
   const openCommandBar = useCallback(() => {
@@ -352,6 +354,7 @@ export function App() {
             onRunPluginAction={(pluginId, command, envId) => void pluginActions.runAction(pluginId, command, envId)}
             onTakeover={(id) => void environmentActions.takeover(id)}
             onRelease={(id) => void environmentActions.release(id)}
+            onFinishAgentSession={(id) => void environmentActions.finishAgentSession(id)}
             onOpenCommandBar={openCommandBar}
             onOpenSettings={(section) => openSettings(section)}
             onOpenPluginPage={(pluginId, surfaceId) => openPluginPage(pluginId, surfaceId)}

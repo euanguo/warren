@@ -127,6 +127,8 @@ export interface EnvApi {
   selected(): Promise<string | null>;
   takeover(id: string, space?: SpaceId): Promise<unknown>;
   release(id: string, space?: SpaceId): Promise<void>;
+  /** 人工或界面显式结束 Agent 空间托管会话态并撤除蒙层。 */
+  finishAgentSession(id: string): Promise<void>;
   events(id?: string): Promise<EventRecord[]>;
   snapshot(id: string, space: SpaceId): Promise<SnapshotResult>;
   console(id: string): Promise<ConsoleEntry[]>;

@@ -151,6 +151,10 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
     const mgr = deps.getManager();
     const env = mgr.get(id);
     if (env?.leaseId) mgr.release(id, env.leaseId, 'human');
+    else mgr.finishAgentSession(id, 'human');
+  });
+  handle('env:finishAgentSession', (id: string) => {
+    deps.getManager().finishAgentSession(id, 'human');
   });
   handle('events:list', (id?: string) => deps.store.events(id));
 

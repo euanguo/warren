@@ -14,7 +14,7 @@ Warren 是本地隔离浏览器工作台。每个 **Environment** 拥有独立�
 
 1. **显式寻址**：始终传 `<env>`。界面选中环境不等于拥有写权限（部分 `browser`/`notes` 命令可用 `WARREN_ENV` 缺省指定，多环境并发时仍显式传参）。
 2. **仅操作 Agent Space**：只在 Agent Space 建 Tab 与读写页面。`--space=person` 与 `env takeover` 属于人工诊断入口，非用户明确要求不得调用。
-3. **写操作持锁与冲突退让**：所有页面改动要求 Agent Space 有效 lease（`warren exec` 省略 `--lease` 时会自动获取并在结束后释放，长任务用 `warren env renew` 续期）。当人从界面接管并触发 `CONTROL_REVOKED` 或 `ENV_BUSY` 时，停止写入，向用户确认或使用 `--wait=5000` 等待交还，禁止强抢。
+3. **写操作持锁与托管收尾**：所有页面改动要求 Agent Space 有效 lease（单条 CLI 命令省略 `--lease` 时自动获取并在命令结束后进入思考托管态，蒙层常驻不闪烁；长任务用 `warren env renew` 续期）。**整项浏览器任务全部完成后，调用 `warren env finish <env>` 结束 Agent 空间托管态并撤除蒙层**。当人从界面接管并触发 `CONTROL_REVOKED` 或 `ENV_BUSY` 时，停止写入，向用户确认或使用 `--wait=5000` 等待交还，禁止强抢。
 4. **后台静默运行**：Warren 可关闭到托盘并在后台执行点击、键入与可见视口截图（CDP 拿不到 surface 时自动回退 `capturePage()`）。禁止调用 `open -a Warren`、`debug.focusWindow`、`app.focus` 或要求人切前台；仅 `fullPage`/`clip` 截图受后台 surface 可用性限制，失败时如实上报。
 5. **CLI 环境即权威字典**：用 `warren help` 查全部命令与参数，用 `warren exec --capabilities` 查脚本 API，用 `warren methods` 查全部 RPC。不要凭记忆臆测未记录子命令或方法名。
 
@@ -29,6 +29,7 @@ warren tab list <env>
 warren browser open <env> https://example.com --read
 warren browser snapshot <env> -i -u
 warren browser read <env> --outline --links --data --content-boundaries
+warren env finish <env>
 ```
 
 - **结构优先**：`browser snapshot <env> -i -u` 返回极简缩进交互树、链接 URL，并在命中域名时自动注入 `# site-notes`；`page.snapshot()` 返回结构对象 `{ url, title, nodes }`（截断须先 `JSON.stringify()`）。

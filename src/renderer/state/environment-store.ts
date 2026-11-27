@@ -128,6 +128,7 @@ export const environmentActions = {
   remove: (id: string) => runAction(() => window.envApi.remove(id), '删除失败'),
   takeover: (id: string, space: SpaceId = 'agent') => runAction(() => window.envApi.takeover(id, space), '接管失败'),
   release: (id: string, space: SpaceId = 'agent') => runAction(() => window.envApi.release(id, space), '交还失败'),
+  finishAgentSession: (id: string) => runAction(() => window.envApi.finishAgentSession(id), '结束 AI 托管失败'),
   renameGroup: (id: string, name: string) => runAction(() => window.envApi.groupRename(id, name), '重命名分组失败'),
   removeGroup: (id: string) => runAction(() => window.envApi.groupRemove(id), '删除分组失败'),
   toggleGroup: (id: string, collapsed: boolean) =>

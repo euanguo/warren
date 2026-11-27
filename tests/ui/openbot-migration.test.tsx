@@ -329,4 +329,75 @@ describe('OpenBot 设计体系迁移与可配置配色皮肤回归测试', () =>
     expect(layeredSvg.getAttribute('class')).toContain('kubai-icon-contact-book');
     expect(layeredSvg.getAttribute('class')).not.toContain('kubai-duotone');
   });
+
+  it('AppTitlebar 在 Agent 思考托管常驻态下展示脉冲胶囊与「接管 / 结束」双按钮', () => {
+    const env = makeEnv();
+    env.agentSession = {
+      active: true,
+      phase: 'thinking',
+      label: 'Codex',
+      startedAt: Date.now() - 12_000,
+      lastActivityAt: Date.now() - 2_000,
+      actionCount: 3,
+    };
+    env.spaces = [
+      { id: 'person', label: '我的', owner: 'human', tabs: [makeTab('t1', '首页')] },
+      { id: 'agent', label: 'Agent', owner: 'none', tabs: [makeTab('t2', '任务')], agentSession: env.agentSession },
+    ];
+    const onTakeover = vi.fn();
+    const onFinishAgentSession = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <AppTitlebar
+          route="environments"
+          environment={env}
+          groups={[]}
+          activeSpaceId="agent"
+          tabs={[makeTab('t2', '任务')]}
+          activeTabId="t2"
+          running={true}
+          locked={true}
+          canNavigate={false}
+          sidebarOpen={true}
+          railPages={[]}
+          pluginActions={[]}
+          onToggleSidebar={vi.fn()}
+          onSpaceSelect={vi.fn()}
+          onTabSelect={vi.fn()}
+          onTabClose={vi.fn()}
+          onTabCreate={vi.fn()}
+          onTabReload={vi.fn()}
+          onTabHardReload={vi.fn()}
+          onTabCloseOthers={vi.fn()}
+          onTabCloseRight={vi.fn()}
+          onTabReorder={vi.fn()}
+          onTabToggleMute={vi.fn()}
+          onStart={vi.fn()}
+          onStop={vi.fn()}
+          onRemove={vi.fn()}
+          onMoveToGroup={vi.fn()}
+          onRunPluginAction={vi.fn()}
+          onTakeover={onTakeover}
+          onRelease={vi.fn()}
+          onFinishAgentSession={onFinishAgentSession}
+          onOpenCommandBar={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenPluginPage={vi.fn()}
+          onBackToEnvironments={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    const pill = document.querySelector<HTMLElement>('[data-slot="control-pill"]')!;
+    expect(pill.dataset.owner).toBe('agent');
+    expect(pill.dataset.phase).toBe('thinking');
+    expect(pill.textContent).toContain('Codex 思考中');
+
+    fireEvent.click(screen.getByRole('button', { name: '结束' }));
+    expect(onFinishAgentSession).toHaveBeenCalledWith(env.id);
+
+    fireEvent.click(screen.getByRole('button', { name: '接管' }));
+    expect(onTakeover).toHaveBeenCalledWith(env.id);
+  });
 });

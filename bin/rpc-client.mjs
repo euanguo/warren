@@ -138,7 +138,8 @@ export function createRpcClient({
       return await fn(leaseId);
     } finally {
       stopRenewer();
-      if (auto) await call('env.release', { id: environmentId, leaseId }).catch(() => {});
+      // 单条命令结束后仅释放瞬时写锁，保留 Agent 空间托管会话态（思考期间蒙层常驻不闪烁，由 `env finish` 或人工结束）
+      if (auto) await call('env.release', { id: environmentId, leaseId, keepSession: true }).catch(() => {});
     }
   }
 

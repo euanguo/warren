@@ -82,6 +82,9 @@ export async function runEnvCommand({ args, flags, asJson, call, acquire }) {
     case 'release':
       print(await call('env.release', { id, leaseId: flags.lease }), asJson);
       return 0;
+    case 'finish':
+      print(await call('env.finish', { id }), asJson);
+      return 0;
     case 'takeover':
       print(await call('env.takeover', { id }), asJson);
       return 0;

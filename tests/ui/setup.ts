@@ -193,6 +193,7 @@ export function installMockEnvApi(overrides: Partial<EnvApi> = {}): MockEnvApiCo
     selected: vi.fn(async () => null),
     takeover: vi.fn(async () => ({})),
     release: vi.fn(async () => {}),
+    finishAgentSession: vi.fn(async () => {}),
     events: vi.fn(async () => []),
     snapshot: vi.fn(async () => ({ url: 'about:blank', title: '', nodes: [] })),
     console: vi.fn(async () => []),

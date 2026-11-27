@@ -47,6 +47,7 @@ const api: EnvApi = {
   sleepIdleTabs: (id) => ipcRenderer.invoke('tab:sleepIdle', id),
   takeover: (id, space: SpaceId = 'agent') => ipcRenderer.invoke('env:takeover', id, space),
   release: (id, space: SpaceId = 'agent') => ipcRenderer.invoke('env:release', id, space),
+  finishAgentSession: (id) => ipcRenderer.invoke('env:finishAgentSession', id),
   events: (id) => ipcRenderer.invoke('events:list', id),
   snapshot: (id, space) => ipcRenderer.invoke('browser:snapshot', id, space),
   console: (id) => ipcRenderer.invoke('browser:console', id),

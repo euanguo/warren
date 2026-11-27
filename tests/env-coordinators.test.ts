@@ -37,12 +37,20 @@ function makeTabState(id: string, space: SpaceId, url: string, over: Partial<Tab
 function makeFakeShield(): ShieldLike & {
   label?: string;
   mode?: 'agent' | 'idle';
+  session?: {
+    phase: 'acting' | 'thinking';
+    startedAt: number;
+    lastActivityAt: number;
+    lastAction?: string;
+    actionCount: number;
+  };
   actions: Array<{ kind: string; x: number; y: number }>;
   visible: boolean;
   showPill: boolean;
   bounds?: { x: number; y: number; width: number; height: number };
   destroyed: boolean;
   onTakeover?: () => void;
+  onFinish?: () => void;
 } {
   return {
     attached: false,
@@ -55,6 +63,9 @@ function makeFakeShield(): ShieldLike & {
     },
     setMode(mode: 'agent' | 'idle') {
       this.mode = mode;
+    },
+    setSession(session) {
+      this.session = { ...session };
     },
     showAction(action: { kind: string; x: number; y: number }) {
       this.actions.push({ kind: action.kind, x: action.x, y: action.y });
@@ -822,4 +833,105 @@ test('LeaseCoordinator：运行期调整租约时长与控制胶囊显隐', () =
 
   coordinator.setShowControlPill(false);
   assert.equal(getShield()?.showPill, false);
+});
+
+test('LeaseCoordinator：Agent 空间托管会话态（acting → thinking 常驻 → finish / takeover 退出）', () => {
+  const configs = new Map<string, EnvironmentConfig>([
+    ['alpha', createEnvironmentConfig({ id: 'alpha', storagePath: '/tmp/alpha', createdBy: 'human' })],
+  ]);
+  const spaceManagers = new Map<string, ReturnType<typeof makeFakeTabManager>>([
+    ['alpha:person', makeFakeTabManager('person', { showing: false })],
+    ['alpha:agent', makeFakeTabManager('agent', { showing: true })],
+  ]);
+  let shield: ReturnType<typeof makeFakeShield> | undefined;
+  let now = 100_000;
+  const coordinator = new LeaseCoordinator({
+    getEnvironment: (id) => {
+      const cfg = configs.get(id);
+      return cfg ? toEnvironment(cfg, { owner: 'none' }) : undefined;
+    },
+    getConfig: (id) => configs.get(id),
+    getControlPolicy: () => 'ask',
+    getSpaceManager: (id, space = 'agent') => spaceManagers.get(`${id}:${space}`),
+    getSelectedId: () => 'alpha',
+    getActiveSpace: () => 'agent',
+    getViewVisible: () => true,
+    getPageBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    getViewportSize: () => ({ width: 800, height: 600 }),
+    selectSpaceView: () => {},
+    restoreDisplayedFocus: () => {},
+    touch: () => {},
+    recordEvent: () => {},
+    onChange: () => {},
+    emitBusEvent: () => {},
+    createShield: (_id, onTakeover, onFinish) => {
+      shield = makeFakeShield();
+      shield.onTakeover = onTakeover;
+      shield.onFinish = onFinish;
+      return shield;
+    },
+    attachAndRaiseShield: (s) => {
+      (s as { attached: boolean }).attached = true;
+    },
+    detachShield: (s) => {
+      (s as { attached: boolean }).attached = false;
+    },
+    leaseTtlMs: () => 30_000,
+    now: () => now,
+  });
+
+  // 1. 首次 AI 写入自动进入 Agent 空间托管态（acting）并挂载护盾
+  const first = coordinator.acquire('alpha', 'agent', 'Codex', 'agent');
+  assert.equal(coordinator.isAgentOperating('alpha'), true);
+  assert.equal(coordinator.agentSession('alpha')?.phase, 'acting');
+  assert.equal(shield?.attached, true);
+  assert.equal(shield?.session?.phase, 'acting');
+  assert.equal(coordinator.canHumanNavigate('alpha', 'agent'), false);
+
+  // 2. 单条 CLI 命令以 keepSession=true 释放瞬时写锁：底层锁已空，但托管态切入 thinking 且护盾常驻不闪灭
+  now += 2_000;
+  coordinator.release('alpha', first.leaseId, 'agent', { keepSession: true });
+  assert.equal(coordinator.spaceOwner('alpha', 'agent'), 'none');
+  assert.equal(coordinator.isAgentOperating('alpha'), true);
+  assert.equal(coordinator.agentSession('alpha')?.phase, 'thinking');
+  assert.equal(shield?.attached, true);
+  assert.equal(shield?.session?.phase, 'thinking');
+  assert.equal(coordinator.canHumanNavigate('alpha', 'agent'), false);
+
+  // 3. 只读观测刷新活跃时间，且下一条 CLI 写命令无缝复用不会触发 ENV_BUSY
+  now += 5_000;
+  coordinator.touchAgentSession('alpha', 'snapshot');
+  assert.equal(coordinator.agentSession('alpha')?.lastActivityAt, now);
+  assert.equal(coordinator.agentSession('alpha')?.lastAction, 'snapshot');
+  const second = coordinator.acquire('alpha', 'agent', 'Codex', 'agent');
+  assert.equal(coordinator.agentSession('alpha')?.phase, 'acting');
+  assert.equal(coordinator.agentSession('alpha')?.actionCount, 2);
+
+  // 4. 底层租约自然超时也只平滑切入 thinking，护盾不闪灭
+  now += 31_000;
+  assert.equal(coordinator.pruneExpiredLeases(), 1);
+  assert.equal(coordinator.isAgentOperating('alpha'), true);
+  assert.equal(coordinator.agentSession('alpha')?.phase, 'thinking');
+  assert.equal(shield?.attached, true);
+
+  // 5. 显式调用 finishAgentSession（或护盾上的「结束」按钮）立即退出托管态并撤除护盾
+  shield?.onFinish?.();
+  assert.equal(coordinator.isAgentOperating('alpha'), false);
+  assert.equal(coordinator.agentSession('alpha'), undefined);
+  assert.equal(shield?.attached, false);
+  assert.equal(coordinator.canHumanNavigate('alpha', 'agent'), true);
+
+  // 6. 人工 takeover 同样清空托管态并保持原有 CONTROL_REVOKED 契约
+  const third = coordinator.acquire('alpha', 'agent', 'Codex', 'agent');
+  assert.equal(coordinator.isAgentOperating('alpha'), true);
+  coordinator.takeover('alpha', 'human', 'agent');
+  assert.equal(coordinator.agentSession('alpha'), undefined);
+  assert.equal(shield?.attached, false);
+  assert.throws(
+    () => coordinator.assertWritable('alpha', third.leaseId, 'agent'),
+    (error: Error & { code?: string; reason?: string }) =>
+      error.code === 'CONTROL_REVOKED' && error.reason === 'user_takeover',
+  );
+  // 防止 unused warning
+  assert.ok(second.leaseId);
 });

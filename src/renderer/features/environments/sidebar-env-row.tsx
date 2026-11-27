@@ -181,17 +181,23 @@ export function SidebarEnvRow({
                   异常
                 </span>
               )}
-              {env.owner !== 'none' && (
+              {(env.owner !== 'none' || env.agentSession?.active) && (
                 <span
                   className={cn(
                     'inline-flex shrink-0 items-center gap-0.5 font-mono',
-                    env.owner === 'agent' ? 'text-accent-text' : 'text-success-text',
+                    env.owner === 'human' ? 'text-success-text' : 'text-accent-text',
                   )}
-                  title={ownerLabel[env.owner]}
+                  title={
+                    env.owner === 'human'
+                      ? ownerLabel.human
+                      : env.owner !== 'agent' && env.agentSession?.phase === 'thinking'
+                        ? 'Agent 思考中（托管常驻）'
+                        : ownerLabel.agent
+                  }
                 >
-                  <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3" />
+                  <Icon name={env.owner === 'human' ? 'User' : 'Robot'} className="size-3" />
                   <span className="max-w-[6.5rem] truncate">
-                    {env.owner === 'agent' ? env.leaseLabel || 'AI' : '接管中'}
+                    {env.owner === 'human' ? '接管中' : env.agentSession?.label || env.leaseLabel || 'AI'}
                   </span>
                 </span>
               )}

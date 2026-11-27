@@ -1,8 +1,9 @@
 import { controlModeFor } from '../domain/approval.ts';
 import { acquireLease, diagnoseLease, leaseDenialError, releaseLease, renewLease } from '../domain/environment.ts';
-import type { InputShield, ShieldMode, ShieldTheme, ShieldVisualAction } from '../input-shield.ts';
+import type { InputShield, ShieldMode, ShieldPhase, ShieldTheme, ShieldVisualAction } from '../input-shield.ts';
 import type { TabManager } from '../tabs.ts';
 import type {
+  AgentSessionState,
   ControlOwner,
   ControlPolicy,
   Environment,
@@ -48,6 +49,13 @@ export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setV
   setShowControlPill?: (show: boolean) => void;
   setMode?: (mode: ShieldMode) => void;
   setTheme?: (theme: ShieldTheme) => void;
+  setSession?: (session: {
+    phase: ShieldPhase;
+    startedAt: number;
+    lastActivityAt: number;
+    lastAction?: string;
+    actionCount: number;
+  }) => void;
   showAction?: (action: ShieldVisualAction) => void;
   osProcessId?: number;
 };
@@ -68,7 +76,7 @@ export interface LeaseCoordinatorDeps {
   recordEvent: (type: string, message: string, actor: 'system' | 'agent' | 'human', envId?: string) => void;
   onChange: () => void;
   emitBusEvent: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
-  createShield: (id: string, onTakeover: () => void) => ShieldLike;
+  createShield: (id: string, onTakeover: () => void, onFinish?: () => void) => ShieldLike;
   attachAndRaiseShield: (shield: ShieldLike, bounds: ViewportRect) => void;
   detachShield: (shield: ShieldLike) => void;
   focusForInput?: (id: string, space: SpaceId) => Promise<void>;
@@ -91,6 +99,8 @@ export interface LeaseCoordinatorDeps {
 export class LeaseCoordinator {
   #deps: LeaseCoordinatorDeps;
   #leases = new Map<string, LeaseHandle>();
+  /** 上层 Agent 空间托管会话态（与底层瞬时写锁解耦，AI 首次写入进入，仅显式结束或人工干预退出）。 */
+  #agentSessions = new Map<string, AgentSessionState>();
   /** 全局单实例透明护盾，同一时刻仅挂载到当前可见的 Agent Space，消除多环境 N 份 WebGL 视图内存开销。 */
   #sharedShield?: ShieldLike;
   #shieldOwnerEnvId?: string;
@@ -132,6 +142,57 @@ export class LeaseCoordinator {
     return lease;
   }
 
+  /** 读取当前环境的 Agent 托管会话态（若处于托管态返回浅拷贝，否则 undefined）。 */
+  agentSession(id: string): AgentSessionState | undefined {
+    const session = this.#agentSessions.get(id);
+    return session?.active ? { ...session } : undefined;
+  }
+
+  /** Agent 是否正处于托管操作态（持有效写锁 或 上层托管会话活跃）。 */
+  isAgentOperating(id: string): boolean {
+    return this.isAgentControlling(id) || Boolean(this.#agentSessions.get(id)?.active);
+  }
+
+  /** 刷新已激活的 Agent 托管会话活跃时间（只读观测如 snapshot/read 时保活，不创建新会话）。 */
+  touchAgentSession(id: string, actionText?: string): void {
+    const session = this.#agentSessions.get(id);
+    if (!session?.active) return;
+    session.lastActivityAt = this.#now();
+    if (actionText) session.lastAction = actionText;
+    if (this.#shieldOwnerEnvId === id && this.#sharedShield) {
+      this.#sharedShield.setSession?.({
+        phase: session.phase,
+        startedAt: session.startedAt,
+        lastActivityAt: session.lastActivityAt,
+        lastAction: session.lastAction,
+        actionCount: session.actionCount,
+      });
+    }
+  }
+
+  /** 显式结束 Agent 空间托管会话态（AI 调 `env.finish` 或人点「结束」），同时清理残留 Agent 写锁并撤除蒙层。 */
+  finishAgentSession(id: string, actor: 'agent' | 'human' = 'agent'): { finished: boolean } {
+    const hadSession = this.#agentSessions.delete(id);
+    const current = this.#leases.get(id);
+    let releasedAgentLease = false;
+    if (current && current.space === 'agent' && current.owner === 'agent') {
+      this.#leases.delete(id);
+      releasedAgentLease = true;
+      this.#deps.emitBusEvent('lease.changed', id, {
+        owner: 'none',
+        space: current.space,
+      });
+    }
+    if (!hadSession && !releasedAgentLease) {
+      return { finished: false };
+    }
+    this.#deps.onLeaseStateChanged?.(id, false);
+    this.#deps.recordEvent('agent.session.finished', `${actor} 结束了 ${id} 的 Agent 托管操作`, actor, id);
+    this.syncShield(id);
+    this.#deps.onChange();
+    return { finished: true };
+  }
+
   /** 显式清理所有已过期租约并同步护盾/降频状态（由定时清扫或写路径调用，不放在读路径里）。 */
   pruneExpiredLeases(): number {
     const now = this.#now();
@@ -139,7 +200,12 @@ export class LeaseCoordinator {
     for (const [id, lease] of this.#leases) {
       if (lease.expiresAt <= now) {
         this.#leases.delete(id);
-        this.#deps.onLeaseStateChanged?.(id, false);
+        const session = this.#agentSessions.get(id);
+        if (lease.owner === 'agent' && session?.active) {
+          // 底层写锁自然到期时不强撤上层托管会话，平滑切入 thinking 避免长思考间隙闪烁消失
+          session.phase = 'thinking';
+        }
+        this.#deps.onLeaseStateChanged?.(id, Boolean(session?.active));
         this.syncShield(id);
         pruned += 1;
       }
@@ -153,7 +219,11 @@ export class LeaseCoordinator {
     if (!lease) return undefined;
     if (lease.expiresAt <= this.#now()) {
       this.#leases.delete(id);
-      this.#deps.onLeaseStateChanged?.(id, false);
+      const session = this.#agentSessions.get(id);
+      if (lease.owner === 'agent' && session?.active) {
+        session.phase = 'thinking';
+      }
+      this.#deps.onLeaseStateChanged?.(id, Boolean(session?.active));
       this.syncShield(id);
       return undefined;
     }
@@ -162,11 +232,12 @@ export class LeaseCoordinator {
 
   hasLiveLease(id: string): boolean {
     const lease = this.#leases.get(id);
-    return Boolean(lease && lease.expiresAt > this.#now());
+    return Boolean((lease && lease.expiresAt > this.#now()) || this.#agentSessions.get(id)?.active);
   }
 
   hasActiveAgentLease(): boolean {
     const now = this.#now();
+    if ([...this.#agentSessions.values()].some((session) => session.active)) return true;
     return [...this.#leases.values()].some(
       (lease) => lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > now,
     );
@@ -179,12 +250,12 @@ export class LeaseCoordinator {
   }
 
   /**
-   * 人机协作 2.0：我的空间永远可写；Agent Space 仅在 Agent 实际持有有效租约期间锁定，
-   * 空闲时（owner === 'none'）与人工接管态（owner === 'human'）均允许人工直接交互和导航。
+   * 人机协作 2.0：我的空间永远可写；Agent Space 在 Agent 持权或托管会话活跃期间锁定防误点，
+   * 空闲态（无锁且无托管会话）与人工接管态（owner === 'human'）允许人工直接交互和导航。
    */
   canHumanNavigate(id: string, space: SpaceId): boolean {
     if (space === 'person') return true;
-    return !this.isAgentControlling(id);
+    return !this.isAgentOperating(id);
   }
 
   isAgentControlling(id: string): boolean {
@@ -196,6 +267,9 @@ export class LeaseCoordinator {
     const lease = this.#leases.get(id);
     if (lease && lease.expiresAt > this.#now() && lease.space === 'agent' && lease.owner === 'agent') {
       throw Object.assign(new Error(`Agent Space ${id} is controlled by ${lease.owner}`), { code: 'ENV_BUSY' });
+    }
+    if (this.#agentSessions.get(id)?.active) {
+      throw Object.assign(new Error(`Agent Space ${id} is in active agent operating session`), { code: 'ENV_BUSY' });
     }
   }
 
@@ -225,6 +299,7 @@ export class LeaseCoordinator {
 
   clearEnv(id: string): void {
     this.#leases.delete(id);
+    this.#agentSessions.delete(id);
     this.#deps.onLeaseStateChanged?.(id, false);
     if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
       this.#deps.detachShield(this.#sharedShield);
@@ -261,15 +336,17 @@ export class LeaseCoordinator {
   }
 
   /**
-   * 护盾只跟当前选中且正由 Agent 持权控制的 Agent Space 走：
-   * 空闲态（owner === 'none'）与人工接管态（owner === 'human'）绝不挂载遮罩，零误拦、零多余进程。
+   * 护盾只跟当前选中且处于 Agent 托管运行态的 Agent Space 走：
+   * 空闲态与人工接管态绝不挂载遮罩，零误拦、零多余进程。
    */
   syncShield(id: string, options: { createIfMissing?: boolean } = {}): void {
     const lease = this.#leases.get(id);
     const agentControlling = Boolean(
       lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
     );
-    const active = this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent' && agentControlling;
+    const session = this.#agentSessions.get(id);
+    const agentOperating = agentControlling || Boolean(session?.active);
+    const active = this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent' && agentOperating;
     if (!active) {
       if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
         this.#sharedShield.setMode?.('idle');
@@ -280,15 +357,27 @@ export class LeaseCoordinator {
       return;
     }
     if (!this.#sharedShield && options.createIfMissing) {
-      this.#sharedShield = this.#deps.createShield(id, () => {
-        const ownerId = this.#shieldOwnerEnvId;
-        if (!ownerId) return;
-        try {
-          this.takeover(ownerId, 'human', 'agent');
-        } catch {
-          // ignore
-        }
-      });
+      this.#sharedShield = this.#deps.createShield(
+        id,
+        () => {
+          const ownerId = this.#shieldOwnerEnvId;
+          if (!ownerId) return;
+          try {
+            this.takeover(ownerId, 'human', 'agent');
+          } catch {
+            // ignore
+          }
+        },
+        () => {
+          const ownerId = this.#shieldOwnerEnvId;
+          if (!ownerId) return;
+          try {
+            this.finishAgentSession(ownerId, 'human');
+          } catch {
+            // ignore
+          }
+        },
+      );
     }
     if (!this.#sharedShield) return;
     this.#shieldOwnerEnvId = id;
@@ -296,16 +385,29 @@ export class LeaseCoordinator {
     this.#sharedShield.setShowControlPill?.(this.#showControlPill);
     this.#sharedShield.setTheme?.(this.#shieldTheme);
     this.#sharedShield.setMode?.('agent');
-    this.#sharedShield.setCallerLabel(lease?.label);
+    this.#sharedShield.setCallerLabel(lease?.label ?? session?.label);
+    const now = this.#now();
+    this.#sharedShield.setSession?.({
+      phase: agentControlling ? 'acting' : (session?.phase ?? 'thinking'),
+      startedAt: session?.startedAt ?? now,
+      lastActivityAt: session?.lastActivityAt ?? now,
+      lastAction: session?.lastAction,
+      actionCount: session?.actionCount ?? 1,
+    });
     this.#sharedShield.setVisible(this.#deps.getViewVisible());
     this.#deps.attachAndRaiseShield(this.#sharedShield, this.#deps.getPageBounds());
   }
 
   /** 将 AI 正在执行的视口坐标/控件矩形同步给当前可见的透明遮罩层绘制轨迹动画。 */
   showVisualAction(id: string, action: ShieldVisualAction): void {
+    const session = this.#agentSessions.get(id);
+    if (session?.active) {
+      session.lastActivityAt = this.#now();
+      if (action.label) session.lastAction = action.label;
+    }
     if (this.#deps.getSelectedId() !== id) return;
     if (this.#deps.getActiveSpace(id) !== 'agent') return;
-    if (!this.#deps.getViewVisible() || !this.isAgentControlling(id)) return;
+    if (!this.#deps.getViewVisible() || !this.isAgentOperating(id)) return;
     if (this.#shieldOwnerEnvId !== id) return;
     this.#sharedShield?.showAction?.(action);
   }
@@ -371,6 +473,30 @@ export class LeaseCoordinator {
       expiresAt: acquired.leaseExpiresAt!,
     };
     this.#leases.set(id, lease);
+    if (owner === 'agent') {
+      const existingSession = this.#agentSessions.get(id);
+      if (existingSession?.active) {
+        existingSession.phase = 'acting';
+        existingSession.lastActivityAt = now;
+        existingSession.actionCount += 1;
+        if (label) {
+          existingSession.label = label;
+          existingSession.lastAction = label;
+        }
+      } else {
+        this.#agentSessions.set(id, {
+          active: true,
+          phase: 'acting',
+          label: label?.trim() || 'Agent',
+          startedAt: now,
+          lastActivityAt: now,
+          lastAction: label?.trim() || undefined,
+          actionCount: 1,
+        });
+      }
+    } else {
+      this.#agentSessions.delete(id);
+    }
     this.#deps.onLeaseStateChanged?.(id, owner === 'agent');
     this.#deps.recordEvent('control.acquired', `${owner} acquired ${id}${label ? ` (${label})` : ''}`, owner, id);
     this.#deps.emitBusEvent('lease.changed', id, {
@@ -384,7 +510,12 @@ export class LeaseCoordinator {
     return lease;
   }
 
-  release(id: string, leaseId: string, actor: 'agent' | 'human' = 'agent'): void {
+  release(
+    id: string,
+    leaseId: string,
+    actor: 'agent' | 'human' = 'agent',
+    options: { keepSession?: boolean } = {},
+  ): void {
     const current = this.#leases.get(id);
     if (!current) return;
     const baseEnv = this.#deps.getEnvironment(id) ?? {
@@ -401,6 +532,7 @@ export class LeaseCoordinator {
       activeSpaceId: 'person' as const,
       spaces: [],
     };
+    const now = this.#now();
     releaseLease(
       {
         ...baseEnv,
@@ -409,10 +541,18 @@ export class LeaseCoordinator {
         leaseExpiresAt: current.expiresAt,
       },
       leaseId,
-      this.#now(),
+      now,
     );
     this.#leases.delete(id);
-    this.#deps.onLeaseStateChanged?.(id, false);
+    const keepSession = Boolean(options.keepSession && current.owner === 'agent' && actor === 'agent');
+    const session = this.#agentSessions.get(id);
+    if (keepSession && session?.active) {
+      session.phase = 'thinking';
+      session.lastActivityAt = now;
+    } else {
+      this.#agentSessions.delete(id);
+    }
+    this.#deps.onLeaseStateChanged?.(id, Boolean(keepSession && session?.active));
     this.#deps.recordEvent('control.released', `${actor} released ${id}`, actor, id);
     this.#deps.emitBusEvent('lease.changed', id, {
       owner: 'none',
@@ -426,10 +566,16 @@ export class LeaseCoordinator {
     if (space !== 'agent') {
       throw Object.assign(new Error('只有 Agent Space 需要接管'), { code: 'BAD_REQUEST' });
     }
+    const hadSession = this.#agentSessions.delete(id);
     const current = this.#leases.get(id);
-    if (current) {
-      this.#leases.delete(id);
-      this.#deps.recordEvent('control.takeover', `human took over ${id} from ${current.owner}`, 'human', id);
+    if (current || hadSession) {
+      if (current) this.#leases.delete(id);
+      this.#deps.recordEvent(
+        'control.takeover',
+        `human took over ${id} from ${current?.owner ?? 'agent'}`,
+        'human',
+        id,
+      );
       // 立刻撤掉遮罩，别让人接管完还得再点一次
       this.syncShield(id);
     }

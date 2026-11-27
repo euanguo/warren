@@ -82,6 +82,7 @@ export interface ViewCoordinatorDeps {
     | 'canHumanNavigate'
     | 'assertHumanAgentWritable'
     | 'showVisualAction'
+    | 'touchAgentSession'
     | 'rawLease'
     | 'shieldAttached'
   >;
@@ -347,6 +348,7 @@ export class EnvViewCoordinator {
 
   controllerFor(id: string, ref?: TabRef, space: SpaceId = 'agent'): BrowserController {
     this.#deps.getLifecycle().touch(id);
+    if (space === 'agent') this.#deps.getLeases().touchAgentSession?.(id);
     const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     if (!tabs) {
       throw Object.assign(new Error(`environment ${id} is not running`), { code: 'ENV_NOT_RUNNING' });

@@ -151,13 +151,26 @@ export const envRpcEndpoints: RpcDomainTable = {
   },
   'env.release': {
     kind: 'change',
-    summary: '归还控制权',
-    params: ['id', 'leaseId'],
+    summary: '归还控制权（keepSession=true 时仅释放底层写锁，保持 Agent 托管蒙层常驻）',
+    params: ['id', 'leaseId', 'keepSession?'],
     gate: 'none',
     wake: true,
     handler: (ctx) => {
-      ctx.deps.manager.release(ctx.str('id'), ctx.str('leaseId'), 'agent');
+      ctx.deps.manager.release(ctx.str('id'), ctx.str('leaseId'), 'agent', {
+        keepSession: typeof ctx.params.keepSession === 'boolean' ? ctx.params.keepSession : undefined,
+      });
       return { ok: true };
+    },
+  },
+  'env.finish': {
+    kind: 'change',
+    summary: '显式结束 Agent Space 托管操作会话并撤除蒙层',
+    params: ['id'],
+    gate: 'none',
+    wake: true,
+    handler: (ctx) => {
+      const result = ctx.deps.manager.finishAgentSession(ctx.str('id'), 'agent');
+      return { ok: true, ...result };
     },
   },
   'env.renew': {
