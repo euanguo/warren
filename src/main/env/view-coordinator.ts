@@ -201,7 +201,7 @@ export class EnvViewCoordinator {
   }
 
   #syncControllerViewport(id: string, space: SpaceId, layout: SimulatedPageLayout): void {
-    const controller = this.#deps.getLifecycle().spaceManager(id, space)?.controller();
+    const controller = this.#deps.getLifecycle().spaceManager(id, space)?.peekController();
     if (controller) void controller.setViewportPreset(layout.preset, layout.scale).catch(() => {});
   }
 
@@ -431,7 +431,18 @@ export class EnvViewCoordinator {
   }
 
   navState(id: string, space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id)): NavigationState | undefined {
-    return this.#deps.getLifecycle().spaceManager(id, space)?.controller()?.navigationState();
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
+    if (!tabs) return undefined;
+    const controller = tabs.peekController();
+    if (controller) return controller.navigationState();
+    const state = tabs.activeState();
+    if (!state) return undefined;
+    return {
+      url: state.url,
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+    };
   }
 
   humanNavigate(
@@ -479,7 +490,7 @@ export class EnvViewCoordinator {
     this.#deps.emitBusEvent('space.switched', id, {
       space,
       activeTabId: spaces[space].activeId ?? '',
-      url: redactUrl(spaces[space].active()?.state.url ?? ''),
+      url: redactUrl(spaces[space].activeState()?.url ?? ''),
     });
     this.#deps.onChange();
   }
@@ -585,7 +596,7 @@ export class EnvViewCoordinator {
   }
 
   closeDevTools(id: string, space: SpaceId = 'agent'): void {
-    const tab = this.#deps.getLifecycle().spaceManager(id, space)?.active();
+    const tab = this.#deps.getLifecycle().spaceManager(id, space)?.peekActive();
     if (!tab) return;
     this.#devtools.closeForTab(tab.id);
     this.reapplySplitBounds(id);
@@ -629,7 +640,7 @@ export class EnvViewCoordinator {
   }
 
   stopFindInPage(id: string, space: SpaceId): void {
-    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.peekActive()?.webContents;
     if (!wc || wc.isDestroyed()) return;
     wc.stopFindInPage('clearSelection');
   }
@@ -653,7 +664,7 @@ export class EnvViewCoordinator {
   }
 
   getZoom(id: string, space: SpaceId): { factor: number } {
-    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
+    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.peekActive()?.webContents;
     if (!wc || wc.isDestroyed()) return { factor: 1 };
     return { factor: Math.round((wc.getZoomFactor() || 1) * 100) / 100 };
   }
@@ -701,8 +712,10 @@ export class EnvViewCoordinator {
   }
 
   getViewportPreset(id: string, space: SpaceId): { preset: ViewportPresetId } {
-    const wc = this.#deps.getLifecycle().spaceManager(id, space)?.active()?.webContents;
-    const origin = wc && !wc.isDestroyed() ? this.#originOf(wc.getURL()) : undefined;
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
+    const liveWc = tabs?.peekActive()?.webContents;
+    const url = liveWc && !liveWc.isDestroyed() ? liveWc.getURL() : tabs?.activeState()?.url;
+    const origin = url ? this.#originOf(url) : undefined;
     if (origin) {
       const saved = this.#deps.store.domainPref(id, origin)?.viewportPreset;
       if (saved) return { preset: saved };
@@ -902,15 +915,14 @@ export class EnvViewCoordinator {
   }
 
   restoreDisplayedFocus(tabs: TabManagerLike | undefined): void {
-    const wc = tabs?.active()?.webContents;
+    const liveTab = tabs?.peekActive ? tabs.peekActive() : tabs?.active();
+    const wc = liveTab?.webContents;
     if (this.#window.isFocused() && wc && !wc.isDestroyed()) {
       wc.focus();
       return;
     }
-    void tabs
-      ?.controller()
-      ?.emulateFocus()
-      .catch(() => {});
+    const ctrl = tabs?.peekController ? tabs.peekController() : tabs?.controller();
+    void ctrl?.emulateFocus().catch(() => {});
   }
 
   async focusForInput(id: string, space: SpaceId = 'agent'): Promise<void> {
@@ -974,12 +986,12 @@ export class EnvViewCoordinator {
     return {
       viewport: this.#layers.viewport(),
       selected: this.#selected,
-      viewBounds: tabs?.active()?.view.getBounds(),
+      viewBounds: tabs?.peekActive()?.view.getBounds(),
       showing: [...new Set(allSpaces.filter((item) => item.showing).map((item) => item.envId))],
       attachedBelow: [...new Set(allSpaces.filter((item) => item.attachedBelow).map((item) => item.envId))],
       focusedEnv:
-        allSpaces.find((item) => entryMap.get(item.envId)?.[item.space].active()?.webContents?.isFocused())?.envId ??
-        (this.#selected && tabs?.showing ? this.#selected : undefined),
+        allSpaces.find((item) => entryMap.get(item.envId)?.[item.space].peekActive()?.webContents?.isFocused())
+          ?.envId ?? (this.#selected && tabs?.showing ? this.#selected : undefined),
       windowFocused: this.#window.isFocused(),
       windowVisible: this.#window.isVisible(),
       windowBounds: this.#window.getBounds(),

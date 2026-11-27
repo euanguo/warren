@@ -419,6 +419,9 @@ export class EnvironmentManager {
       shellProcesses: this.#leases.shieldProcessInfos(),
     };
   }
+  reclaimIdleShield(idleMs = 0): number {
+    return this.#leases.reclaimIdleShield(idleMs);
+  }
   isDormant(id: string): boolean {
     return this.#lifecycle.isDormant(id);
   }

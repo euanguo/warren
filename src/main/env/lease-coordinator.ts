@@ -38,7 +38,10 @@ export interface LeaseHandle {
 export type TabManagerLike = Pick<
   TabManager,
   'showing' | 'viewVisible' | 'activeId' | 'attachBelow' | 'detachBelow' | 'resolveRef' | 'controller' | 'active'
->;
+> & {
+  peekActive?: TabManager['peekActive'];
+  peekController?: TabManager['peekController'];
+};
 
 export type ShieldLike = Pick<InputShield, 'attached' | 'setCallerLabel' | 'setVisible' | 'setBounds' | 'destroy'> & {
   setShowControlPill?: (show: boolean) => void;
@@ -87,6 +90,7 @@ export class LeaseCoordinator {
   /** 全局单实例透明护盾，同一时刻仅挂载到当前可见的 Agent Space，消除多环境 N 份 WebGL 视图内存开销。 */
   #sharedShield?: ShieldLike;
   #shieldOwnerEnvId?: string;
+  #shieldDetachedAt = 0;
   #ttlOverrideMs?: number;
   #showControlPill = true;
   #shieldTheme: ShieldTheme = 'dark';
@@ -188,6 +192,7 @@ export class LeaseCoordinator {
     if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
       this.#deps.detachShield(this.#sharedShield);
       this.#shieldOwnerEnvId = undefined;
+      this.#shieldDetachedAt = this.#now();
     }
   }
 
@@ -197,7 +202,16 @@ export class LeaseCoordinator {
     if (this.#sharedShield && this.#shieldOwnerEnvId === id) {
       this.#deps.detachShield(this.#sharedShield);
       this.#shieldOwnerEnvId = undefined;
+      this.#shieldDetachedAt = this.#now();
     }
+  }
+
+  /** 回收长时间脱离屏幕的闲置输入护盾视图（`idleMs = 0` 立即回收未挂载护盾）。 */
+  reclaimIdleShield(idleMs = 0): number {
+    if (!this.#sharedShield || this.#shieldOwnerEnvId || this.#sharedShield.attached) return 0;
+    if (idleMs > 0 && (this.#shieldDetachedAt <= 0 || this.#now() - this.#shieldDetachedAt < idleMs)) return 0;
+    this.destroyShield();
+    return 1;
   }
 
   /** 应用退出前彻底销毁全局共享输入护盾视图。 */
@@ -207,6 +221,7 @@ export class LeaseCoordinator {
     this.#sharedShield.destroy();
     this.#sharedShield = undefined;
     this.#shieldOwnerEnvId = undefined;
+    this.#shieldDetachedAt = 0;
   }
 
   /** 返回当前共享护盾进程的归因信息（未创建或已销毁时返回空数组）。 */
@@ -235,6 +250,7 @@ export class LeaseCoordinator {
         this.#sharedShield.setMode?.('idle');
         this.#deps.detachShield(this.#sharedShield);
         this.#shieldOwnerEnvId = undefined;
+        this.#shieldDetachedAt = this.#now();
       }
       return;
     }
@@ -251,6 +267,7 @@ export class LeaseCoordinator {
     }
     if (!this.#sharedShield) return;
     this.#shieldOwnerEnvId = id;
+    this.#shieldDetachedAt = 0;
     this.#sharedShield.setShowControlPill?.(this.#showControlPill);
     this.#sharedShield.setTheme?.(this.#shieldTheme);
     const agentControlling = Boolean(

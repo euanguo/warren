@@ -491,6 +491,8 @@ export class EnvLifecycle {
       this.#dormant.delete(id);
       return false;
     }
+    // 唤醒同样计入并发运行配额，必须先触发 LRU 腾位，避免唤醒绕过 maxRunning 上限
+    this.evictFor(id);
     const { session, trustedCa } = this.#deps.prepareWakeSession(id, config);
     this.#waking.add(id);
     this.#materialize(id, config, session, trustedCa);
@@ -528,16 +530,18 @@ export class EnvLifecycle {
     return hibernated;
   }
 
-  /** 立即休眠指定环境（或全部非持权运行中环境）内的所有非激活可安全休眠标签。 */
+  /** 立即休眠指定环境（或全部非持权运行中环境）内的所有非激活可安全休眠标签（含无 lease 的非活跃 Space）。 */
   sleepIdleTabs(envId?: string): number {
     let slept = 0;
     const targets = envId ? [envId] : [...this.#spaces.keys()];
     for (const id of targets) {
       const spaces = this.#spaces.get(id);
       if (!spaces) continue;
-      if (!envId && this.#deps.hasLiveLease(id)) continue;
+      const leased = this.#deps.hasLiveLease(id);
+      if (!envId && leased) continue;
       for (const space of SPACE_IDS) {
-        slept += spaces[space].sleepAllInactive?.() ?? 0;
+        const includeActiveIfHidden = space !== spaces.active && !leased;
+        slept += spaces[space].sleepAllInactive?.({ includeActiveIfHidden }) ?? 0;
       }
     }
     return slept;
@@ -563,7 +567,8 @@ export class EnvLifecycle {
       for (const [id, spaces] of this.#spaces.entries()) {
         if (this.#deps.hasLiveLease(id)) continue;
         for (const space of SPACE_IDS) {
-          spaces[space].sleepIdle?.(this.#tabSleepMs, now);
+          const includeActiveIfHidden = space !== spaces.active;
+          spaces[space].sleepIdle?.(this.#tabSleepMs, now, { includeActiveIfHidden });
         }
       }
     }

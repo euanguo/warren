@@ -24,7 +24,7 @@ import type { PopoverHost } from './ui/popover-host.ts';
 
 const PRESSURE_SWEEP_MS = 30_000;
 const PRESSURE_COOLDOWN_MS = 60_000;
-const SHELL_IDLE_RECLAIM_MS = 10 * 60_000;
+const SHELL_IDLE_RECLAIM_MS = 3 * 60_000;
 
 export interface MemoryMonitorDeps {
   getWindow: () => BrowserWindow | undefined;
@@ -65,11 +65,12 @@ export class MemoryMonitor {
     this.#timer = undefined;
   }
 
-  /** 主动回收隐藏态 Overlay / Popover 预热浮层（`idleMs = 0` 表示立即回收所有未打开浮层）。 */
+  /** 主动回收隐藏态 Overlay / Popover 与未挂载输入护盾（`idleMs = 0` 表示立即回收）。 */
   reclaimShellSurfaces(idleMs = 0): number {
     const overlay = this.#deps.getOverlayHost()?.reclaimIdle(idleMs) ?? 0;
     const popover = this.#deps.getPopoverHost()?.reclaimIdle(idleMs) ?? 0;
-    return overlay + popover;
+    const shield = this.#deps.getManager()?.reclaimIdleShield(idleMs) ?? 0;
+    return overlay + popover + shield;
   }
 
   /** 采集按 PID 去重后的完整内存快照。 */

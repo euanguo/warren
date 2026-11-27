@@ -90,7 +90,6 @@ let memoryMonitor: MemoryMonitor | undefined;
 let tray: Tray | undefined;
 let quitting = false;
 let suspensionBlocker: number | undefined;
-let surfaceWarmupTimer: ReturnType<typeof setTimeout> | undefined;
 
 function broadcast(channel: string, payload?: unknown): void {
   if (payload === undefined) {
@@ -442,17 +441,8 @@ app.whenReady().then(async () => {
 
   loadMainWindow(window);
 
-  // 主窗口首绘完成后再预热 Overlay 与 Popover，避免冷启动瞬间 4 个渲染进程互抢资源
-  window.webContents.once('did-finish-load', () => {
-    if (quitting) return;
-    surfaceWarmupTimer = setTimeout(() => {
-      surfaceWarmupTimer = undefined;
-      if (quitting || !window || window.isDestroyed()) return;
-      overlayHost?.warmup();
-      popoverHost?.warmup();
-    }, 150);
-    surfaceWarmupTimer.unref();
-  });
+  // Overlay / Popover 改为首次触发按需懒创建，避免冷启动常驻 3 个空闲渲染进程占用 ~450MB 内存，
+  // 且打开后在空闲 3 分钟由 MemoryMonitor 自动回收。
 
   rpc = new RpcServer(manager, store, {
     vault,
@@ -501,10 +491,6 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   quitting = true;
-  if (surfaceWarmupTimer) {
-    clearTimeout(surfaceWarmupTimer);
-    surfaceWarmupTimer = undefined;
-  }
   memoryMonitor?.stop();
   memoryMonitor = undefined;
   overlayHost?.destroy();

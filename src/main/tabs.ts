@@ -322,6 +322,16 @@ export class TabManager {
     return { ...state, active: id === this.#list.activeId };
   }
 
+  /** 只读当前已实例化的激活标签，绝不触发休眠标签唤醒（供布局/诊断/查询使用）。 */
+  peekActive(): Tab | undefined {
+    return this.#list.activeId ? this.#tabs.get(this.#list.activeId) : undefined;
+  }
+
+  /** 只读当前已实例化的激活控制器，绝不触发休眠标签唤醒。 */
+  peekController(): BrowserController | undefined {
+    return this.#list.activeId ? this.#controllers.get(this.#list.activeId) : undefined;
+  }
+
   /** 读取当前激活标签；若它处于休眠占位态，则透明实例化并返回。 */
   active(): Tab | undefined {
     const id = this.#list.activeId;
@@ -410,12 +420,17 @@ export class TabManager {
   }
 
   /**
-   * 休眠指定非激活标签：销毁其 WebContentsView 与渲染进程，在标签条保留 URL / 标题 / 图标。
-   * 活跃标签、正在加载、发声或打开了 DevTools 的标签受保护不可休眠。
+   * 休眠指定标签：销毁其 WebContentsView 与渲染进程，在标签条保留 URL / 标题 / 图标。
+   * 正在加载、发声或打开 DevTools 的标签受保护不可休眠；
+   * 正在屏幕显示的激活标签也绝不休眠（仅当 Space 完全隐藏且显式传入 `allowActive: true` 时可休眠其激活标签）。
    */
-  sleep(ref: TabRef): boolean {
+  sleep(ref: TabRef, options: { allowActive?: boolean } = {}): boolean {
     const id = this.#list.resolve(ref);
-    if (!id || id === this.#list.activeId) return false;
+    if (!id) return false;
+    const isActive = id === this.#list.activeId;
+    if (isActive && (!options.allowActive || this.#visible || this.#attached !== undefined)) {
+      return false;
+    }
     const tab = this.#tabs.get(id);
     if (!tab) return false;
     const state = tab.state;
@@ -446,25 +461,28 @@ export class TabManager {
     return true;
   }
 
-  /** 休眠超过指定闲置时长的后台非激活标签，返回本次成功休眠个数。 */
-  sleepIdle(idleMs: number, now = this.#now()): number {
+  /** 休眠超过指定闲置时长的后台标签，返回本次成功休眠个数。 */
+  sleepIdle(idleMs: number, now = this.#now(), options: { includeActiveIfHidden?: boolean } = {}): number {
     if (idleMs <= 0) return 0;
+    const allowActive = Boolean(options.includeActiveIfHidden) && !this.#visible && this.#attached === undefined;
     let slept = 0;
     for (const id of [...this.#tabs.keys()]) {
-      if (id === this.#list.activeId) continue;
+      if (id === this.#list.activeId && !allowActive) continue;
       const last = this.#tabLastActive.get(id) ?? 0;
-      if (now - last >= idleMs && this.sleep(id)) {
+      if (now - last >= idleMs && this.sleep(id, { allowActive })) {
         slept += 1;
       }
     }
     return slept;
   }
 
-  /** 立即休眠当前 Space 内全部可安全释放的非激活标签。 */
-  sleepAllInactive(): number {
+  /** 立即休眠当前 Space 内全部可安全释放的非激活标签（隐藏 Space 在允许时连同其激活标签一并休眠）。 */
+  sleepAllInactive(options: { includeActiveIfHidden?: boolean } = {}): number {
+    const allowActive = Boolean(options.includeActiveIfHidden) && !this.#visible && this.#attached === undefined;
     let slept = 0;
     for (const id of [...this.#tabs.keys()]) {
-      if (id !== this.#list.activeId && this.sleep(id)) slept += 1;
+      if (id === this.#list.activeId && !allowActive) continue;
+      if (this.sleep(id, { allowActive })) slept += 1;
     }
     return slept;
   }

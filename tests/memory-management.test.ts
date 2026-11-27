@@ -378,10 +378,10 @@ test('EnvLifecycle：惰性恢复非激活标签、LRU 优先休眠、Pin 保护
         if (opts.activate) activeId = id;
         return state;
       },
-      sleepAllInactive() {
+      sleepAllInactive(opts: { includeActiveIfHidden?: boolean } = {}) {
         let count = 0;
         for (const item of items) {
-          if (item.id !== activeId && !item.sleeping) {
+          if ((item.id !== activeId || opts.includeActiveIfHidden) && !item.sleeping) {
             item.sleeping = true;
             count += 1;
           }
@@ -480,12 +480,26 @@ test('EnvLifecycle：惰性恢复非激活标签、LRU 优先休眠、Pin 保护
   assert.deepEqual(lifecycle.hibernateBackground(), ['b']);
   assert.equal(lifecycle.isDormant('b'), true);
 
-  // 5. sleepIdleTabs 对有活跃租约的环境跳过，无租约环境正常释放非激活在线标签
+  // 5. sleepIdleTabs 对有活跃租约的环境跳过；无租约环境连同隐藏 agent Space 的在线标签一并释放
   lifecycle.spaceManager('c', 'person')?.create({ url: 'https://c.test/extra', activate: false });
+  lifecycle.spaceManager('c', 'agent')?.create({ url: 'https://c.test/agent-hidden', activate: true });
   leasedIds.add('c');
   assert.equal(lifecycle.sleepIdleTabs(), 0);
   leasedIds.delete('c');
-  assert.equal(lifecycle.sleepIdleTabs(), 1);
+  assert.equal(lifecycle.sleepIdleTabs(), 2);
+
+  // 6. 唤醒 dormant 环境同样必须触发 LRU 遵守 maxRunning（绝不因 wake 突破并发上限）
+  lifecycle.setLimits({ maxRunning: 2, pinnedEnvIds: ['b'], lruEvictAction: 'hibernate' });
+  selectedId = 'c';
+  now += 1000;
+  assert.equal(lifecycle.wake('b'), true);
+  // 现在 c(selected) + b(pinned) = 2 已满；唤醒 a 之前无可回收非保护环境，改把 b 取消固定后唤醒 a 应把最久未用的 b 休眠
+  lifecycle.setLimits({ pinnedEnvIds: [] });
+  now += 1000;
+  assert.equal(lifecycle.wake('a'), true);
+  assert.equal(lifecycle.isRunning('a'), true);
+  assert.equal(lifecycle.isDormant('b'), true);
+  assert.equal(lifecycle.isRunning('c'), true);
 
   lifecycle.shutdown();
 });
@@ -566,11 +580,14 @@ test('LeaseCoordinator 全局单实例复用 InputShield，切换环境不重复
   assert.equal(leases.canHumanNavigate('env-b', 'agent'), true);
   assert.deepEqual(leaseStateChanges.at(-1), { id: 'env-b', active: false });
 
-  // clearEnv 仅摘除护盾不销毁；destroyShield 才彻底销毁
+  // clearEnv 仅摘除护盾不销毁；未挂载状态可被 reclaimIdleShield 按闲置时长回收
   activeSpace = 'person';
   leases.clearEnv('env-b');
   assert.equal(shieldDestroyed, false);
-  leases.destroyShield();
+  // 刚摘除未达 60s 闲置阈值时不回收；传 idleMs=0（立即回收）才销毁
+  assert.equal(leases.reclaimIdleShield(60_000), 0);
+  assert.equal(shieldDestroyed, false);
+  assert.equal(leases.reclaimIdleShield(0), 1);
   assert.equal(shieldDestroyed, true);
   assert.deepEqual(leases.shieldProcessInfos(), []);
 });
