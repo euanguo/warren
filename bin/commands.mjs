@@ -274,7 +274,7 @@ const GROUP_DETAIL_LINES = {
 
 const TOP_LEVEL_LINES = {
   batch: "  warren batch <env> [--bail] [--no-changes] [--auto-dialog=accept|dismiss] [--json] <<'EOF'",
-  exec: "  warren exec <env> <<'JS'   # VM 全局仅 page/console/setTimeout/clearTimeout/emitResult；warren exec --capabilities",
+  exec: "  warren exec <env> <<'JS'   # VM 全局：page/state/checkpoint/help/sleep/emitResult/console/setTimeout/clearTimeout；warren exec --capabilities",
   events: '  warren events [env] [--follow]',
   evidence: '  warren evidence capture <env> [--name=<标签>] [--no-screenshot]',
   methods: '  warren methods [name] [--json]',

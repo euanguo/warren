@@ -27,14 +27,14 @@ warren env start <env>
 warren env acquire <env>
 warren tab list <env>
 warren tab close <env> --agent-only
-warren browser open <env> https://example.com --read
+warren browser open <env> https://example.com --read --pin-tab
 warren browser snapshot <env> -i -u --viewport
 warren browser read <env> --outline --links --data --content-boundaries
 warren env finish <env>
 ```
 
 - **结构优先 + 默认动作变化回执**：`browser click/fill/select/...` 默认返回紧凑 **Action Delta**（URL/Title 变更、带新 `@N` 的增删改节点、过滤静态资源后的 API 摘要、新弹窗 `text:` 与未处理副作用；需要纯回执时加 `--no-changes`）。`browser snapshot <env> -i` 默认全页并附带视口滚动进度、长列表/连续禁用折叠与每会话首次 `# site-notes`/`# saved-flows` 注入；大页面加 `--viewport` 开启真视口过滤与屏外计数，加 `--no-fold` 展开全部项。`page.snapshot()` 返回结构对象 `{ url, title, nodes }`（截断须先 `JSON.stringify()`）。
-- **不可信输出安全**：`snapshot`、`read` 与原子写动作 Delta 默认做终端转义净化并按 `--max-output=12000` 裁剪溢出至 `~/.warren/tmp/`；读取第三方网页正文时保留 `--content-boundaries` 随机 nonce 边界。`@N` ref 跨同容器重绘自动自愈，失败才重拍。
+- **多标签防串页与不可信输出安全**：并发或多标签场景用 `--tab=<t1|tabId>` 或 `--pin-tab` 锁定目标标签（标签被关闭时返回 `TAB_GONE` 不静默切页；误关可用 `warren tab reopen <env>` 恢复）。`snapshot`、`read` 与原子写动作 Delta 默认做终端转义净化并按 `--max-output=12000` 裁剪溢出至 `~/.warren/tmp/`；读取第三方网页正文时保留 `--content-boundaries` 随机 nonce 边界。`@N` ref 跨同容器重绘自动自愈，失败才重拍。
 - **并发读取与短横线传值**：`browser read <env> <url1> <url2> --concurrency=4` 或 `--links=<pattern>` 默认在环境隔离离屏读池并发抓取（不扰动当前 Tab，加 `--list` 仅列链接）；`--data` 支持 `--block`/`--fields`/`--where`/`--limit` 切片。值以 `-` 开头时用 POSIX `--` 隔开（如 `warren browser fill <env> @2 -- "--dashed-value"`）。仅在确实需要排版或视觉验证时调用 `warren browser screenshot <env> --annotate`。
 
 ## 多步批处理与复用流
@@ -57,7 +57,11 @@ JS
 warren exec --capabilities --detailed
 ```
 
-- **高频排查与自动 Flow**：环境异常跑 `warren env doctor <env>`；页面报错看 `warren browser console <env>` 与 `warren browser network <env>`；常规操作期间会自动关联录制只读 GET 接口，可用 `warren flow steps <env>` 查看 `s3r1` 引用并用 `warren flow save <name> --env=<env> --output=s3r1 --param=q=shoes` 零模板固化复跑，跨回合站点坑用 `notes` 沉淀。
+- **高频排查、内置网络拦截与自动 Flow**：
+  - 环境异常跑 `warren env doctor <env>`；页面报错看 `warren browser console <env>` 与 `warren browser network <env>`；页面性能/无障碍/React 树/仿真/导出可直接用 `warren browser vitals|a11y|react|set|webmcp|pdf <env>`，留证与对比用 `warren evidence capture <env>`、`warren browser diff <env>` 与 `warren shot diff`。
+  - 轻量级单条请求 Mock/拦截/延迟/改头与 HAR 录放直接用内置 `warren net`（`rule add/remove`、`hits`、`body`、`passthrough`、`record`、`replay`）；需要完整 HTTPS 抓包分析、多规则组与改参重放时再用 Whistle 插件。
+  - 常规操作期间会自动关联录制只读 GET 接口，可用 `warren flow steps <env>` 查看 `s3r1` 引用并用 `warren flow save <name> --env=<env> --output=s3r1 --param=q=shoes` 零模板固化复跑，跨回合站点坑用 `notes` 沉淀。
+- **性能休眠与内存治理**：多环境长期运行可按需用 `warren system memory` 查按 PID 去重后的内存归因、`warren env hibernate <env>`（或 `--idle` 一键休眠空闲环境）与 `warren env wake <env>` 省内存、`warren env clear-cache [env]` 仅清 HTTP 磁盘缓存（保留登录态）、`warren system reclaim` 回收隐藏浮层进程。
 
 ## exec 里有什么
 
@@ -67,7 +71,7 @@ VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`
 - `state` 为按环境隔离的持久内存对象（跨 `warren exec` 调用与超时/报错自动保留，环境停止或删除后自动清空，可用 `--reset-state` 手动重置）；大结果或跨会话进度用 `checkpoint` 原子落盘。
 - `snapshot` 返回 `{ url, title, nodes }` 结构对象而非字符串（截断须先 `JSON.stringify`）；结构化输出用 `emitResult` 传回宿主，或用 `--out=result.json|jsonl|csv` 直接落盘。
 
-没有 `context()`、`expect()`、`route()` 或 `setViewportSize()`。
+没有 `context()`、`expect()`、`route()` 或 Playwright 风格 `setViewportSize()`（调整视口或设备仿真请用 `page.set({ viewport: { width, height } })` 或 `warren browser set <env> viewport ...`；请求拦截请用 `warren net`）。
 
 ## 凭据与隐私红线
 

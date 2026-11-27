@@ -463,8 +463,11 @@ app.whenReady().then(async () => {
     }
   });
 
+  // 隔离数据目录（如测试/QA 显式覆写 WARREN_HOME）禁止自动覆写用户全局 home 下的 Agent Skill，避免冲掉正式插件索引
+  const isIsolatedCoreDir = path.resolve(coreDir) !== path.join(os.homedir(), '.warren');
   let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduleSkillSync = (): void => {
+    if (isIsolatedCoreDir) return;
     if (skillSyncTimer) clearTimeout(skillSyncTimer);
     skillSyncTimer = setTimeout(() => {
       skillSyncTimer = undefined;
