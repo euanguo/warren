@@ -17,15 +17,19 @@ test('shouldShieldAnimate：仅在挂载+可见+agent+未开启减弱动态时�
   );
 });
 
-test('buildShieldHtml：采用流体棱镜纯 CSS 护盾（零 WebGL/rAF），支持双节律与接管/结束双动作', () => {
+test('buildShieldHtml：采用 Ardia PowerUp+Halo 空心四边 WebGL2 物理光场（带纯 CSS 降级与按需停帧），支持双节律与接管/结束双动作', () => {
   const html = buildShieldHtml();
-  assert.equal(html.includes('id="shield-gl"'), false);
-  assert.equal(html.includes('getContext('), false);
-  assert.equal(html.includes('requestAnimationFrame'), false);
+  assert.ok(html.includes('id="shield-canvas"'));
+  assert.ok(html.includes('webgl2'));
+  assert.ok(html.includes('sampleDiaSpectrum'));
+  assert.ok(html.includes('srgbToOklab'));
+  assert.ok(html.includes('haloNoise'));
+  assert.ok(html.includes('buildHollowBorderGeometry'));
+  assert.ok(html.includes('cancelAnimationFrame'));
+  assert.ok(html.includes('visibilitychange'));
+  assert.ok(html.includes('data-renderer="webgl2"'));
   assert.ok(html.includes('id="aura"'));
   assert.ok(html.includes('id="prism-ring"'));
-  assert.ok(html.includes('id="prism-glow"'));
-  assert.ok(html.includes('corner-mark tl'));
   assert.ok(html.includes('id="sweep"'));
   assert.ok(html.includes('id="target-box"'));
   assert.ok(html.includes('id="ripple"'));

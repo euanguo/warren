@@ -18,10 +18,11 @@ export type {
 } from './ui/input-shield-view.ts';
 
 /**
- * Agent 空间轻量纯 CSS 透明输入护盾（渲染于 `'shield'` 原生槽位，零注入目标网页 DOM、零 WebGL 开销）。
+ * Agent 空间 Ardia `PowerUp + Halo` 物理光场透明输入护盾（渲染于 `'shield'` 原生槽位，零注入目标网页 DOM）：
  *
- * - 仅在 Agent 实际持有租约控制页面时挂载（`mode === 'agent'`），展示边缘流光、元素锚框与点击波纹；
- * - Agent Space 空闲或人工接管时不挂载护盾，人工可直接自由交互与导航；
+ * - 仅在 Agent 托管操作态（`mode === 'agent'`）按需挂载单实例；稳态使用 WebGL2 空心四边几何体裁剪与节流降功耗，
+ *   不支持 WebGL2 时自动降级至纯 CSS 棱镜光环；
+ * - Agent Space 空闲或人工接管时不挂载护盾且彻底停帧，零误拦、零多余 GPU 开销；
  * - 即使关闭底部控制胶囊，误点护盾仍闪出非阻塞提示，杜绝静默吞点击。
  */
 export class InputShield {
