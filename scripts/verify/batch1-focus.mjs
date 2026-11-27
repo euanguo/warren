@@ -5,7 +5,7 @@
  * 三条问题，全部**不改代码**：
  *   1.1 后台环境 —— `inputCall` 的 `ensureOperable` 到底有没有效
  *   1.2 部分遮挡 —— 坐标映射会不会变
- *   1.3 `document.hasFocus()` —— 窗口离屏时输入后页面能不能拿到焦点
+ *   1.3 `document.hasFocus()` —— 窗口隐藏时输入后页面能不能拿到焦点
  *
  * 结果同时打印出来（要写进文档），末尾给 BATCH1 PASS/FAIL。
  */
@@ -20,8 +20,8 @@ const w = (args, input) => execFileSync(process.execPath, [CLI, ...args], { enco
 const wq = (args, input) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', input, env, cwd: ROOT });
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
-// 默认不碰窗口（移出屏幕 / 搬回来 / Dock 隐藏显示会打断用户正在用的电脑）。
-// 单独跑本脚本也守这个开关；要验离屏坐标就显式 WARREN_REGRESS_WINDOW=1。
+// 默认不碰窗口（隐藏 / 恢复 / Dock 隐藏显示会打断用户正在用的电脑）。
+// 单独跑本脚本也守这个开关；要验隐藏态输入与坐标就显式 WARREN_REGRESS_WINDOW=1。
 const windowChecks = process.env.WARREN_REGRESS_WINDOW === '1';
 
 const bad = [];
@@ -51,8 +51,9 @@ w(['env', 'create', 'focustest', `--start-url=${PAGE}`]);
 w(['env', 'start', 'focustest']);
 w(['env', 'start', 'cap']);
 w(['env', 'select', 'cap']);
-// 回归不抢前台：用离屏窗口验证后台输入，不激活任何应用。
-w(['call', 'debug.backgroundWindow']);
+const winBoundsBefore = JSON.stringify(layout().windowBounds);
+// 回归不抢前台：用原生 hide 隐藏窗口验证后台输入，不激活任何应用。
+w(['call', 'debug.hideWindow']);
 sleep(800);
 
 // ---------- 1.1 后台环境：ensureOperable ----------
@@ -66,24 +67,28 @@ if (!b1ok) bad.push('1.1 后台环境输入没落地（ensureOperable 有洞）'
 if (bgFocus) bad.push('1.1 后台输入把 Warren 抢到了前台');
 
 // 1.1 里 start focustest 会把它选中（headed 默认 true），所以这里必须把 cap 选回来 ——
-// 不选回来，下面 1.2/1.3/1.4 测的其实是「后台环境」而不是「窗口失焦」，第一版脚本就栽在这
+// 不选回来，下面 1.2/1.3/1.4 测的其实是「后台环境」而不是「窗口隐藏」，第一版脚本就栽在这
 w(['env', 'select', 'cap']);
 sleep(500);
 if (layout().showing.join() !== 'cap') bad.push(`1.2 前置：显示中的环境应为 cap，实际 ${layout().showing.join()}`);
 
-// ---------- 1.2 离屏/恢复：坐标映射 ----------
+// ---------- 1.2 隐藏/恢复：坐标映射 ----------
 const rectBefore = gotoAndRead('cap', `JSON.stringify(document.querySelector('#submit').getBoundingClientRect())`);
 const vpBefore = layout().viewport;
 w(['call', 'debug.showWindow']);
 sleep(500);
 const rectAfter = evalOnly('cap', `JSON.stringify(document.querySelector('#submit').getBoundingClientRect())`);
 const vpAfter = layout().viewport;
+const winBoundsAfter = JSON.stringify(layout().windowBounds);
 const focused = layout().windowFocused;
-const b2ok = rectBefore === rectAfter && JSON.stringify(vpBefore) === JSON.stringify(vpAfter);
+const b2ok =
+  rectBefore === rectAfter &&
+  JSON.stringify(vpBefore) === JSON.stringify(vpAfter) &&
+  winBoundsBefore === winBoundsAfter;
 console.log(
-  `1.2 离屏→恢复坐标映射：rect 相同=${rectBefore === rectAfter} viewport 相同=${JSON.stringify(vpBefore) === JSON.stringify(vpAfter)} windowFocused=${focused}`,
+  `1.2 隐藏→恢复坐标映射：rect 相同=${rectBefore === rectAfter} viewport 相同=${JSON.stringify(vpBefore) === JSON.stringify(vpAfter)} windowBounds 相同=${winBoundsBefore === winBoundsAfter} windowFocused=${focused}`,
 );
-if (!b2ok) bad.push('1.2 离屏/恢复后坐标/视口变了，点击可能点偏');
+if (!b2ok) bad.push('1.2 隐藏/恢复后坐标/视口/窗口位置变了');
 
 // ---------- 1.3 document.hasFocus() ----------
 const hasFocus = evalOnly('cap', `document.hasFocus()`);
@@ -112,4 +117,4 @@ if (bad.length) {
   for (const b of bad) console.error('  - ' + b);
   process.exit(1);
 }
-console.log(`BATCH1 PASS (后台环境有效；离屏坐标不变；输入后 document.hasFocus()=${afterInput})`);
+console.log(`BATCH1 PASS (后台环境有效；隐藏恢复坐标不变；输入后 document.hasFocus()=${afterInput})`);

@@ -74,22 +74,12 @@ export const systemRpcEndpoints: RpcDomainTable = {
   }),
   'debug.hideWindow': debugEndpoint({
     kind: 'change',
-    summary: '隐藏主窗口（回归专用）',
+    summary: '原生隐藏主窗口退回托盘（保留坐标，回归专用）',
     params: [],
     windowCommand: true,
     handler: ({ deps }) => {
       deps.manager.hideWindow();
       return { hidden: true };
-    },
-  }),
-  'debug.backgroundWindow': debugEndpoint({
-    kind: 'change',
-    summary: '将主窗口退回后台（回归专用）',
-    params: [],
-    windowCommand: true,
-    handler: ({ deps }) => {
-      deps.manager.backgroundWindow();
-      return { background: true };
     },
   }),
   'debug.showWindow': debugEndpoint({

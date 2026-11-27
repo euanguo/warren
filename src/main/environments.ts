@@ -223,9 +223,6 @@ export class EnvironmentManager {
   hideWindow(): void {
     this.#views.hideWindow();
   }
-  backgroundWindow(): void {
-    this.#views.backgroundWindow();
-  }
   showWindow(focus = false): void {
     this.#views.showWindow(focus);
   }
@@ -234,6 +231,9 @@ export class EnvironmentManager {
   }
   focusForInput(id: string, space: SpaceId = 'agent'): Promise<void> {
     return this.#views.focusForInput(id, space);
+  }
+  ensureRenderFocus(id: string, space: SpaceId = 'agent'): Promise<void> {
+    return this.#views.ensureRenderFocus(id, space);
   }
   evalInRenderer<T = unknown>(script: string): Promise<T> {
     return this.#views.evalInRenderer<T>(script);

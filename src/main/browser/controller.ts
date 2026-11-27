@@ -99,6 +99,7 @@ export class BrowserController {
   #emulatedPreset: ViewportPresetId = 'auto';
   #emulatedScale = 1;
   #temporaryViewport = false;
+  #focusEmulated = false;
 
   constructor(wc: WebContents, ctx?: Partial<Ctx>) {
     this.#wc = wc;
@@ -122,6 +123,11 @@ export class BrowserController {
       this.#resetForNewDocument();
       this.#activeFrameId = undefined;
     }) as never);
+    // 窗口处于隐藏/后台仿真期间若发生了跨进程主帧导航，重新应用焦点仿真防止新文档合成器冻结
+    wc.on('did-navigate', () => {
+      if (!this.#focusEmulated) return;
+      void this.#send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
+    });
   }
 
   /** 对外暴露只读页面上下文，供 `rpc/*`、`ops/*` 与 `keymouse.ts` 直接编排。 */
@@ -162,10 +168,18 @@ export class BrowserController {
     void attachSession(this.#wc).catch(() => {});
   }
 
-  /** 让页面相信自己有 document 焦点，但不激活 Electron 窗口（供后台 Agent 输入通过 `document.hasFocus()` 守卫）。 */
+  /** 让页面相信自己有 document 焦点并保持隐藏窗口合成器/rAF 活跃，但不激活 Electron 窗口。 */
   async emulateFocus(): Promise<void> {
     this.attach();
+    this.#focusEmulated = true;
     await this.#send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  }
+
+  /** 主窗口恢复显示并聚焦后关闭焦点仿真，让页面恢复真实的失焦感知。 */
+  async clearEmulatedFocus(): Promise<void> {
+    if (!this.#focusEmulated) return;
+    this.#focusEmulated = false;
+    await this.#send('Emulation.setFocusEmulationEnabled', { enabled: false }).catch(() => {});
   }
 
   /** 后台视图尚未拿到布局尺寸时，给页面一个可点击的视口。 */

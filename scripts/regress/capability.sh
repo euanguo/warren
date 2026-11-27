@@ -240,9 +240,8 @@ JS
 
 echo "== V15 元素高亮：能看见、能清除、不动 DOM =="
 #
-# 不做截图：窗口离屏时 Chromium 的 captureScreenshot 会挂住/没有 surface，而回归必须
-# 保持静默、不能为了截图把 Warren 抢到前台。这里直接验证 Overlay 命令拿到的节点几何、
-# 高亮路径和清除命令，再确认 DOM 节点数没变——不依赖前台，也不产生视觉回归噪声。
+# 这里直接验证 Overlay 命令拿到的节点几何、高亮路径和清除命令，再确认 DOM 节点数没变——
+# 不依赖前台，也不产生视觉回归噪声。
 V15=$($W exec cap 2>&1 <<'JS' | tail -1
 await page.goto('http://127.0.0.1:8899/cap/net.html');
 const before = await page.evaluate("document.querySelectorAll('*').length");

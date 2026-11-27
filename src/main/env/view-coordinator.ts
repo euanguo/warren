@@ -24,6 +24,7 @@ import { TabManager, newTabUrl, type Tab, type TabListItem } from '../tabs.ts';
 import { DevToolsHost, type DevToolsSplitterInput } from '../ui/devtools-host.ts';
 import { WindowLayerManager } from '../ui/layer-manager.ts';
 import { popupNativeMenu } from '../ui/native-menu.ts';
+import { placeWindowOnItsDisplay, shouldEmulateRenderFocus } from '../ui/window-visibility.ts';
 import type {
   BrowserShortcut,
   ControlOwner,
@@ -99,11 +100,10 @@ export class EnvViewCoordinator {
   #window: BrowserWindow;
   #layers: WindowLayerManager;
   #devtools: DevToolsHost;
-  #backgroundBounds?: { x: number; y: number; width: number; height: number };
   #selected?: string;
   #presets = new Map<string, ViewportPresetId>();
   #defaultViewport: ViewportPresetId = 'auto';
-  #disposeSplitterIpc?: () => void;
+  #disposeWindowListeners?: () => void;
 
   constructor(deps: ViewCoordinatorDeps) {
     this.#deps = deps;
@@ -153,11 +153,21 @@ export class EnvViewCoordinator {
     const onWindowBlur = () => {
       this.#devtools.cancelDrag();
     };
+    const onWindowFocus = () => {
+      this.#clearDisplayedEmulatedFocus();
+    };
+    const onWindowHide = () => {
+      this.#syncHiddenFocus();
+    };
     ipcMain?.on('devtools:splitter', onSplitterMessage);
     this.#window.on?.('blur', onWindowBlur);
-    this.#disposeSplitterIpc = () => {
+    this.#window.on?.('focus', onWindowFocus);
+    this.#window.on?.('hide', onWindowHide);
+    this.#disposeWindowListeners = () => {
       ipcMain?.removeListener('devtools:splitter', onSplitterMessage);
       this.#window.removeListener?.('blur', onWindowBlur);
+      this.#window.removeListener?.('focus', onWindowFocus);
+      this.#window.removeListener?.('hide', onWindowHide);
     };
   }
 
@@ -488,6 +498,7 @@ export class EnvViewCoordinator {
       this.#syncControllerViewport(id, space, layout);
       this.#devtools.syncVisibility();
       this.#deps.getLeases().syncShield(id);
+      this.#syncDisplayedVisibilityFocus();
     }
     this.#deps.emitBusEvent('space.switched', id, {
       space,
@@ -530,6 +541,7 @@ export class EnvViewCoordinator {
     this.#devtools.syncVisibility();
 
     this.#deps.getLeases().syncShield(id, { createIfMissing: true });
+    this.#syncDisplayedVisibilityFocus();
     this.#deps.onChange();
   }
 
@@ -585,8 +597,8 @@ export class EnvViewCoordinator {
   }
 
   destroyAllDevTools(): void {
-    this.#disposeSplitterIpc?.();
-    this.#disposeSplitterIpc = undefined;
+    this.#disposeWindowListeners?.();
+    this.#disposeWindowListeners = undefined;
     this.#devtools.destroyAll();
   }
 
@@ -877,36 +889,17 @@ export class EnvViewCoordinator {
   hideWindow(): void {
     this.#window.hide();
     if (process.platform === 'darwin') app.dock?.hide();
-  }
-
-  backgroundWindow(): void {
-    this.#ensureOnScreen();
-    this.#backgroundBounds ??= this.#window.getBounds();
-    this.#window.blur();
-    this.#window.setSkipTaskbar(true);
-    if (process.platform === 'darwin') this.#window.setHiddenInMissionControl(true);
-    this.#window.setPosition(-10000, -10000);
-    this.#window.setOpacity(0);
-    this.#window.setIgnoreMouseEvents(true);
-    this.#window.showInactive();
-    if (process.platform === 'darwin') app.dock?.hide();
+    this.#syncHiddenFocus();
+    this.#deps.onChange();
   }
 
   showWindow(focus = false): void {
-    if (this.#backgroundBounds) {
-      this.#window.setBounds(this.#backgroundBounds);
-      this.#backgroundBounds = undefined;
-    }
-    this.#window.setSkipTaskbar(false);
-    if (process.platform === 'darwin') this.#window.setHiddenInMissionControl(false);
-    this.#window.setOpacity(1);
-    this.#window.setIgnoreMouseEvents(false);
     this.#ensureOnScreen();
     if (focus) {
       if (process.platform === 'darwin') app.dock?.show();
       this.#window.show();
       this.#window.focus();
-      this.focusDisplayedPage();
+      this.focusDisplayedPage(undefined, { forceRealFocus: true });
     } else {
       this.#window.showInactive();
       this.#window.blur();
@@ -914,21 +907,24 @@ export class EnvViewCoordinator {
     this.#deps.onChange();
   }
 
-  focusDisplayedPage(id?: string): void {
+  focusDisplayedPage(id?: string, options?: { forceRealFocus?: boolean }): void {
     if (id && id !== this.#selected) return;
     const selected = this.#selected;
     if (!selected) return;
-    this.restoreDisplayedFocus(this.#deps.getLifecycle().spaceManager(selected));
+    this.restoreDisplayedFocus(this.#deps.getLifecycle().spaceManager(selected), options);
   }
 
-  restoreDisplayedFocus(tabs: TabManagerLike | undefined): void {
+  restoreDisplayedFocus(tabs: TabManagerLike | undefined, options?: { forceRealFocus?: boolean }): void {
     const liveTab = tabs?.peekActive ? tabs.peekActive() : tabs?.active();
     const wc = liveTab?.webContents;
-    if (this.#window.isFocused() && wc && !wc.isDestroyed()) {
+    const ctrl = tabs?.peekController ? tabs.peekController() : tabs?.controller();
+    const winVisible = !this.#window.isDestroyed() && this.#window.isVisible();
+    const winFocused = !this.#window.isDestroyed() && this.#window.isFocused();
+    if ((options?.forceRealFocus || (winVisible && winFocused)) && wc && !wc.isDestroyed()) {
+      void ctrl?.clearEmulatedFocus().catch(() => {});
       wc.focus();
       return;
     }
-    const ctrl = tabs?.peekController ? tabs.peekController() : tabs?.controller();
     void ctrl?.emulateFocus().catch(() => {});
   }
 
@@ -936,10 +932,32 @@ export class EnvViewCoordinator {
     const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     const controller = tabs?.controller();
     if (!controller || !tabs?.active()) return;
-    if (this.#window.isFocused() && id === this.#selected && space === this.#deps.getLifecycle().activeSpaceOf(id)) {
+    const emulate = shouldEmulateRenderFocus({
+      windowVisible: !this.#window.isDestroyed() && this.#window.isVisible(),
+      windowFocused: !this.#window.isDestroyed() && this.#window.isFocused(),
+      isSelected: id === this.#selected,
+      isActiveSpace: space === this.#deps.getLifecycle().activeSpaceOf(id),
+    });
+    if (!emulate) {
+      void controller.clearEmulatedFocus().catch(() => {});
       controller.webContents.focus();
       return;
     }
+    await controller.emulateFocus().catch(() => {});
+  }
+
+  /** 确保隐藏/失焦/后台视图的合成器与 rAF 保持唤醒以便截图；不抢前台且不夺取地址栏键盘焦点。 */
+  async ensureRenderFocus(id: string, space: SpaceId = 'agent'): Promise<void> {
+    const tabs = this.#deps.getLifecycle().spaceManager(id, space);
+    const controller = tabs?.controller();
+    if (!controller || !tabs?.active()) return;
+    const emulate = shouldEmulateRenderFocus({
+      windowVisible: !this.#window.isDestroyed() && this.#window.isVisible(),
+      windowFocused: !this.#window.isDestroyed() && this.#window.isFocused(),
+      isSelected: id === this.#selected,
+      isActiveSpace: space === this.#deps.getLifecycle().activeSpaceOf(id),
+    });
+    if (!emulate) return;
     await controller.emulateFocus().catch(() => {});
   }
 
@@ -1029,6 +1047,7 @@ export class EnvViewCoordinator {
       this.#devtools.activateTab(this.#deps.getLifecycle().spaceManager(id)?.activeId);
       this.reapplySplitBounds(id);
       this.#deps.getLeases().syncShield(id);
+      this.#syncDisplayedVisibilityFocus();
     }
     this.#deps.onChange();
   }
@@ -1063,23 +1082,40 @@ export class EnvViewCoordinator {
     this.#deps.onChange();
   }
 
+  /**
+   * 仅在窗口坐标完全脱离所有现存显示器（例如外接屏被物理拔掉）时，
+   * 将窗口贴回距它最近的那块屏的工作区中央；窗口仍在任一显示器工作区内时保持原位不动。
+   */
   #ensureOnScreen(): void {
     const bounds = this.#window.getBounds();
-    const area = screen.getPrimaryDisplay().workArea;
-    const visible =
-      bounds.x < area.x + area.width &&
-      bounds.x + bounds.width > area.x &&
-      bounds.y < area.y + area.height &&
-      bounds.y + bounds.height > area.y;
-    if (visible) return;
-    const width = Math.min(bounds.width, area.width);
-    const height = Math.min(bounds.height, area.height);
-    this.#window.setBounds({
-      x: area.x + Math.max(0, Math.round((area.width - width) / 2)),
-      y: area.y + Math.max(0, Math.round((area.height - height) / 2)),
-      width,
-      height,
-    });
+    const next = placeWindowOnItsDisplay(
+      bounds,
+      screen.getAllDisplays().map((display) => ({ bounds: display.bounds, workArea: display.workArea })),
+    );
+    if (next.x === bounds.x && next.y === bounds.y && next.width === bounds.width && next.height === bounds.height) {
+      return;
+    }
+    this.#window.setBounds(next);
+  }
+
+  #syncHiddenFocus(): void {
+    if (this.#window.isDestroyed() || !this.#selected) return;
+    const tabs = this.#deps.getLifecycle().spaceManager(this.#selected);
+    const ctrl = tabs?.peekController ? tabs.peekController() : tabs?.controller();
+    void ctrl?.emulateFocus().catch(() => {});
+  }
+
+  #clearDisplayedEmulatedFocus(): void {
+    if (this.#window.isDestroyed() || !this.#selected) return;
+    const tabs = this.#deps.getLifecycle().spaceManager(this.#selected);
+    const ctrl = tabs?.peekController ? tabs.peekController() : tabs?.controller();
+    void ctrl?.clearEmulatedFocus().catch(() => {});
+  }
+
+  #syncDisplayedVisibilityFocus(): void {
+    if (this.#window.isDestroyed() || !this.#selected) return;
+    if (!this.#window.isVisible()) this.#syncHiddenFocus();
+    else if (this.#window.isFocused()) this.#clearDisplayedEmulatedFocus();
   }
 
   #originOf(rawUrl: string): string | undefined {

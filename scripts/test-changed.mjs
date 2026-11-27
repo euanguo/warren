@@ -59,7 +59,7 @@ const PATH_RULES = [
   { match: /^src\/renderer\/lib\/address-input\.ts$/, unit: ['tests/address-input.test.ts'] },
   {
     match: /^src\/shared\/popover-sizing\.ts$|^src\/main\/ui\//,
-    unit: allUnitTests.filter((t) => /popover|devtools|layer|shell|shield/.test(t)),
+    unit: allUnitTests.filter((t) => /popover|devtools|layer|shell|shield|window-visibility/.test(t)),
     ui: ['tests/ui/shell-and-regressions.test.tsx'],
   },
   {
@@ -82,7 +82,7 @@ const PATH_RULES = [
   {
     match: /^src\/main\/(environments\.ts|env\/|tabs\.ts|domain\/|memory-monitor\.ts|telemetry\.ts)/,
     unit: allUnitTests.filter((t) =>
-      /environment|env-|tabs|spaces|store|group|external-url|cookies|devtools|layer|paths|pending|memory-management|approval|wave0/.test(
+      /environment|env-|tabs|spaces|store|group|external-url|cookies|devtools|layer|paths|pending|memory-management|approval|window-visibility|wave0/.test(
         t,
       ),
     ),

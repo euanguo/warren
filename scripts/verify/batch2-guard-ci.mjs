@@ -2,7 +2,7 @@
 /**
  * 批次 2 验收：去掉焦点守卫 + CI 静态门与打包流水线校验（`docs/EXECUTION-PLAN-2026-10-17.md` §批次 2）。
  *
- * 最要紧的一条：**窗口离屏、未抢前台时，带 `document.hasFocus()` 守卫的真实站点也要能点得动**。
+ * 最要紧的一条：**窗口隐藏、未抢前台时，带 `document.hasFocus()` 守卫的真实站点也要能点得动**。
  * 以前会被 `assertInputFocus` 拦下（WINDOW_NOT_FOCUSED），现在既没有守卫，
  * 发输入前还会把 document 焦点交给页面（`focusDisplayedPage`）。
  */
@@ -38,7 +38,7 @@ if (!windowChecks) {
 }
 w(['env', 'start', 'cap']);
 w(['env', 'select', 'cap']);
-w(['call', 'debug.backgroundWindow']);
+w(['call', 'debug.hideWindow']);
 sleep(800);
 const focused = JSON.parse(w(['call', 'debug.layout', '--json'])).windowFocused;
 if (focused) bad.push(`前置失败：后台窗口仍在前台（windowFocused=${focused}）`);
@@ -52,8 +52,8 @@ const out = w(
 );
 const guarded = /GUARDED=(.*)/.exec(out)?.[1]?.trim();
 const hasFocus = /HASFOCUS=(.*)/.exec(out)?.[1]?.trim();
-console.log(`离屏下点 guarded = "${guarded}" / windowFocused=${focused} / 页面 document.hasFocus() = ${hasFocus}`);
-if (guarded !== '已点') bad.push(`离屏时 hasFocus 守卫的按钮没生效（guarded="${guarded}"）`);
+console.log(`隐藏下点 guarded = "${guarded}" / windowFocused=${focused} / 页面 document.hasFocus() = ${hasFocus}`);
+if (guarded !== '已点') bad.push(`隐藏时 hasFocus 守卫的按钮没生效（guarded="${guarded}"）`);
 if (hasFocus !== 'true') bad.push(`发输入后 document.hasFocus()=${hasFocus}，期望 true`);
 if (JSON.parse(w(['call', 'debug.layout', '--json'])).windowFocused) {
   bad.push('输入之后 Warren 被抢到了前台');
@@ -67,4 +67,4 @@ if (bad.length) {
   for (const b of bad) console.error('  - ' + b);
   process.exit(1);
 }
-console.log('BATCH2 PASS (守卫已删；离屏时 hasFocus 守卫的按钮也生效；CI job 就位)');
+console.log('BATCH2 PASS (守卫已删；隐藏时 hasFocus 守卫的按钮也生效；CI job 就位)');

@@ -221,7 +221,7 @@ function createMainWindow(): BrowserWindow {
   if (startInactive) {
     win.once('ready-to-show', () => {
       if (win.isDestroyed()) return;
-      if (startBackground) manager?.backgroundWindow();
+      if (startBackground) manager?.hideWindow();
       else win.showInactive();
     });
   }
@@ -248,7 +248,7 @@ function createMainWindow(): BrowserWindow {
     if (quitting) return;
     event.preventDefault();
     popoverHost?.close(undefined, 'host');
-    manager?.backgroundWindow();
+    manager?.hideWindow();
   });
 
   win.on('resize', () => {

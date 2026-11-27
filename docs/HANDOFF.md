@@ -147,6 +147,7 @@ src/main/
     popover-host.ts      双池弹出宿主（omni-suggest / find-in-page / plugin-popover）
     devtools-host.ts     setDevToolsWebContents 停靠式原生 Chrome DevTools（right / bottom / detach）
     native-menu.ts       网页与插件右键原生 Menu 封装
+    window-visibility.ts 多屏坐标归位（仅跨出全部物理屏时回最近屏）与后台焦点仿真判定
   tabs.ts + domain/tabs.ts  标签集合、新窗口分流与 WindowLayerManager 视图挂载
   browser/
     controller.ts        页面门面；其余委托 locator / actions / waits / snapshot / screenshot
@@ -190,6 +191,14 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 ---
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
+
+### 原生 `win.hide()` 后台隐藏 + 多屏位置保持改造（2026-11-27）
+
+彻底移除早期 `-10000, -10000` 离屏停放 + `setOpacity(0)` + `showInactive()` 方案及冗余接口：
+
+- **原生窗口隐藏与多屏保持**：`EnvViewCoordinator.hideWindow()` 统一执行 `win.hide()` + `app.dock?.hide()`（不再挪动窗口坐标、不改 opacity/skipTaskbar/missionControl）；删掉 `backgroundWindow()`、`#backgroundBounds` 及 `debug.backgroundWindow` RPC；`main.ts` 的 `close` 与 `WARREN_BACKGROUND=1` 全部切到 `hideWindow()`。`src/main/ui/window-visibility.ts` 新增 `placeWindowOnItsDisplay()`（只要落在任一物理屏工作区就原位不动，仅在所有屏幕脱离如外接屏拔掉时贴回最近屏，解决外接屏点 Dock 被拖回主屏的问题）与 `shouldEmulateRenderFocus()`。
+- **隐藏态保活与全链路截图/动作**：`BrowserController` 新增 `clearEmulatedFocus()` 并在 `did-navigate` 上保持隐藏态焦点仿真；`hideWindow()` / `win.on('hide')` / 隐藏态切环境或切标签自动补 `Emulation.setFocusEmulationEnabled(true)`（窗口回归前台聚焦后关闭仿真以恢复真实失焦感知）；`EnvViewCoordinator.ensureRenderFocus()` + `browser.screenshot` 补齐隐藏态及后台截图的帧率唤醒与临时视口。
+- **验证**：`npm run check` 全绿，并以隔离 `WARREN_HOME` 启动开发态真机完成外接屏坐标隐藏→隐藏态点击/输入/双路截图→非抢焦点恢复同位实测。
 
 ### 全仓库零 Shim 代码质量与架构质量改造（Waves 0 → 4，2026-11-27）
 
@@ -416,7 +425,8 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 - **Agent 输入**：后台先懒建 Agent Tab，再 `attachBelow()`；renderer 视口为 0 时临时套
   `Emulation.setDeviceMetricsOverride`。`document.hasFocus()` 用 `Emulation.setFocusEmulationEnabled`
   补齐，**不再调用 `wc.focus()`**，所以脚本不会把 Warren 抢到用户前台。
-- **后台窗口**：关闭窗口走离屏透明 `showInactive()`，不销毁；有运行环境或 Agent lease 时持
+- **后台窗口**：2026-11-27 起已淘汰早期 `-10000` 离屏透明 `showInactive()` 方案，改为原生 `win.hide()` +
+  `Emulation.setFocusEmulationEnabled` 保持后台合成器/rAF 与截图可用；不销毁、不改外接屏坐标；有运行环境或 Agent lease 时持
   powerSaveBlocker。`debug.showWindow` 只恢复可见，不激活；托盘点击才真正 focus。
 - **Person Space CLI**：`tab ... --space=person` 不取 Agent lease；只有 Agent Space 走写门控。
 - **地址历史**：`url_history` 为跨环境全局表；所有实际 http/https 导航累计次数，地址栏支持
@@ -1257,9 +1267,9 @@ RED 实测：把 `inputCall` 里的 `assertWritable` 摘掉 → 3 条红；还�
 
 13. **后台环境开标签会把视图盖到当前页面上** —— `addChildView` 是后加的在上面，后台环境的 `#showActive()` 一跑就把它的视图加到窗口最后。→ `TabManager` 用 `#visible` 门控：没显示就绝不往窗口里加视图。`debug.layout` 的 `showing` 字段就是这条不变量的断言。
 
-14. ~~**输入事件需要「窗口真的在前台」**~~ **（2026-10-21 已推翻）** —— 失焦/离屏窗口里 CDP 输入仍能落地。现在不再调 `debug.focusWindow`，也不调会激活窗口的 `wc.focus()`；`ensureOperable()` 把后台视图临时挂到最底层，输入路径用 `Emulation.setFocusEmulationEnabled` 补 `document.hasFocus()`。回归脚本不得抢用户前台。**2026-11-03 起默认连窗口位置/可见性都不碰**：`WARREN_REGRESS_WINDOW=0`（默认）跳过 `background.sh` 与 `batch1-focus/batch2-guard-ci` 里所有 `debug.backgroundWindow` / `debug.showWindow` 调用（它们把窗口移出屏幕再搬回来、Dock 反复隐藏显示，实测 `x=-1587 → 144`、`opacity=0 → 1`），只打 SKIP；要专门验离屏/托盘恢复才显式 `WARREN_REGRESS_WINDOW=1`。CI 不设这个变量，走默认静默路径。
+14. ~~**输入事件需要「窗口真的在前台」**~~ **（2026-10-21 已推翻，2026-11-27 切为原生 `win.hide()`）** —— 失焦/隐藏窗口里 CDP 输入仍能落地。现在不再调 `debug.focusWindow`，也不调会激活窗口的 `wc.focus()`；`ensureOperable()` 把后台视图临时挂到最底层，输入与后台截图路径统一用 `Emulation.setFocusEmulationEnabled` 补 `document.hasFocus()` 并唤醒 Blink 合成器（2026-11-27 已彻底清除 `-10000` 离屏停放和 `debug.backgroundWindow`）。回归脚本不得抢用户前台。**2026-11-03 起默认连窗口位置/可见性都不碰**：`WARREN_REGRESS_WINDOW=0`（默认）跳过 `background.sh` 与 `batch1-focus/batch2-guard-ci` 里所有 `debug.hideWindow` / `debug.showWindow` 调用（它们会隐藏/恢复窗口及 Dock 图标），只打 SKIP；要专门验隐藏/托盘恢复才显式 `WARREN_REGRESS_WINDOW=1`。CI 不设这个变量，走默认静默路径。
 
-    **三道防线（2026-11-03 补）**：① 主进程 `debug.focusWindow / hideWindow / backgroundWindow / showWindow` 默认全部返回 `WINDOW_COMMANDS_DISABLED`，只有 `WARREN_ALLOW_WINDOW_COMMANDS=1` 起应用才放行；`focusWindow()` 里的 `app.focus({steal:true})` 已删，只返回 bounds。② `run-all.sh` 默认 `WARREN_REGRESS_WINDOW=0`，跳过三个窗口态套件。③ `scripts/regress/front-guard.sh` 每 2s 只读采样前台应用 + `debug.layout`：**Warren 窗口态一变立刻 TERM 整棵回归进程树**；系统前台连续变化 3 次（阈值 `WARREN_REGRESS_GUARD_MAX`）也停，用户自己 alt-tab 一次不误杀（`WARREN_REGRESS_GUARD=0` 关，本地无人用电脑 / CI 可关）。采样实测：Warren 窗口 `144,35 / opacity=1 / focused=false` 全程不动，但系统前台在 `Whistle ↔ bb Nightly` 间反复切——守卫负责在这种情况下提前收手，不让整轮跑满一分钟。
+    **三道防线（2026-11-03 补）**：① 主进程 `debug.focusWindow / hideWindow / showWindow` 默认全部返回 `WINDOW_COMMANDS_DISABLED`，只有 `WARREN_ALLOW_WINDOW_COMMANDS=1` 起应用才放行；`focusWindow()` 里的 `app.focus({steal:true})` 已删，只返回 bounds。② `run-all.sh` 默认 `WARREN_REGRESS_WINDOW=0`，跳过三个窗口态套件。③ `scripts/regress/front-guard.sh` 每 2s 只读采样前台应用 + `debug.layout`：**Warren 窗口态一变立刻 TERM 整棵回归进程树**；系统前台连续变化 3 次（阈值 `WARREN_REGRESS_GUARD_MAX`）也停，用户自己 alt-tab 一次不误杀（`WARREN_REGRESS_GUARD=0` 关，本地无人用电脑 / CI 可关）。采样实测：Warren 窗口 `144,35 / opacity=1 / focused=false` 全程不动，但系统前台在 `Whistle ↔ bb Nightly` 间反复切——守卫负责在这种情况下提前收手，不让整轮跑满一分钟。
 
 15. **原生视图永远画在渲染层 DOM 之上** —— 页面是 `WebContentsView`，是操作系统层级的子视图。所以任何 DOM 浮层（右键菜单、下拉、对话框）只要压到页面区域，就会被页面盖住，**连点都点不到**（不是 z-index 能解决的）。→ `lib/native-view-overlay-guard.ts` 用 MutationObserver 盯 `[data-open][role=menu|dialog|alertdialog|listbox|combobox]`，量出它和 `[data-slot="stage-placeholder"]` 真重叠了才调 `envApi.setViewVisible(false)`，关掉再放回去。两个刻意的取舍：**不认 tooltip**（跟着鼠标走，为它藏页面会一直闪）；**只在真重叠时才藏**（菜单完全落在侧栏里时藏掉整页比被盖住更难受）。诊断看 `debug.layout` 的 `viewVisible`。
 

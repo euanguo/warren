@@ -89,6 +89,7 @@ function makeManager(options: { lease?: FakeLease; pageUrl?: string; dormant?: b
     assertActiveTab: () => void calls.push('assertActiveTab'),
     // 输入前用 CDP 把 document 焦点交给页面，不激活窗口
     focusForInput: async () => void calls.push('focusForInput'),
+    ensureRenderFocus: async () => void calls.push('ensureRenderFocus'),
     prepareBackgroundInput: async () => false,
     clearBackgroundInput: async () => {},
     async withInputContext<T>(id: string, _space: unknown, _tab: unknown, fn: () => Promise<T>): Promise<T> {
@@ -122,7 +123,6 @@ function makeManager(options: { lease?: FakeLease; pageUrl?: string; dormant?: b
     hibernateResult: () => ({ ok: true }),
     showWindow: () => void calls.push('showWindow'),
     hideWindow: () => void calls.push('hideWindow'),
-    backgroundWindow: () => void calls.push('backgroundWindow'),
     focusWindow: () => void calls.push('focusWindow'),
     layout: () => ({ running: 0 }),
     netAddRule: (id: string, rule: unknown) => {
@@ -319,6 +319,7 @@ test('后台截图用临时可操作视图，不取 lease，结束必摘掉', as
 
   assert.equal((result as { bytes: number }).bytes, 3);
   assert.ok(manager.calls.includes('ensureOperable'));
+  assert.ok(manager.calls.includes('ensureRenderFocus'));
   assert.ok(manager.calls.includes('screenshot'));
   assert.ok(manager.calls.includes('detachOperable'));
   assert.equal(manager.calls.includes('assertWritable'), false);
@@ -341,14 +342,17 @@ test('打包后 debug.* 直接 UNAUTHORIZED（debug.rendererEval 能在渲染层
 test('窗口态 debug 命令默认禁用，只有显式放行才准动窗口', async () => {
   const manager = makeManager();
   const deps = makeDeps(manager);
-  for (const method of ['debug.backgroundWindow', 'debug.showWindow', 'debug.hideWindow', 'debug.focusWindow']) {
+  for (const method of ['debug.showWindow', 'debug.hideWindow', 'debug.focusWindow']) {
     await expectCode(dispatchRpc(deps, method, {}), 'WINDOW_COMMANDS_DISABLED');
   }
+  await expectCode(dispatchRpc(deps, 'debug.backgroundWindow', {}), 'METHOD_NOT_FOUND');
   // 纯读诊断不受影响
   const layout = (await dispatchRpc(deps, 'debug.layout', {})) as { running: number };
   assert.equal(layout.running, 0);
   // 显式放行后窗口命令可用（回归专用开关）
   const allowed = makeDeps(manager, { allowWindowCommands: true });
+  await dispatchRpc(allowed, 'debug.hideWindow', {});
+  assert.ok(manager.calls.includes('hideWindow'));
   await dispatchRpc(allowed, 'debug.showWindow', {});
   assert.ok(manager.calls.includes('showWindow'));
 });

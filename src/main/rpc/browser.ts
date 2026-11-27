@@ -666,9 +666,13 @@ export const browserRpcEndpoints: RpcDomainTable = {
       const id = ctx.str('id');
       const controller = ctx.controller(id);
       const temporary = ctx.deps.manager.ensureOperable(id, ctx.space);
+      let emulatedViewport = false;
       try {
+        await ctx.deps.manager.ensureRenderFocus(id, ctx.space);
+        if (temporary) emulatedViewport = await ctx.deps.manager.prepareBackgroundInput(id, ctx.space);
         return await controller.screenshot(asScreenshotOptions(ctx.params));
       } finally {
+        if (emulatedViewport) await ctx.deps.manager.clearBackgroundInput(id, ctx.space);
         if (temporary) ctx.deps.manager.detachOperable(id, ctx.space);
       }
     },
