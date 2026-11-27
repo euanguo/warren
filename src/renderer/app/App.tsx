@@ -214,8 +214,32 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [stageReplaced, activePluginPage, toggleSidebar]);
 
-  // 全屏设置 / 插件页 或 右侧检查器最大化时，隐藏原生 WebContentsView 避免压盖 DOM
-  const hideNativeView = stageReplaced || inspectorMaximized;
+  /*
+   * 主窗里的 DOM 模态（插件用 Dialog / AlertDialog）也走 portal 居中，同样会被原生视图盖住。
+   * 侦测到打开就一起让开视图，否则弹窗「点了没反应」。
+   */
+  const [modalOpen, setModalOpen] = useState(false);
+  useEffect(() => {
+    const sync = () =>
+      setModalOpen(
+        Boolean(
+          document.querySelector(
+            '[data-slot="dialog-content"][data-open], [data-slot="alert-dialog-content"][data-open]',
+          ),
+        ),
+      );
+    const observer = new MutationObserver(sync);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributeFilter: ['data-open'],
+    });
+    sync();
+    return () => observer.disconnect();
+  }, []);
+
+  // 全屏设置 / 插件页 / 检查器最大化 / 模态浮层时，隐藏原生 WebContentsView 避免压盖 DOM
+  const hideNativeView = stageReplaced || inspectorMaximized || modalOpen;
   useEffect(() => {
     void window.envApi.setViewVisible(!hideNativeView);
   }, [hideNativeView]);
