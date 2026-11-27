@@ -18,6 +18,7 @@ An Electron desktop workbench and native CLI where each **Environment** pairs is
   <img src="https://img.shields.io/badge/Node.js-24%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 24+" />
   <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7.0" />
   <img src="https://img.shields.io/badge/Platform-macOS-181b21?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-5b8cff?style=flat-square" alt="License: MIT" /></a>
 </p>
 
 <br />
@@ -335,3 +336,9 @@ npx tsc -p tsconfig.check.json    # Full typecheck across src/, tests/, and @war
 | Design system & component contract | [`docs/ui-design-language.md`](./docs/ui-design-language.md) |
 | Plugin authoring guide & SDK | [`plugins/README.md`](./plugins/README.md) · [`packages/plugin-sdk/README.md`](./packages/plugin-sdk/README.md) |
 | Build, signing & notarization | [`docs/RELEASE.md`](./docs/RELEASE.md) |
+
+---
+
+## License
+
+Licensed under the [MIT License](./LICENSE).

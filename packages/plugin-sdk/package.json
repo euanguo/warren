@@ -2,6 +2,7 @@
   "name": "@warren/plugin-sdk",
   "version": "4.0.0",
   "description": "Warren plugin package contract and authoring types.",
+  "license": "MIT",
   "type": "module",
   "types": "./index.d.ts",
   "files": [

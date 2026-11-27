@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/Node.js-24%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 24+" />
   <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7.0" />
   <img src="https://img.shields.io/badge/Platform-macOS-181b21?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-5b8cff?style=flat-square" alt="License: MIT" /></a>
 </p>
 
 <br />
@@ -335,3 +336,9 @@ npx tsc -p tsconfig.check.json    # 覆盖 src/、tests/ 与 @warren/plugin-sdk 
 | 设计语言与组件契约 | [`docs/ui-design-language.md`](./docs/ui-design-language.md) |
 | 插件开发指南与 SDK | [`plugins/README.md`](./plugins/README.md) · [`packages/plugin-sdk/README.md`](./packages/plugin-sdk/README.md) |
 | 构建、签名与公证发布 | [`docs/RELEASE.md`](./docs/RELEASE.md) |
+
+---
+
+## 开源协议
+
+本项目采用 [MIT License](./LICENSE) 开源协议。

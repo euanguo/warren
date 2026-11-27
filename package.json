@@ -3,6 +3,7 @@
   "productName": "Warren",
   "version": "0.1.0",
   "description": "Agent-first isolated browser environments — one burrow per identity, one egress per burrow",
+  "license": "MIT",
   "type": "module",
   "main": ".vite/build/main.cjs",
   "bin": {
