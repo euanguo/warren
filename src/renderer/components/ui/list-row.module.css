@@ -1,9 +1,9 @@
 /*
- * Product list row — single geometry for navigators / sidebars / trees.
- * Consume control ladder + font tokens only. No feature-local magic sizes.
+ * 产品列表行（OpenBot 0ms 悬停 + 标准圆角 + 头像环底色同步）。
  */
 
 .row {
+  --avatar-outline: var(--bg-sidebar);
   position: relative;
   display: flex;
   width: 100%;
@@ -13,19 +13,17 @@
   min-height: var(--size-row);
   border: 0;
   border-radius: var(--control-radius);
-  corner-shape: var(--corner-shape, superellipse(1.5));
   background: transparent;
   overflow: hidden;
   color: var(--foreground);
-  transition: background-color 140ms ease, color 140ms ease;
+  transition: transform 100ms ease-out;
 }
 
 .row:hover,
 .row:focus-within,
-/* Menu portals outside the row, so :hover/:focus-within drop; Base UI keeps
- * data-popup-open on the in-row trigger for the whole open lifetime. */
 .row:has([data-popup-open]),
 .row[data-active] {
+  --avatar-outline: color-mix(in srgb, var(--bg-sidebar), var(--foreground) 6%);
   background: var(--surface-hover);
 }
 
@@ -34,6 +32,7 @@
 }
 
 .row[data-selected] {
+  --avatar-outline: color-mix(in srgb, var(--bg-sidebar), var(--foreground) 10%);
   background: var(--surface-selected);
 }
 
@@ -55,21 +54,12 @@
 
 .main:disabled {
   cursor: default;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
-/*
- * 焦点环画在**整行**上，不是画在 .main 上：.main 到动作按钮左边就结束了，
- * 只画它会让环缺掉右边一块。
- *
- * 用 `:has(:focus-visible)` 而不是 `:focus-within`——后者鼠标点一下也亮。
- * `.row` 是 overflow:hidden，外扩的 outline 会被裁掉，所以用负 offset 画在行内侧。
- * 写在这里而不是让调用方挂 utility：CSS Modules 不在 @layer 里，未分层规则
- * 赢过 Tailwind，调用方挂不上。
- */
 .row:has(:focus-visible) {
-  outline: 2px solid var(--border);
-  outline-offset: -2px;
+  outline: 1px solid var(--border-focus);
+  outline-offset: -1px;
 }
 
 .leading {
@@ -79,7 +69,7 @@
   flex: 0 0 var(--size-icon-md);
   align-items: center;
   justify-content: center;
-  color: var(--subtle-foreground);
+  color: var(--muted-foreground);
 }
 
 .leading svg {
@@ -100,11 +90,11 @@
   min-width: 0;
   align-items: center;
   gap: var(--space-1);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-sm);
+  line-height: 18px;
   color: inherit;
 }
 
-/* Title text owns ellipsis; sibling marks (pin/kind) stay full size. */
 .labelText {
   min-width: 0;
   flex: 1 1 auto;
@@ -119,7 +109,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-micro);
-  color: var(--subtle-foreground);
+  color: var(--muted-foreground);
 }
 
 .trailing {
@@ -131,8 +121,6 @@
 }
 
 .actions {
-  /* Stay in flow so the menu button keeps a real slot; title ellipsizes
-   * against this edge instead of painting under the control. */
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -140,12 +128,9 @@
   padding-right: var(--space-1);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 140ms ease;
+  transition: opacity 100ms ease;
 }
 
-/* Hover or open menu only — not row :focus-within (clicking main steals
- * focus and would pin the ••• on a merely-selected row). Keyboard focus
- * inside the actions cluster still reveals them via .actions:focus-within. */
 .row:hover .actions,
 .row:has([data-popup-open]) .actions,
 .actions:focus-within,
@@ -154,11 +139,10 @@
   pointer-events: auto;
 }
 
-/* Nested on hovered row — subtle hover wash + tactile press scale. */
 .actionButton {
-  color: var(--subtle-foreground);
+  color: var(--muted-foreground);
   background: transparent !important;
-  transition: background-color 140ms ease, color 140ms ease, transform 120ms ease;
+  transition: transform 100ms ease-out;
 }
 
 .actionButton:hover,
@@ -170,7 +154,7 @@
 }
 
 .actionButton:active {
-  transform: scale(0.94);
+  transform: scale(0.95);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -184,33 +168,23 @@
   }
 }
 
-/*
- * 带语义色的行内动作（启动 / 停止）。底色是 currentColor 的 12%，和状态块同一套
- * 做法：颜色只有一个来源，加一个语义色不用再挑一个底色。
- *
- * 位置在 `.actionButton:hover` 之后：两条规则特异性相同（0,2,0），靠源码顺序取胜，
- * 挪到前面去就会被 `background: transparent !important` 吃掉。
- * 悬停用更高特异性（0,3,0）加深一档，图标颜色不跟着变——它已经说明了自己是什么。
- */
 .actionButton[data-tone="success"] {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .actionButton[data-tone="destructive"] {
-  color: var(--destructive);
+  color: var(--danger-text);
 }
 
 .actionButton[data-tone] {
-  background: color-mix(in oklab, currentColor 12%, transparent) !important;
+  background: color-mix(in srgb, currentColor 12%, transparent) !important;
 }
 
 .actionButton[data-tone]:hover,
 .actionButton[data-tone]:focus-visible {
-  background: color-mix(in oklab, currentColor 24%, transparent) !important;
+  background: color-mix(in srgb, currentColor 22%, transparent) !important;
 }
 
-/* Nested list under a disclosure row — full-width hover track.
- * Same gap between parent→child and sibling nested rows (no padding-only seam). */
 .nested {
   display: flex;
   flex-direction: column;
@@ -219,8 +193,6 @@
   min-width: 0;
 }
 
-/* Nested rows with their own leading (e.g. provider mark) share the parent
- * chevron column. Only indent when the nested row has no leading slot. */
 .nested > .row .main:not(:has([data-slot="list-row-leading"])) {
   padding-left: calc(var(--control-pad-x-compact) + var(--size-icon-md) + var(--space-2));
 }
@@ -228,7 +200,7 @@
 .nestedStatus {
   padding: var(--space-1) var(--control-pad-x-compact) var(--space-1)
     calc(var(--control-pad-x-compact) + var(--size-icon-md) + var(--space-2));
-  color: var(--subtle-foreground);
+  color: var(--muted-foreground);
   font-size: var(--font-size-micro);
   text-align: left;
 }
@@ -237,5 +209,5 @@
   width: var(--size-icon-xs);
   height: var(--size-icon-xs);
   flex-shrink: 0;
-  color: var(--primary);
+  color: var(--accent-text);
 }

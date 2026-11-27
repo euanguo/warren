@@ -461,7 +461,7 @@ export function EnvironmentAddressBar({
   return (
     <div
       data-slot="address-bar"
-      className="flex h-[var(--shell-address-row-height)] min-w-0 shrink-0 items-center gap-1 overflow-hidden bg-surface-under px-2"
+      className="flex h-[var(--shell-address-row-height)] min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-canvas px-2"
     >
       <ActionTooltip label={title('后退')} shortcut="⌘[" side="top">
         <IconButton
@@ -502,8 +502,8 @@ export function EnvironmentAddressBar({
         <div ref={boxRef} className="group/omnibox relative w-full max-w-[820px] min-w-0">
           <div
             className={cn(
-              'flex h-[var(--control-height-icon)] min-w-0 items-center gap-2 rounded-full border border-border/80 bg-[var(--chrome-field-fill)] px-3 [box-shadow:var(--shadow-chip)] transition-colors',
-              'focus-within:border-focus',
+              'flex h-[var(--control-height-icon)] min-w-0 items-center gap-2 rounded-[var(--control-radius)] border border-border-strong bg-control px-2.5 transition-none',
+              'focus-within:border-focus focus-within:[box-shadow:0_0_0_1px_var(--border-focus)]',
               !inputEditable && 'opacity-70',
             )}
           >

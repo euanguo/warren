@@ -27,7 +27,7 @@ function OverlayCard({
       aria-modal="true"
       className={cn(
         elevatedDialogSurfaceClass,
-        'relative z-10 m-0 grid w-full max-w-[440px] gap-0 border-0 p-5 text-sm outline-none animate-in fade-in-0 zoom-in-95 duration-100',
+        'warren-dialog-enter relative z-10 m-0 grid w-full max-w-[440px] gap-0 border-0 p-5 text-[13px] outline-none',
       )}
     >
       <div className="flex flex-col gap-1.5 pr-6">
@@ -168,7 +168,7 @@ export function CreateEnvCard({ initialGroupId }: { initialGroupId?: string }) {
         </Field>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </form>
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 border-t border-border pt-3.5">
         <Button variant="ghost" onClick={cancel}>
           取消
         </Button>
@@ -374,7 +374,7 @@ export function RenameCard({ title, label, initialValue }: { title: string; labe
           />
         </Field>
       </form>
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 border-t border-border pt-3.5">
         <Button variant="ghost" onClick={cancel}>
           取消
         </Button>
@@ -400,7 +400,7 @@ export function ConfirmCard({
   const cancel = () => void window.envApi.resolveOverlay(false);
   return (
     <OverlayCard title={title} description={description} onClose={cancel}>
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="mt-5 flex justify-end gap-2 border-t border-border pt-3.5">
         <Button variant="ghost" onClick={cancel}>
           取消
         </Button>

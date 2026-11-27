@@ -17,7 +17,7 @@ function agentTone(space?: EnvironmentSpace): StatusDotTone {
   return 'idle';
 }
 
-/** Space 是 Environment 里的控制分组，不是另一个 Environment。 */
+/** Space 是 Environment 里的控制分组，不是另一个 Environment（OpenBot SlidingTabs 胶囊交互）。 */
 export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLSpanElement>(null);
@@ -26,15 +26,22 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
     const container = containerRef.current;
     const thumb = thumbRef.current;
     if (!container || !thumb) return;
+    let initialized = false;
     const sync = () => {
       const activeEl = container.querySelector<HTMLElement>('[data-active="true"]');
       if (!activeEl) {
         thumb.style.opacity = '0';
         return;
       }
+      if (!initialized) container.dataset.initializing = 'true';
       thumb.style.opacity = '1';
       thumb.style.width = `${activeEl.offsetWidth}px`;
-      thumb.style.transform = `translateX(${activeEl.offsetLeft}px)`;
+      thumb.style.transform = `translate3d(${activeEl.offsetLeft}px, 0, 0)`;
+      if (!initialized) {
+        void thumb.getBoundingClientRect();
+        delete container.dataset.initializing;
+        initialized = true;
+      }
     };
     sync();
     const observer = new ResizeObserver(sync);
@@ -48,14 +55,9 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
     <div
       ref={containerRef}
       data-slot="space-switcher"
-      className="relative flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-input-fill p-0.5 [box-shadow:var(--shadow-recessed)]"
+      className="relative flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-tabs-bar p-0.5"
     >
-      <span
-        ref={thumbRef}
-        aria-hidden
-        data-slot="space-switcher-thumb"
-        className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/65 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-chip)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-      />
+      <span ref={thumbRef} aria-hidden data-slot="space-switcher-thumb" className="warren-sliding-pill opacity-0" />
       {spaces.map((space) => {
         const active = space.id === activeSpaceId;
         const agentRunning = space.id === 'agent' && space.owner === 'agent';
@@ -73,8 +75,8 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
             size="xs"
             variant="ghost"
             className={cn(
-              'relative z-10 gap-1 hover:bg-transparent',
-              active ? 'font-medium text-foreground' : 'text-subtle-foreground hover:text-foreground',
+              'relative z-10 gap-1 hover:bg-transparent active:scale-100',
+              active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
             data-space={space.id}
             data-active={active ? 'true' : undefined}

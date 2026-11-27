@@ -163,8 +163,8 @@ export function AddressBarRightControls({
               }}
               onContextMenu={(event) => onOpenQuickSlotContextMenu(event, pop.pluginId)}
               className={cn(
-                'inline-flex h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/65 bg-surface-elevated px-2 text-xs text-foreground [box-shadow:var(--shadow-chip)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus active:scale-[0.98]',
-                isActive && 'border-[var(--theme-accent)]/60 bg-surface-selected text-foreground',
+                'inline-flex h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-strong bg-control px-2 text-xs text-foreground outline-none transition-none hover:bg-control-hover focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)] active:scale-[0.97]',
+                isActive && 'border-accent-strong bg-accent-soft text-foreground',
               )}
             >
               {badge?.component ? (

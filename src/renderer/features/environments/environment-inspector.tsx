@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
+import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon } from '@/components/icons';
 import { PluginBrandGlyph } from '@/components/identity-glyphs';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 import type { PluginInspectorTab } from '@/lib/plugin-sdk-types';
 import type {
   ConsoleEntry,
@@ -52,16 +54,22 @@ interface Props {
   onTabChange: (tab: string) => void;
   onRefreshSnapshot: () => void;
   onRefreshCookies?: () => void;
-  /** 插件往检查器里加的页 */
   pluginTabs?: PluginInspectorTab[];
   environmentId?: string;
   space?: SpaceId;
   url?: string;
   onOpenPluginPage?: (pluginId: string, surfaceId: string) => void;
+  maximized?: boolean;
+  onToggleMaximize?: () => void;
+  onClose?: () => void;
 }
 
 /**
- * 检查器面板：事件 / 快照 / 控制台 / 网络 / 规则 / 存储 / 插件伴随页。
+ * 右侧伴随工作台抽屉（OpenBot SidePanel 风格）：
+ * - CSS mask-image 左右边缘滚动渐隐（无翻页箭头噪音）；
+ * - 隐藏在悬停/激活项两侧的智能 1px 竖向分隔线；
+ * - 支持全舞台最大化 / 还原 + 关闭按钮；
+ * - 覆盖事件 / 快照 / 控制台 / 网络 / 规则 / 存储 / 插件伴随页。
  */
 export function EnvironmentInspector({
   current,
@@ -83,22 +91,25 @@ export function EnvironmentInspector({
   space = 'person',
   url = '',
   onOpenPluginPage,
+  maximized = false,
+  onToggleMaximize,
+  onClose,
 }: Props) {
   const running = current?.status === 'running';
   const errorCount = consoleEntries.filter((entry) => entry.level === 'error').length;
   const tabsListRef = useRef<HTMLDivElement>(null);
-  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
   const [eventActorFilter, setEventActorFilter] = useState<'all' | 'agent' | 'human' | 'system'>('all');
   const [onlyCurrentEnv, setOnlyCurrentEnv] = useState(false);
   const [eventQuery, setEventQuery] = useState('');
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
-  const syncTabOverflow = useCallback(() => {
+  const syncTabFade = useCallback(() => {
     const list = tabsListRef.current;
     if (!list) return;
-    const left = list.scrollLeft > 6;
-    const right = list.scrollLeft + list.clientWidth < list.scrollWidth - 6;
-    setTabScroll((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+    const start = list.scrollLeft > 4;
+    const end = list.scrollLeft + list.clientWidth < list.scrollWidth - 4;
+    list.dataset.fadeStart = start ? 'true' : 'false';
+    list.dataset.fadeEnd = end ? 'true' : 'false';
   }, []);
 
   useEffect(() => {
@@ -108,21 +119,17 @@ export function EnvironmentInspector({
       '[data-slot="tabs-trigger"][data-active], [data-slot="tabs-trigger"][aria-selected="true"]',
     );
     active?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-    syncTabOverflow();
-  }, [activeTab, pluginTabs.length, syncTabOverflow]);
+    syncTabFade();
+  }, [activeTab, pluginTabs.length, syncTabFade]);
 
   useEffect(() => {
     const list = tabsListRef.current;
     if (!list) return;
-    syncTabOverflow();
-    const observer = new ResizeObserver(syncTabOverflow);
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, [syncTabOverflow, pluginTabs.length]);
-
-  const scrollTabsBy = (delta: number) => {
-    tabsListRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
-  };
+    syncTabFade();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncTabFade) : null;
+    observer?.observe(list);
+    return () => observer?.disconnect();
+  }, [syncTabFade, pluginTabs.length]);
 
   const filteredEvents = useMemo(() => {
     const q = eventQuery.trim().toLowerCase();
@@ -138,172 +145,209 @@ export function EnvironmentInspector({
   }, [events, eventActorFilter, eventQuery, onlyCurrentEnv, current]);
 
   const builtinTabItems = [
-    { id: 'events', label: '事件', disabled: false },
-    { id: 'snapshot', label: '快照', disabled: !running },
-    { id: 'console', label: errorCount > 0 ? `控制台 (${errorCount})` : '控制台', disabled: !running },
+    { id: 'events', label: '事件', disabled: false, badge: null as React.ReactNode },
+    { id: 'snapshot', label: '快照', disabled: !running, badge: null },
+    {
+      id: 'console',
+      label: '控制台',
+      disabled: !running,
+      badge: errorCount > 0 ? <Badge variant="destructive">{errorCount}</Badge> : null,
+    },
     {
       id: 'network',
-      label: networkEntries.length > 0 ? `网络 (${networkEntries.length})` : '网络',
+      label: '网络',
       disabled: !running,
+      badge: networkEntries.length > 0 ? <Badge variant="secondary">{networkEntries.length}</Badge> : null,
     },
-    { id: 'rules', label: netRules.length > 0 ? `规则 (${netRules.length})` : '规则', disabled: !running },
-    { id: 'storage', label: cookies && cookies.length > 0 ? `存储 (${cookies.length})` : '存储', disabled: !running },
+    {
+      id: 'rules',
+      label: '规则',
+      disabled: !running,
+      badge: netRules.length > 0 ? <Badge variant="secondary">{netRules.length}</Badge> : null,
+    },
+    {
+      id: 'storage',
+      label: '存储',
+      disabled: !running,
+      badge: cookies && cookies.length > 0 ? <Badge variant="secondary">{cookies.length}</Badge> : null,
+    },
+  ];
+
+  const allTabIds = [
+    ...builtinTabItems.map((item) => item.id),
+    ...pluginTabs.map((t) => `plugin:${t.pluginId}:${t.id}`),
   ];
 
   return (
     <Tabs
       value={activeTab}
       onValueChange={onTabChange}
-      className="h-full w-full min-w-0 gap-0 overflow-hidden bg-surface-drawer"
+      data-slot="environment-inspector"
+      data-maximized={maximized ? 'true' : 'false'}
+      className="h-full w-full min-w-0 gap-0 overflow-hidden bg-canvas"
     >
-      <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-0.5 border-b border-border px-1.5">
+      <div className="flex h-[var(--shell-address-row-height)] shrink-0 items-center gap-1 border-b border-border px-1.5">
         <div className="relative min-w-0 flex-1 overflow-hidden">
           <TabsList
             ref={tabsListRef}
             variant="line"
-            onScroll={syncTabOverflow}
-            className="h-auto w-full min-w-0 justify-start gap-0.5 overflow-x-auto px-0.5 [scrollbar-width:none]"
+            onScroll={syncTabFade}
+            className="warren-fade-x scroll-fade-x h-[var(--control-height-icon)] w-full min-w-0 justify-start gap-0 overflow-x-auto border-b-0 px-0.5"
           >
-            <TabsTrigger value="events" className="shrink-0 px-1.5 text-xs">
-              事件
-            </TabsTrigger>
-            <TabsTrigger value="snapshot" disabled={!running} className="shrink-0 px-1.5 text-xs">
-              快照
-            </TabsTrigger>
-            <TabsTrigger value="console" disabled={!running} className="shrink-0 px-1.5 text-xs">
-              控制台
-              {errorCount > 0 && (
-                <Badge variant="outline" className="border-destructive/50 text-destructive">
-                  {errorCount}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="network" disabled={!running} className="shrink-0 px-1.5 text-xs">
-              网络
-              {networkEntries.length > 0 && <Badge variant="outline">{networkEntries.length}</Badge>}
-            </TabsTrigger>
-            <TabsTrigger value="rules" disabled={!running} className="shrink-0 px-1.5 text-xs">
-              规则
-              {netRules.length > 0 && <Badge variant="outline">{netRules.length}</Badge>}
-            </TabsTrigger>
-            <TabsTrigger value="storage" disabled={!running} className="shrink-0 px-1.5 text-xs">
-              存储
-              {cookies && cookies.length > 0 && <Badge variant="outline">{cookies.length}</Badge>}
-            </TabsTrigger>
-            {pluginTabs.length > 0 && <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border" aria-hidden />}
-            {pluginTabs.map((tab) => (
-              <TabsTrigger
-                key={tab.id}
-                value={`plugin:${tab.pluginId}:${tab.id}`}
-                disabled={!running}
-                className="shrink-0 gap-1 px-1.5 text-xs"
-              >
-                <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} className="size-3" />
-                {tab.title}
-              </TabsTrigger>
-            ))}
+            {builtinTabItems.map((item, idx) => {
+              const isSelected = activeTab === item.id;
+              const nextIsSelected = allTabIds[idx + 1] === activeTab;
+              return (
+                <TabsTrigger
+                  key={item.id}
+                  value={item.id}
+                  disabled={item.disabled}
+                  className={cn(
+                    'relative h-[26px] shrink-0 flex-none rounded-[var(--radius-sm)] border-b-0 px-2 text-[12px] font-medium',
+                    isSelected
+                      ? 'bg-control-active text-foreground'
+                      : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+                    !isSelected &&
+                      !nextIsSelected &&
+                      idx < allTabIds.length - 1 &&
+                      'after:pointer-events-none after:absolute after:top-1/2 after:right-0 after:h-3 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
+                  )}
+                >
+                  {item.label}
+                  {item.badge}
+                </TabsTrigger>
+              );
+            })}
+            {pluginTabs.map((tab, pIdx) => {
+              const value = `plugin:${tab.pluginId}:${tab.id}`;
+              const globalIdx = builtinTabItems.length + pIdx;
+              const isSelected = activeTab === value;
+              const nextIsSelected = allTabIds[globalIdx + 1] === activeTab;
+              return (
+                <TabsTrigger
+                  key={tab.id}
+                  value={value}
+                  disabled={!running}
+                  className={cn(
+                    'relative h-[26px] shrink-0 flex-none gap-1 rounded-[var(--radius-sm)] border-b-0 px-2 text-[12px] font-medium',
+                    isSelected
+                      ? 'bg-control-active text-foreground'
+                      : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+                    !isSelected &&
+                      !nextIsSelected &&
+                      globalIdx < allTabIds.length - 1 &&
+                      'after:pointer-events-none after:absolute after:top-1/2 after:right-0 after:h-3 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
+                  )}
+                >
+                  <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} className="size-3" />
+                  {tab.title}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
-          {tabScroll.left && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex items-center bg-gradient-to-r from-surface-drawer via-surface-drawer/95 to-transparent pr-3">
+        </div>
+
+        <div className="flex shrink-0 items-center gap-0.5">
+          {activeTab === 'snapshot' && (
+            <ActionTooltip label="刷新 Agent 快照" side="bottom">
               <IconButton
                 size="icon-xs"
-                variant="ghost"
-                aria-label="向左滚动标签"
-                onClick={() => scrollTabsBy(-120)}
-                className="pointer-events-auto size-5"
+                aria-label="刷新 Agent 快照"
+                disabled={!running || snapshotLoading}
+                onClick={onRefreshSnapshot}
               >
-                <Icon name="ChevronLeft" className="size-3.5" />
+                <Icon name="RotateClockwise" className={snapshotLoading ? 'animate-spin' : undefined} />
               </IconButton>
-            </div>
+            </ActionTooltip>
           )}
-          {tabScroll.right && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex items-center bg-gradient-to-l from-surface-drawer via-surface-drawer/95 to-transparent pl-3">
+          {activeTab === 'storage' && onRefreshCookies && (
+            <ActionTooltip label="刷新 Cookie 列表" side="bottom">
+              <IconButton size="icon-xs" aria-label="刷新 Cookie 列表" disabled={!running} onClick={onRefreshCookies}>
+                <Icon name="RotateClockwise" />
+              </IconButton>
+            </ActionTooltip>
+          )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <IconButton size="icon-xs" variant="ghost" aria-label="全部工作台面板" title="切换全部工作台面板" />
+              }
+            >
+              <Icon name="ChevronDown" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-40">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>内置调试</DropdownMenuLabel>
+                {builtinTabItems.map((item) => (
+                  <DropdownMenuItem
+                    key={item.id}
+                    disabled={item.disabled}
+                    onClick={() => onTabChange(item.id)}
+                    className="justify-between"
+                  >
+                    <span>{item.label}</span>
+                    {activeTab === item.id && <Icon name="Check" className="size-3.5 text-accent-text" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+              {pluginTabs.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>插件伴随</DropdownMenuLabel>
+                    {pluginTabs.map((tab) => {
+                      const value = `plugin:${tab.pluginId}:${tab.id}`;
+                      return (
+                        <DropdownMenuItem
+                          key={value}
+                          disabled={!running}
+                          onClick={() => onTabChange(value)}
+                          className="justify-between"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} />
+                            {tab.title}
+                          </span>
+                          {activeTab === value && <Icon name="Check" className="size-3.5 text-accent-text" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuGroup>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {onToggleMaximize && (
+            <ActionTooltip label={maximized ? '还原伴随面板宽度' : '最大化伴随面板'} side="bottom">
               <IconButton
                 size="icon-xs"
                 variant="ghost"
-                aria-label="向右滚动标签"
-                onClick={() => scrollTabsBy(120)}
-                className="pointer-events-auto size-5"
+                data-slot="inspector-maximize-toggle"
+                aria-label={maximized ? '还原面板' : '最大化面板'}
+                aria-pressed={maximized}
+                onClick={onToggleMaximize}
               >
-                <Icon name="ChevronRight" className="size-3.5" />
+                <Icon name={maximized ? 'Minimize' : 'Maximize'} />
               </IconButton>
-            </div>
+            </ActionTooltip>
+          )}
+
+          {onClose && (
+            <ActionTooltip label="关闭工作台面板" side="bottom">
+              <IconButton
+                size="icon-xs"
+                variant="ghost"
+                data-slot="inspector-close"
+                aria-label="关闭工作台面板"
+                onClick={onClose}
+              >
+                <Icon name="X" />
+              </IconButton>
+            </ActionTooltip>
           )}
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <IconButton size="icon-xs" variant="ghost" aria-label="全部工作台面板" title="切换全部工作台面板" />
-            }
-          >
-            <Icon name="ChevronDown" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-40">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>内置调试</DropdownMenuLabel>
-              {builtinTabItems.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  disabled={item.disabled}
-                  onClick={() => onTabChange(item.id)}
-                  className="justify-between"
-                >
-                  <span>{item.label}</span>
-                  {activeTab === item.id && <Icon name="Check" className="size-3.5 text-[var(--theme-accent)]" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-            {pluginTabs.length > 0 && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>插件伴随</DropdownMenuLabel>
-                  {pluginTabs.map((tab) => {
-                    const value = `plugin:${tab.pluginId}:${tab.id}`;
-                    return (
-                      <DropdownMenuItem
-                        key={value}
-                        disabled={!running}
-                        onClick={() => onTabChange(value)}
-                        className="justify-between"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} />
-                          {tab.title}
-                        </span>
-                        {activeTab === value && <Icon name="Check" className="size-3.5 text-[var(--theme-accent)]" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuGroup>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {activeTab === 'snapshot' && (
-          <IconButton
-            size="icon-xs"
-            title="刷新 Agent 快照"
-            aria-label="刷新 Agent 快照"
-            disabled={!running || snapshotLoading}
-            onClick={onRefreshSnapshot}
-            className="shrink-0"
-          >
-            <Icon name="RotateClockwise" className={snapshotLoading ? 'animate-spin' : undefined} />
-          </IconButton>
-        )}
-        {activeTab === 'storage' && onRefreshCookies && (
-          <IconButton
-            size="icon-xs"
-            title="刷新 Cookie 列表"
-            aria-label="刷新 Cookie 列表"
-            disabled={!running}
-            onClick={onRefreshCookies}
-            className="shrink-0"
-          >
-            <Icon name="RotateClockwise" />
-          </IconButton>
-        )}
       </div>
 
       <TabsContent value="events" className="flex min-h-0 flex-col">

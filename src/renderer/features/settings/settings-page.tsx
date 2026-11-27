@@ -43,9 +43,10 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     id: 'general',
     group: '界面与浏览',
     title: '通用与外观',
-    subtitle: '切换深浅主题、调整顶栏密度与页面圆角、管理数据根目录。',
+    subtitle: '切换深浅模式与可配置配色皮肤、调整顶栏密度与页面圆角、管理数据根目录。',
     icon: 'Sliders',
-    keywords: '通用 外观 主题 深色 浅色 跟随系统 紧凑 顶栏 圆角 数据目录 theme dark light system compact warren_home',
+    keywords:
+      '通用 外观 主题 皮肤 配色 色板 深色 浅色 跟随系统 紧凑 顶栏 圆角 数据目录 theme skin palette dark light system compact warren_home',
     render: () => <GeneralPanel />,
   },
   {
@@ -193,14 +194,14 @@ export function SettingsPage({
   const renderCtx: SectionRenderContext = { onChanged, plugins, pluginErrors, environments };
 
   return (
-    <div data-slot="settings-page" className="flex h-full min-h-0 flex-col bg-background">
+    <div data-slot="settings-page" className="flex h-full min-h-0 flex-col bg-canvas">
       <Tabs
         orientation="vertical"
         value={effectiveSection}
         onValueChange={(value) => onSectionChange(value as SettingsSection)}
         className="min-h-0 flex-1 gap-0"
       >
-        <div className="flex w-56 shrink-0 flex-col border-r border-border/70 bg-surface-under/70">
+        <div className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar">
           <div className="p-2.5 pb-1.5">
             <div className="relative">
               <Icon
@@ -233,7 +234,7 @@ export function SettingsPage({
               <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">匹配 {filteredSections.length} 项</p>
             )}
           </div>
-          <TabsList className="h-auto! w-full flex-1 flex-col items-stretch justify-start gap-3 overflow-y-auto rounded-none bg-transparent p-3">
+          <TabsList className="h-auto! w-full flex-1 flex-col items-stretch justify-start gap-3 overflow-y-auto rounded-none border-0 bg-transparent p-3">
             {GROUP_ORDER.map((groupName) => {
               const items = filteredSections.filter((item) => item.group === groupName);
               if (items.length === 0) return null;

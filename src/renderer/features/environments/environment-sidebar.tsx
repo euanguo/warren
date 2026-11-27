@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
 import {
@@ -37,15 +38,18 @@ interface Props {
   onRemove: (id: string) => void;
   onTakeover: (id: string) => void;
   onRelease: (id: string) => void;
-  /** 插件往环境菜单里加的动作（清单声明的，不需要插件前端） */
   pluginActions?: PluginEnvAction[];
   onRunPluginAction?: (pluginId: string, command: string, environmentId: string) => void;
-  /** 插件往环境行放的状态芯片（renderer-only store） */
   pluginBadges?: PluginBadgeSnapshot;
-  /** 侧栏收起时只留 icon，label 进 title */
+  /** OpenBot 72px 紧凑图标轨道态。 */
   compact?: boolean;
-  /** 侧栏被全屏设置/插件页遮挡时暂停低频内存采样 */
+  /** 完全关闭（0px）态：暂停轮询采样。 */
+  closed?: boolean;
+  /** 侧栏被全屏设置/插件页遮挡时暂停低频内存采样。 */
   paused?: boolean;
+  searchFocusToken?: number;
+  onExpandFromCompact?: () => void;
+  onToggleCompact?: () => void;
   onRenameGroup: (id: string, name: string) => void;
   onRemoveGroup: (id: string) => void;
   onToggleGroup: (id: string, collapsed: boolean) => void;
@@ -92,7 +96,11 @@ export function EnvironmentSidebar({
   onRunPluginAction,
   pluginBadges,
   compact = false,
+  closed = false,
   paused = false,
+  searchFocusToken = 0,
+  onExpandFromCompact,
+  onToggleCompact,
   onRenameGroup,
   onRemoveGroup,
   onToggleGroup,
@@ -100,16 +108,26 @@ export function EnvironmentSidebar({
 }: Props) {
   const [query, setQuery] = useState('');
   const [memorySnap, setMemorySnap] = useState<MemorySnapshot | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [ungroupedCollapsed, setUngroupedCollapsed] = useState(
     () => localStorage.getItem(UNGROUPED_COLLAPSED_KEY) === '1',
   );
+
   useEffect(() => {
     localStorage.setItem(UNGROUPED_COLLAPSED_KEY, ungroupedCollapsed ? '1' : '0');
   }, [ungroupedCollapsed]);
 
-  // 侧栏可见时每 15s 静默采样一次内存摘要；收起、隐藏或被全屏页覆盖时暂停
   useEffect(() => {
-    if (compact || paused || typeof window === 'undefined' || !window.envApi?.memorySnapshot) return;
+    if (!searchFocusToken || compact || closed) return;
+    const frame = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchFocusToken, compact, closed]);
+
+  // 侧栏可见时每 15s 静默采样一次内存摘要；隐藏或被全屏页覆盖时暂停
+  useEffect(() => {
+    if (closed || paused || typeof window === 'undefined' || !window.envApi?.memorySnapshot) return;
     let active = true;
     const pull = () => {
       if (document.hidden) return;
@@ -131,7 +149,7 @@ export function EnvironmentSidebar({
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [compact, paused]);
+  }, [closed, paused]);
 
   const openMemoryQuickPopover = (event: MouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -150,7 +168,6 @@ export function EnvironmentSidebar({
     });
   };
 
-  // 正常水位下保持静默中性色，仅在偏高 / 高压时点亮告警色
   const memoryTone: StatusDotTone =
     memorySnap?.pressure === 'high' ? 'error' : memorySnap?.pressure === 'elevated' ? 'warning' : 'idle';
 
@@ -168,72 +185,102 @@ export function EnvironmentSidebar({
   const runningCount = environments.filter((env) => env.status === 'running').length;
 
   return (
-    <Sidebar collapsible="none" className="h-full w-full min-w-0" data-collapsed="false">
-      <SidebarHeader className="flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center px-2 py-0">
-        <div className="flex w-full items-center gap-1.5">
-          <div className="relative min-w-0 flex-1">
-            <Icon
-              name="Search"
-              className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <SidebarInput
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索环境…"
-              aria-label="搜索环境"
-              className="h-[var(--control-height-icon)] border-border/80 bg-[var(--chrome-field-fill)] pr-6 pl-7 text-xs shadow-none focus-visible:border-focus"
-            />
-            {query && (
-              <button
-                type="button"
-                aria-label="清空环境搜索"
-                onClick={() => setQuery('')}
-                className="absolute top-1/2 right-1.5 flex size-4 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+    <Sidebar
+      collapsible="none"
+      className="h-full w-full min-w-0 bg-sidebar"
+      data-collapsed={compact ? 'true' : 'false'}
+      data-compact={compact ? 'true' : 'false'}
+    >
+      <SidebarHeader
+        className={cn(
+          'flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center border-b border-border py-0',
+          compact ? 'justify-center px-2' : 'px-2',
+        )}
+      >
+        {compact ? (
+          <div className="flex w-full items-center justify-center gap-1">
+            <ActionTooltip label="展开并搜索环境" side="right">
+              <IconButton
+                variant="ghost"
+                data-slot="sidebar-compact-search"
+                aria-label="展开并搜索环境"
+                onClick={onExpandFromCompact ?? onToggleCompact}
               >
-                <Icon name="X" className="size-3" />
-              </button>
-            )}
+                <Icon name="Search" />
+              </IconButton>
+            </ActionTooltip>
           </div>
-          <IconButton
-            variant="secondary"
-            data-slot="sidebar-create-env"
-            title="新建环境"
-            aria-label="新建环境"
-            className="border border-border/80"
-            onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
-          >
-            <Icon name="Plus" />
-          </IconButton>
-        </div>
+        ) : (
+          <div className="flex w-full items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Icon
+                name="Search"
+                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+              />
+              <SidebarInput
+                ref={searchInputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索环境…"
+                aria-label="搜索环境"
+                className="h-[var(--control-height-icon)] rounded-[var(--control-radius)] border-border-strong bg-control pr-6 pl-7 text-xs shadow-none focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]"
+              />
+              {query && (
+                <button
+                  type="button"
+                  aria-label="清空环境搜索"
+                  onClick={() => setQuery('')}
+                  className="absolute top-1/2 right-1.5 flex size-4 -translate-y-1/2 items-center justify-center rounded-[var(--radius-xs)] text-muted-foreground transition-none hover:bg-surface-hover hover:text-foreground"
+                >
+                  <Icon name="X" className="size-3" />
+                </button>
+              )}
+            </div>
+            <ActionTooltip label="新建环境" side="bottom">
+              <IconButton
+                variant="outline"
+                data-slot="sidebar-create-env"
+                aria-label="新建环境"
+                onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
+              >
+                <Icon name="Plus" />
+              </IconButton>
+            </ActionTooltip>
+          </div>
+        )}
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className={cn(compact && 'px-1.5 py-2')}>
         {!ready && environments.length === 0 && (
-          <div data-slot="sidebar-loading" aria-busy="true" className="flex flex-col gap-1.5 px-2 py-2">
-            <Skeleton className="h-[var(--control-height-compact)] w-full opacity-60" />
-            <Skeleton className="h-[var(--control-height-compact)] w-5/6 opacity-45" />
-            <Skeleton className="h-[var(--control-height-compact)] w-2/3 opacity-30" />
+          <div
+            data-slot="sidebar-loading"
+            aria-busy="true"
+            className={cn('flex flex-col gap-1.5 py-2', compact ? 'items-center px-0' : 'px-2')}
+          >
+            <Skeleton className={cn(compact ? 'size-9 rounded-[var(--radius-lg)]' : 'h-8 w-full', 'opacity-60')} />
+            <Skeleton className={cn(compact ? 'size-9 rounded-[var(--radius-lg)]' : 'h-8 w-5/6', 'opacity-45')} />
+            <Skeleton className={cn(compact ? 'size-9 rounded-[var(--radius-lg)]' : 'h-8 w-2/3', 'opacity-30')} />
           </div>
         )}
 
-        {ready && environments.length === 0 && (
-          <p className="px-3 py-6 text-center text-xs text-muted-foreground">还没有环境。点上方「新建环境」开始。</p>
+        {ready && environments.length === 0 && !compact && (
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">还没有环境。点上方「+」新建开始。</p>
         )}
 
-        {environments.length > 0 && filtered.length === 0 && (
+        {environments.length > 0 && filtered.length === 0 && !compact && (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">没有匹配「{query}」的环境。</p>
         )}
 
         {buckets.map((bucket) => {
           const group = bucket.group;
-          const collapsed = group ? group.collapsed : ungroupedCollapsed;
+          const collapsed = !compact && (group ? group.collapsed : ungroupedCollapsed);
           const toggle = () => (group ? onToggleGroup(group.id, !collapsed) : setUngroupedCollapsed(!collapsed));
           const running = bucket.environments.filter((env) => env.status === 'running').length;
 
           return (
             <SidebarGroup
               key={bucket.key}
-              className="py-0.5"
+              className={cn(compact ? 'px-0 py-0.5' : 'py-0.5')}
               onContextMenu={
                 group
                   ? (event) =>
@@ -246,17 +293,19 @@ export function EnvironmentSidebar({
                   : undefined
               }
             >
-              <SidebarGroupHeader
-                title={group?.name ?? '未分组'}
-                count={bucket.environments.length}
-                runningCount={running}
-                collapsed={collapsed}
-                onToggle={toggle}
-              />
+              {!compact && (
+                <SidebarGroupHeader
+                  title={group?.name ?? '未分组'}
+                  count={bucket.environments.length}
+                  runningCount={running}
+                  collapsed={collapsed}
+                  onToggle={toggle}
+                />
+              )}
 
               <div className={disclosureShellClassName(!collapsed)}>
                 <SidebarGroupContent className={disclosureInnerClassName()} inert={collapsed}>
-                  <ul className="mt-0.5 flex flex-col gap-0.5">
+                  <ul className={cn('flex flex-col', compact ? 'items-center gap-1' : 'mt-0.5 gap-0.5')}>
                     {bucket.environments.map((env) => (
                       <SidebarEnvRow
                         key={env.id}
@@ -282,7 +331,7 @@ export function EnvironmentSidebar({
                         }
                       />
                     ))}
-                    {bucket.environments.length === 0 && (
+                    {!compact && bucket.environments.length === 0 && (
                       <li className="px-2 py-1.5 text-xs text-muted-foreground">空分组</li>
                     )}
                   </ul>
@@ -293,15 +342,54 @@ export function EnvironmentSidebar({
         })}
       </SidebarContent>
 
-      <SidebarFooter>
-        <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate tabular-nums">
-            {!ready && environments.length === 0
-              ? '正在加载环境…'
-              : `${runningCount} 运行 / ${environments.length} 环境`}
-          </span>
-          <div className="ml-auto flex shrink-0 items-center gap-0.5">
-            {!compact && (
+      <SidebarFooter className="border-t border-border">
+        {compact ? (
+          <div className="flex flex-col items-center gap-1 py-1.5">
+            <ActionTooltip label="新建环境" side="right">
+              <IconButton
+                variant="ghost"
+                data-slot="sidebar-create-env"
+                aria-label="新建环境"
+                className="size-8"
+                onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
+              >
+                <Icon name="Plus" />
+              </IconButton>
+            </ActionTooltip>
+            <ActionTooltip
+              label={memorySnap ? `内存 ${formatMemoryKb(memorySnap.totalMemoryKb)}` : '查看内存占用'}
+              side="right"
+            >
+              <button
+                type="button"
+                data-slot="sidebar-memory-capsule"
+                aria-label="查看内存占用与一键休眠"
+                onClick={openMemoryQuickPopover}
+                className={cn(
+                  listItemInteractiveClass,
+                  'relative inline-flex size-8 items-center justify-center text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Icon name="Activity" className="size-4" />
+                <StatusDot tone={memoryTone} className="absolute top-1.5 right-1.5 ring-1 ring-sidebar" />
+              </button>
+            </ActionTooltip>
+            {onToggleCompact ? (
+              <ActionTooltip label="展开侧栏" side="right">
+                <IconButton variant="ghost" aria-label="展开侧栏" className="size-8" onClick={onToggleCompact}>
+                  <Icon name="PanelLeftOpen" />
+                </IconButton>
+              </ActionTooltip>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
+            <span className="min-w-0 truncate tabular-nums">
+              {!ready && environments.length === 0
+                ? '正在加载环境…'
+                : `${runningCount} 运行 / ${environments.length} 环境`}
+            </span>
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
               <button
                 type="button"
                 data-slot="sidebar-memory-capsule"
@@ -310,23 +398,24 @@ export function EnvironmentSidebar({
                 onClick={openMemoryQuickPopover}
                 className={cn(
                   listItemInteractiveClass,
-                  'inline-flex h-6 items-center gap-1.5 border border-border/70 bg-surface-elevated/60 px-2 font-mono text-[11px] tabular-nums text-muted-foreground hover:text-foreground',
+                  'inline-flex h-6 items-center gap-1.5 border border-border-strong bg-control px-2 font-mono text-[11px] tabular-nums text-muted-foreground hover:text-foreground',
                 )}
               >
                 <StatusDot tone={memoryTone} />
                 <span>{memorySnap ? formatMemoryKb(memorySnap.totalMemoryKb) : '内存'}</span>
               </button>
-            )}
-            <IconButton
-              variant="ghost"
-              title="新建分组"
-              aria-label="新建分组"
-              onClick={() => void window.envApi.openOverlay({ kind: 'create-group' })}
-            >
-              <Icon name="FolderPlus" />
-            </IconButton>
+              <ActionTooltip label="新建分组" side="top">
+                <IconButton
+                  variant="ghost"
+                  aria-label="新建分组"
+                  onClick={() => void window.envApi.openOverlay({ kind: 'create-group' })}
+                >
+                  <Icon name="FolderPlus" />
+                </IconButton>
+              </ActionTooltip>
+            </div>
           </div>
-        </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );

@@ -37,9 +37,9 @@ function MenuItem({ className, destructive = false, type = "button", ...props }:
       data-slot="menu-item"
       className={cn(
         menuItemInteractiveClass,
-        "flex w-full cursor-pointer items-center px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-left text-sm leading-[18px]",
+        "flex min-h-[30px] w-full cursor-pointer items-center px-2.5 py-1.5 text-left text-[13px] leading-[18px]",
         destructive &&
-          "text-destructive opacity-100 hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive",
+          "text-danger-text hover:bg-danger-soft hover:text-danger-text focus:bg-danger-soft focus:text-danger-text data-highlighted:bg-danger-soft data-highlighted:text-danger-text",
         className,
       )}
       {...props}

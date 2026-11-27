@@ -4,59 +4,51 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * Product button (single visual source under components/ui).
+ * 产品按钮单源（OpenBot 扁平精密体系）。
  *
- * Geometry from shared control tokens (`--control-height*`, `--control-pad-*`,
- * `--control-radius*`) — not hard-coded per component.
- * Call sites omit `size` (DEFAULT). Prefer `<IconButton>` for icon-only.
- * Stock baseline: components/ui-reference/button.tsx (do not import).
+ * - 7 种语义变体（新增 `destructive-ghost`）；
+ * - 零外投影、0ms 悬停响应、`active:scale-[0.97]` 按压微缩；
+ * - 1px 中性发丝焦点环，绝不发蓝光晕。
  */
 const buttonVariants = cva(
   cn(
-    "group/button inline-flex shrink-0 items-center justify-center bg-clip-padding text-sm font-normal whitespace-nowrap transition-[background-color,border-color,color,box-shadow,transform] duration-150 select-none [corner-shape:var(--corner-shape)]",
-    // Borderless chrome by default; outline adds real border + raised highlight.
+    "group/button inline-flex shrink-0 items-center justify-center bg-clip-padding text-[13px] font-medium whitespace-nowrap select-none",
+    "transition-[transform] duration-100 ease-out",
     "border border-transparent shadow-none outline-none",
-    // Split/group surfaces need a real edge so ButtonGroup can join corners.
-    "in-data-[slot=button-group]:border-border",
-    "focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-transparent focus-visible:border-focus",
-    "active:scale-[0.98] motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-40",
-    "aria-invalid:border-destructive",
+    "in-data-[slot=button-group]:border-border-strong",
+    "focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-transparent focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]",
+    "active:scale-[0.97] motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-40",
+    "aria-invalid:border-danger-border",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   ),
   {
     variants: {
       variant: {
         default:
-          "bg-foreground text-background [box-shadow:var(--shadow-raised)] hover:bg-foreground/88 active:bg-foreground/78 aria-expanded:bg-foreground/88",
-        // Secondary: soft wash — low-weight chip without hard border.
+          "bg-primary text-primary-foreground hover:opacity-90 active:opacity-82 aria-expanded:opacity-90",
         secondary:
-          "bg-surface-fog text-foreground hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
-        // Outline: crisp raised tactile key with optically uniform 4-side border.
+          "bg-control text-foreground hover:bg-control-hover active:bg-control-active aria-expanded:bg-control-hover",
         outline:
-          "border-border-heavy/80 bg-surface-elevated/90 text-foreground [box-shadow:var(--shadow-chip)] hover:bg-surface-hover active:bg-surface-active aria-expanded:bg-surface-hover",
+          "border-border-strong bg-control text-foreground hover:bg-control-hover active:bg-control-active aria-expanded:bg-control-hover",
         ghost:
-          // Do not force text-foreground when expanded — colored triggers (e.g. Full access)
-          // must keep their semantic color while open.
-          "bg-transparent text-subtle-foreground hover:bg-surface-hover hover:text-foreground active:bg-surface-active aria-expanded:bg-surface-hover",
+          "bg-transparent text-muted-foreground hover:bg-surface-hover hover:text-foreground active:bg-surface-active aria-expanded:bg-surface-hover",
         destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 active:bg-destructive/25",
-        link: "rounded-none bg-transparent text-foreground underline-offset-4 hover:underline active:opacity-80",
+          "bg-danger-soft text-danger-text hover:bg-danger-soft-hover active:bg-danger-soft-hover",
+        "destructive-ghost":
+          "bg-transparent text-danger-text hover:bg-danger-soft active:bg-danger-soft-hover",
+        link: "rounded-none bg-transparent text-accent-text underline-offset-4 hover:underline active:opacity-80 active:scale-100",
       },
       size: {
-        // DEFAULT — default filled action.
         default:
-          "h-[var(--control-height)] min-h-[var(--control-height)] gap-1 rounded-[var(--control-radius)] px-[var(--control-pad-x)] py-[var(--control-pad-y)] text-sm leading-[18px]",
-        // Scale down: list/toolbar text row (~29).
-        sm: "h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] gap-1 rounded-[var(--control-radius)] px-[var(--control-pad-x-compact)] text-sm leading-[18px] in-data-[slot=button-group]:rounded-[var(--control-radius)]",
-        xs: "h-6 gap-1 rounded-[var(--control-radius-icon)] px-2 text-xs leading-[16px] in-data-[slot=button-group]:rounded-[var(--control-radius)]",
-        // Scale up: rare pill CTA.
-        lg: "h-auto min-h-[var(--control-height)] gap-1.5 rounded-full px-5 py-2 text-base leading-[18px]",
-        // Icon ladder (radius-md ≈ 10). default icon = toolbar 26.
-        icon: "size-[var(--control-height-icon)] rounded-[var(--control-radius)] p-0 [&_svg:not([class*='size-'])]:size-4",
+          "h-[var(--control-height)] min-h-[var(--control-height)] gap-1.5 rounded-[var(--control-radius)] px-[var(--control-pad-x)] py-[var(--control-pad-y)] text-[13px] leading-[18px]",
+        sm: "h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] gap-1 rounded-[var(--control-radius)] px-2.5 text-[12px] leading-[16px] in-data-[slot=button-group]:rounded-[var(--control-radius)]",
+        xs: "h-[var(--control-size-xs)] gap-1 rounded-[var(--radius-sm)] px-2 text-[12px] leading-[16px] in-data-[slot=button-group]:rounded-[var(--control-radius)]",
+        lg: "h-[var(--control-size-lg)] min-h-[var(--control-size-lg)] gap-1.5 rounded-[var(--radius-lg)] px-4 text-[14px] leading-[20px]",
+        icon: "size-[var(--control-height-icon)] rounded-[var(--control-radius-icon)] p-0 [&_svg:not([class*='size-'])]:size-4",
         "icon-sm":
-          "size-[var(--control-height-icon-compact)] rounded-[var(--control-radius)] p-0 in-data-[slot=button-group]:rounded-[var(--control-radius)] [&_svg:not([class*='size-'])]:size-3.5",
+          "size-[var(--control-height-icon-compact)] rounded-[var(--radius-sm)] p-0 in-data-[slot=button-group]:rounded-[var(--control-radius)] [&_svg:not([class*='size-'])]:size-3.5",
         "icon-xs":
-          "size-[var(--control-height-icon-dense)] rounded-[var(--control-radius-icon)] p-0 in-data-[slot=button-group]:rounded-[var(--control-radius)] [&_svg:not([class*='size-'])]:size-3",
+          "size-[var(--control-height-icon-dense)] rounded-[var(--radius-sm)] p-0 in-data-[slot=button-group]:rounded-[var(--control-radius)] [&_svg:not([class*='size-'])]:size-3",
         "icon-lg":
           "size-[var(--control-height-icon-roomy)] rounded-[var(--control-radius)] p-0 [&_svg:not([class*='size-'])]:size-4",
       },
@@ -80,10 +72,7 @@ function Button({ className, variant = "default", size = "default", ...props }: 
   );
 }
 
-/**
- * Icon-only control. Default = header chrome icon (28 / r12.5 / glyph 16).
- * Call sites should omit `size`.
- */
+/** 图标按钮单源（默认 28×28、8px 圆角、16px 图标）。 */
 function IconButton({ className, variant = "ghost", size = "icon", ...props }: ButtonProps) {
   return (
     <ButtonPrimitive

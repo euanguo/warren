@@ -29,6 +29,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   controlPolicy: 'ask',
   pluginPolicy: 'ask',
   theme: 'dark',
+  skin: 'neutral',
+  skinOverrides: {},
   compactTopbar: false,
   pageBorderRadius: true,
   devtoolsDefaultDock: 'right',

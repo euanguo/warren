@@ -48,15 +48,18 @@
 
   html {
     @apply font-sans;
+    font-synthesis: none;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-frame text-foreground antialiased;
     margin: 0;
     overflow: hidden;
   }
 
-  /* OverlayHost / PopoverHost 独立渲染表面需要全透底，防止透明圆角边缘透出窗体底色 */
+  /* OverlayHost / PopoverHost 独立渲染表面必须保持全透底，防止圆角外缘透出窗体底色 */
   html[data-surface='overlay'],
   html[data-surface='overlay'] body,
   html[data-surface='popover'],
@@ -65,48 +68,26 @@
   }
 }
 
-/*
- * Product scrollbar chrome (native scrollers: Legend transcript, overflow panels).
- *
- * Track is slightly wider than classic 10px for grabability next to panel resize
- * rails (`--app-resize-rail-size`, half overhang into the center).
- * `--app-scrollbar-edge-gap` keeps the bar a hair off the seam so drag-resize and
- * scroll-drag don't fight. Native scrollers use `.product-scroller` (margin-end);
- * conversation timeline uses the same token as padding-end.
- *
- * Do NOT set `scrollbar-width: thin` — Chromium then ignores our track width.
- * Thumb uses background-color + transparent border + background-clip:padding-box
- * (never the `background` shorthand) so inset survives hover/theme overrides.
- */
+/* ============================================================================
+ * 细长克制滚动条（8px）
+ * ============================================================================ */
 :root {
-  /* Slightly above classic 10px — thin enough not to dominate the seam. */
-  --app-scrollbar-size: 12px;
-  /*
-   * Only for native center transcript (resize-rail air). Do NOT apply to
-   * ScrollArea list panes — inset there leaves a dead strip that fights row hover.
-   */
+  --app-scrollbar-size: 8px;
   --app-scrollbar-edge-gap: 2px;
   --app-scrollbar-thumb-inset: 2px;
-  /* Fallback tokens for ScrollArea / Firefox; webkit uses explicit light/dark below. */
-  --app-scrollbar-thumb: rgba(0, 0, 0, 0.1);
-  --app-scrollbar-thumb-hover: rgba(0, 0, 0, 0.18);
-
-  /*
-   * Side-panel resize rail: hit box straddles the 1px seam, half into each side.
-   * Keep left/right identical so both seams feel the same.
-   */
-  --app-resize-rail-size: 12px;
-  --app-resize-rail-overhang: 6px;
+  --app-scrollbar-thumb: rgba(20, 20, 20, 0.14);
+  --app-scrollbar-thumb-hover: rgba(20, 20, 20, 0.26);
+  --app-resize-rail-size: 16px;
+  --app-resize-rail-overhang: 8px;
 }
 
 :root.dark,
 :root[data-theme='dark'],
 .dark {
-  --app-scrollbar-thumb: rgba(255, 255, 255, 0.07);
-  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
 }
 
-/* Optional helper for native scrollports that need a hair of end air (transcript). */
 .product-scroller {
   box-sizing: border-box;
   margin-inline-end: var(--app-scrollbar-edge-gap);
@@ -124,41 +105,27 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--app-scrollbar-thumb);
   border: var(--app-scrollbar-thumb-inset) solid transparent;
   background-clip: padding-box;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.18);
-}
-
-:root.dark ::-webkit-scrollbar-thumb,
-:root[data-theme='dark'] ::-webkit-scrollbar-thumb,
-.dark ::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.07);
-}
-
-:root.dark ::-webkit-scrollbar-thumb:hover,
-:root[data-theme='dark'] ::-webkit-scrollbar-thumb:hover,
-.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.14);
+  background-color: var(--app-scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-/* Firefox-only: no webkit pseudos. Keep auto width (not thin) + token colors. */
 @supports not selector(::-webkit-scrollbar) {
   * {
-    scrollbar-width: auto;
+    scrollbar-width: thin;
     scrollbar-color: var(--app-scrollbar-thumb) transparent;
   }
 }
 
-/* Horizontal chip strips (tabs) — fade utility owns overflow chrome, hide bar. */
 .scroll-fade-x {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -170,50 +137,321 @@
   height: 0;
 }
 
-/* corner profile: radius px + superellipse(1.5). Circular arcs look rounder at same px. */
-@layer base {
-  /* Product chrome: any slotted control / floating surface. */
-  [data-slot],
-  button,
-  input,
-  textarea,
-  select,
-  kbd,
-  [role='tooltip'],
-  [role='dialog'],
-  [role='menu'],
-  [role='listbox'],
-  [role='combobox'] {
-    corner-shape: var(--corner-shape, superellipse(1.5));
-  }
+/* ============================================================================
+ * 拖拽调整时冻结布局过渡（html.panel-resizing）
+ * ============================================================================ */
+html.panel-resizing {
+  --panel-resize-duration: 0ms !important;
+  cursor: col-resize !important;
+  user-select: none !important;
+}
 
-  /* True pills / avatars stay geometric circles. */
-  .rounded-full,
-  [class*='rounded-full'],
-  [data-slot='avatar'],
-  [data-slot='avatar-fallback'],
-  [data-slot='avatar-image'],
-  [data-slot='switch'],
-  [data-slot='switch-thumb'],
-  [data-slot='radio-group-item'] {
-    corner-shape: round;
+html.panel-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* ============================================================================
+ * OpenBot 风格 PanelResizer（16px 隐形热区 + 悬停 1px 渐隐竖线）
+ * ============================================================================ */
+.warren-panel-resizer {
+  position: relative;
+  z-index: 15;
+  width: 0;
+  height: 100%;
+  flex-shrink: 0;
+  touch-action: none;
+  outline: none;
+}
+
+.warren-panel-resizer-hit {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: -8px;
+  width: 16px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.warren-panel-resizer-line {
+  width: 1px;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--subtle-foreground) 55%, transparent) 14%,
+    color-mix(in srgb, var(--subtle-foreground) 55%, transparent) 86%,
+    transparent 100%
+  );
+  transition: opacity 150ms var(--ease-out);
+}
+
+.warren-panel-resizer:hover .warren-panel-resizer-line,
+.warren-panel-resizer:focus-visible .warren-panel-resizer-line,
+.warren-panel-resizer[data-dragging='true'] .warren-panel-resizer-line {
+  opacity: 1;
+}
+
+.warren-panel-resizer[data-dragging='true'] .warren-panel-resizer-line {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--foreground) 45%, transparent) 12%,
+    color-mix(in srgb, var(--foreground) 45%, transparent) 88%,
+    transparent 100%
+  );
+}
+
+/* ============================================================================
+ * 顶栏凹角无界滑动标签背景（OpenBot TabShape 流体拖拽回弹）
+ * ============================================================================ */
+.warren-tab-shape {
+  --tab-fillet: 10px;
+  --tab-top-radius: 10px;
+  --tab-dur: 210ms;
+  --tab-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tab-left-delay: 0ms;
+  --tab-right-delay: 0ms;
+  position: absolute;
+  top: var(--tab-shape-top, 4px);
+  bottom: 0;
+  left: var(--tab-shape-left, 0px);
+  right: var(--tab-shape-right, 100%);
+  border-radius: var(--tab-top-radius) var(--tab-top-radius) 0 0;
+  background-color: var(--bg-canvas);
+  pointer-events: none;
+  z-index: 0;
+  transition:
+    left var(--tab-dur) var(--tab-ease) var(--tab-left-delay),
+    right var(--tab-dur) var(--tab-ease) var(--tab-right-delay),
+    opacity 120ms ease;
+}
+
+.warren-tab-shape[data-ready='false'] {
+  opacity: 0;
+  transition: none;
+}
+
+.warren-tab-shape[data-instant='true'] {
+  transition: none;
+}
+
+.warren-tab-shape::before,
+.warren-tab-shape::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: var(--tab-fillet);
+  height: var(--tab-fillet);
+  pointer-events: none;
+}
+
+.warren-tab-shape::before {
+  left: calc(var(--tab-fillet) * -1);
+  background: radial-gradient(
+    circle at 0 0,
+    transparent calc(var(--tab-fillet) - 0.5px),
+    var(--bg-canvas) calc(var(--tab-fillet) + 0.25px)
+  );
+}
+
+.warren-tab-shape::after {
+  right: calc(var(--tab-fillet) * -1);
+  background: radial-gradient(
+    circle at 100% 0,
+    transparent calc(var(--tab-fillet) - 0.5px),
+    var(--bg-canvas) calc(var(--tab-fillet) + 0.25px)
+  );
+}
+
+/* ============================================================================
+ * 边缘渐隐滚动遮罩（替代左右翻页箭头）
+ * ============================================================================ */
+.warren-fade-x[data-fade-start='true'][data-fade-end='false'] {
+  mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 100%);
+}
+
+.warren-fade-x[data-fade-start='false'][data-fade-end='true'] {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
+}
+
+.warren-fade-x[data-fade-start='true'][data-fade-end='true'] {
+  mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+}
+
+/* ============================================================================
+ * 滑动胶囊 Tabs 指示条
+ * ============================================================================ */
+.warren-sliding-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background-color: var(--tabs-pill-bg);
+  pointer-events: none;
+  z-index: 0;
+  transition:
+    transform var(--duration-tabs) var(--ease-slide),
+    width var(--duration-tabs) var(--ease-slide),
+    opacity 120ms ease;
+}
+
+[data-initializing='true'] > .warren-sliding-pill {
+  transition: none;
+}
+
+/* ============================================================================
+ * 核心物理动效 keyframes
+ * ============================================================================ */
+@keyframes warren-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 
-/* 身份与插件微彩系统（工具静 · 身份彩） */
+@keyframes warren-tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes warren-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes warren-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes warren-side-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.warren-page-enter {
+  animation: warren-page-in 220ms var(--ease-out) both;
+}
+
+.warren-tab-enter {
+  animation: warren-tab-in 150ms var(--ease-out) both;
+}
+
+.warren-dialog-enter {
+  animation: warren-dialog-in 180ms var(--ease-out) both;
+}
+
+.warren-menu-enter {
+  animation: warren-menu-in var(--duration-menu) var(--ease-menu) both;
+}
+
+.warren-side-panel-enter {
+  animation: warren-side-panel-in 200ms var(--ease-out) both;
+}
+
+/* ============================================================================
+ * 主题 / 皮肤切换 View Transition 径向波纹
+ * ============================================================================ */
+@keyframes warren-theme-sweep {
+  from {
+    clip-path: circle(0px at var(--theme-sweep-x, 50%) var(--theme-sweep-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--theme-sweep-r, 150vmax) at var(--theme-sweep-x, 50%) var(--theme-sweep-y, 50%));
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+html[data-theme-sweep='active']::view-transition-new(root) {
+  animation: warren-theme-sweep 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  z-index: 2;
+}
+
+html[data-theme-sweep='active']::view-transition-old(root) {
+  z-index: 1;
+}
+
+/* ============================================================================
+ * 减弱动态效果无障碍兜底
+ * ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .warren-page-enter,
+  .warren-tab-enter,
+  .warren-dialog-enter,
+  .warren-menu-enter,
+  .warren-side-panel-enter,
+  .warren-tab-shape,
+  .warren-sliding-pill {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  :root {
+    --panel-resize-duration: 0ms;
+    --motion-disclosure-duration: 0ms;
+  }
+}
+
+/* ============================================================================
+ * 身份与插件微彩系统（工具静 · 身份彩）
+ * ============================================================================ */
 .env-identity-chip {
-  background-color: hsl(var(--env-hue, 210) 62% 46% / 0.16);
+  background-color: hsl(var(--env-hue, 210) 62% 46% / 0.14);
   color: hsl(var(--env-hue, 210) 74% 30%);
-  border: 1px solid hsl(var(--env-hue, 210) 58% 40% / 0.36);
-  box-shadow: inset 0 0 0 1px hsl(var(--env-hue, 210) 58% 40% / 0.12);
+  border: 1px solid hsl(var(--env-hue, 210) 58% 40% / 0.3);
 }
 
 :root.dark .env-identity-chip,
 :root[data-theme='dark'] .env-identity-chip {
-  background-color: hsl(var(--env-hue, 210) 76% 62% / 0.17);
+  background-color: hsl(var(--env-hue, 210) 76% 62% / 0.16);
   color: hsl(var(--env-hue, 210) 88% 78%);
-  border-color: hsl(var(--env-hue, 210) 78% 64% / 0.34);
-  box-shadow: none;
+  border-color: hsl(var(--env-hue, 210) 78% 64% / 0.3);
 }
 
 .plugin-brand-icon {
@@ -226,23 +464,23 @@
 }
 
 .plugin-brand-chip {
-  background-color: hsl(var(--brand-hue, 215) 70% 48% / 0.14);
+  background-color: hsl(var(--brand-hue, 215) 70% 48% / 0.12);
   color: hsl(var(--brand-hue, 215) 74% 34%);
-  border: 1px solid hsl(var(--brand-hue, 215) 68% 46% / 0.28);
+  border: 1px solid hsl(var(--brand-hue, 215) 68% 46% / 0.24);
 }
 
 :root.dark .plugin-brand-chip,
 :root[data-theme='dark'] .plugin-brand-chip {
-  background-color: hsl(var(--brand-hue, 215) 78% 62% / 0.15);
+  background-color: hsl(var(--brand-hue, 215) 78% 62% / 0.14);
   color: hsl(var(--brand-hue, 215) 86% 76%);
-  border-color: hsl(var(--brand-hue, 215) 78% 64% / 0.28);
+  border-color: hsl(var(--brand-hue, 215) 78% 64% / 0.26);
 }
 
 .warren-brand-aura {
   background: radial-gradient(
     circle at 50% 48%,
-    color-mix(in oklab, var(--theme-accent) 18%, transparent) 0%,
-    color-mix(in oklab, var(--theme-accent) 7%, transparent) 38%,
+    color-mix(in srgb, var(--accent-seed) 16%, transparent) 0%,
+    color-mix(in srgb, var(--accent-seed) 6%, transparent) 38%,
     transparent 68%
   );
 }

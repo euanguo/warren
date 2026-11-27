@@ -1,5 +1,3 @@
-"use client";
-
 import type { KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { useRef } from "react";
 
@@ -23,20 +21,16 @@ function isSurfaceTabActionTarget(target: EventTarget | null): boolean {
 export type SurfaceTabProps = Readonly<{
   label: string;
   active?: boolean;
-  icon?: ReactNode;
   /**
-   * 标签上的第二个控件（当前只有「有声 / 静音」的喇叭）。
-   *
-   * 不能塞进 `icon` 里：标签可关闭时 `icon` 整个被包进关闭按钮里，再放一个
-   * `<button>` 就是 button 套 button（无效结构，实测 `button button` 命中 1）。
-   * 这个槽位和关闭键一样是 `SurfaceTabAction` 的兄弟节点，结构合法。
+   * `chip`：默认扁平标签芯片（右侧检视器 / 面板子标签）；
+   * `chrome`：顶栏凹角无界浏览器标签，激活态透明叠在 `<TabShape />` 之上融进主画布卡片。
    */
+  variant?: "chip" | "chrome";
+  icon?: ReactNode;
   iconAction?: ReactNode;
-  /** Icon-only chip (label remains for a11y via title / sr-only). */
   iconOnly?: boolean;
   title?: string;
   closeLabel?: string;
-  /** Preview tabs render italic title and can be pinned via double-click. */
   isPreview?: boolean;
   onSelect?: () => void;
   onClose?: () => void;
@@ -46,13 +40,10 @@ export type SurfaceTabProps = Readonly<{
   labelClassName?: string;
 }>;
 
-/**
- * Flat shell tab chip for center content strips and inspector pane tabs.
- * Visual single source — feature code must not hand-roll header tab chrome.
- */
 export function SurfaceTab({
   label,
   active = false,
+  variant = "chip",
   icon,
   iconAction,
   iconOnly = false,
@@ -118,7 +109,6 @@ export function SurfaceTab({
     onPin();
   };
 
-  /** 中键关闭：真实浏览器的习惯，标签条上按中键关掉这个标签。 */
   const handleAuxClick = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 1 || !canClose || isSurfaceTabActionTarget(event.target)) {
       return;
@@ -128,24 +118,34 @@ export function SurfaceTab({
     onClose?.();
   };
 
+  const isChrome = variant === "chrome";
+
   return (
     <div
       role="tab"
       tabIndex={onSelect ? 0 : undefined}
       title={resolvedTitle}
       data-slot="surface-tab"
+      data-variant={variant}
       data-state={active ? "active" : "idle"}
       data-preview={isPreview ? "true" : undefined}
       aria-selected={onSelect ? active : undefined}
       aria-label={iconOnly ? label : undefined}
       className={cn(
-        "group/surface-tab",
-        surfaceTabChipClass,
+        "group/surface-tab relative z-[1]",
+        isChrome
+          ? cn(
+              "inline-flex h-[32px] shrink-0 items-center gap-1.5 overflow-hidden rounded-t-[10px] border border-transparent text-[12px] font-medium transition-none select-none",
+              active
+                ? "bg-transparent text-foreground"
+                : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+              controlFocusClass,
+            )
+          : cn(surfaceTabChipClass, active && surfaceTabChipActiveClass),
         iconOnly && surfaceTabChipIconOnlyClass,
-        !iconOnly && canClose && hasIcon && "gap-1 pl-1.5 pr-2.5",
-        !iconOnly && canClose && !hasIcon && "gap-1 pl-2.5 pr-1",
+        !iconOnly && canClose && hasIcon && "gap-1.5 pl-2 pr-2.5",
+        !iconOnly && canClose && !hasIcon && "gap-1.5 pl-2.5 pr-1.5",
         !iconOnly && !canClose && "px-2.5",
-        active && surfaceTabChipActiveClass,
         onSelect && "cursor-pointer",
         className,
       )}
@@ -168,26 +168,20 @@ export function SurfaceTab({
           <span className="flex items-center justify-center transition-opacity group-hover/surface-tab:opacity-0 group-focus-within/surface-tab:opacity-0">
             {icon}
           </span>
-          <Icon name="X" className="absolute size-3.5 shrink-0 opacity-0 transition-opacity group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100" />
+          <Icon
+            name="X"
+            className="absolute size-3.5 shrink-0 opacity-0 transition-opacity group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100"
+          />
         </SurfaceTabAction>
       ) : hasIcon ? (
-        <span
-          className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5"
-          aria-hidden
-        >
+        <span className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5" aria-hidden>
           {icon}
         </span>
       ) : null}
       {iconAction}
       {iconOnly ? <span className="sr-only">{label}</span> : null}
       {!iconOnly ? (
-        <span
-          className={cn(
-            "flex min-w-0 items-center text-left",
-            isPreview && "italic",
-            labelClassName,
-          )}
-        >
+        <span className={cn("flex min-w-0 items-center text-left", isPreview && "italic", labelClassName)}>
           <span className="truncate">{label}</span>
         </span>
       ) : null}
@@ -213,7 +207,6 @@ export type SurfaceTabActionProps = Readonly<{
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }>;
 
-/** Nested icon control inside a surface tab (close / pin). */
 export function SurfaceTabAction({ label, children, className, onClick }: SurfaceTabActionProps) {
   return (
     <IconButton
@@ -225,7 +218,7 @@ export function SurfaceTabAction({ label, children, className, onClick }: Surfac
       data-surface-tab-action=""
       className={cn(
         controlFocusClass,
-        "relative text-subtle-foreground group-hover/surface-tab:bg-surface-hover group-focus-within/surface-tab:bg-surface-hover hover:bg-surface-active hover:text-foreground",
+        "relative text-muted-foreground group-hover/surface-tab:bg-surface-hover group-focus-within/surface-tab:bg-surface-hover hover:bg-surface-active hover:text-foreground",
         className,
       )}
       onClick={onClick}
@@ -241,7 +234,6 @@ export type SurfaceTabStripProps = Readonly<{
   "aria-label"?: string;
 }>;
 
-/** Horizontal scrolling host for surface tabs (ShellHeader main slot). */
 export function SurfaceTabStrip({
   children,
   className,

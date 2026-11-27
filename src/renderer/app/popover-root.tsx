@@ -556,7 +556,7 @@ export function MemoryQuickView() {
             topEnvs.map((env) => (
               <div
                 key={env.id}
-                className="flex items-center gap-2 rounded-[var(--control-radius)] border border-border/60 bg-surface-under/40 px-2 py-1.5"
+                className="flex items-center gap-2 rounded-[var(--control-radius)] border border-border bg-canvas px-2 py-1.5"
               >
                 <span className="min-w-0 flex-1 truncate font-medium" title={env.name}>
                   {env.name}

@@ -107,13 +107,12 @@ describe('图一：Tooltip 浅色/深色对比度与 reduced-transparency 契约
     expect(popup?.className).not.toContain('text-popover-foreground');
   });
 
-  it('theme-tokens.css 在浅色与 reduced-transparency 下均保持 tooltip 前景/背景成对定义', () => {
+  it('theme-tokens.css 在浅色、深色与 reduced-transparency 下保持 tooltip 前景/背景成对定义', () => {
     const css = readFileSync(path.join(ROOT, 'src/renderer/theme/theme-tokens.css'), 'utf8');
-    expect(css).toMatch(/--tooltip:\s*#181c26;/);
-    expect(css).toMatch(/--tooltip-foreground:\s*#f4f6fa;/);
-    expect(css).toMatch(
-      /prefers-reduced-transparency:\s*reduce[\s\S]*--tooltip:\s*var\(--popover\);[\s\S]*--tooltip-foreground:\s*var\(--popover-foreground\);/,
-    );
+    expect(css).toMatch(/--tooltip:\s*#1c1c1e;/);
+    expect(css).toMatch(/--tooltip-foreground:\s*#ffffff;/);
+    expect(css).toMatch(/--tooltip:\s*#2c2c2e;/);
+    expect(css).toMatch(/prefers-reduced-transparency:\s*reduce[\s\S]*--blur-tooltip:\s*0px;/);
   });
 });
 
@@ -182,15 +181,17 @@ describe('图二：顶栏多标签 + Agent 控制胶囊横向防溢出与红绿�
     expect(document.querySelectorAll('[data-slot="surface-tab"]').length).toBe(6);
   });
 
-  it('App.tsx 外层壳使用 overflow-clip 与 min-w-0 杜绝横向滚动偏位', () => {
+  it('App.tsx 外层壳使用 bg-frame + overflow-clip + 单一 14px 圆角工作区卡片', () => {
     const appSrc = readFileSync(path.join(ROOT, 'src/renderer/app/App.tsx'), 'utf8');
-    expect(appSrc).toContain('className="flex h-full w-full min-w-0 overflow-clip bg-surface-under');
-    expect(appSrc).toContain('className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-clip bg-surface-under"');
+    expect(appSrc).toContain('data-slot="app-frame"');
+    expect(appSrc).toContain('overflow-clip bg-frame');
+    expect(appSrc).toContain('data-slot="workbench-card"');
+    expect(appSrc).toContain('rounded-[var(--shell-card-radius)] border border-border bg-canvas');
   });
 });
 
-describe('图三：壳层背景统一（bg-surface-under）与冗余边框简化', () => {
-  it('地址栏、侧栏头部与分隔条符合统一底色与去冗余边框契约', () => {
+describe('图三：壳层扁平层次（bg-canvas / bg-sidebar / bg-control）与隐形分割条', () => {
+  it('地址栏、侧栏头部输入框与分隔条符合扁平发丝边框契约', () => {
     render(
       <TooltipProvider>
         <SidebarProvider>
@@ -248,15 +249,14 @@ describe('图三：壳层背景统一（bg-surface-under）与冗余边框简化
     );
 
     const addressBar = document.querySelector<HTMLElement>('[data-slot="address-bar"]');
-    expect(addressBar?.className).toContain('bg-surface-under');
-    expect(addressBar?.className).not.toContain('bg-background');
-    expect(addressBar?.className).not.toContain('border-b');
+    expect(addressBar?.className).toContain('bg-canvas');
+    expect(addressBar?.className).toContain('border-b');
 
     const sidebarHeader = document.querySelector<HTMLElement>('[data-slot="sidebar-header"]');
-    expect(sidebarHeader?.className).not.toContain('border-b');
+    expect(sidebarHeader?.className).toContain('border-b');
 
     const sidebarInput = document.querySelector<HTMLElement>('[data-slot="sidebar-input"]');
-    expect(sidebarInput?.className).toContain('bg-[var(--chrome-field-fill)]');
+    expect(sidebarInput?.className).toContain('bg-control');
 
     const handle = document.querySelector<HTMLElement>('[data-slot="resizable-handle"]');
     expect(handle?.className).toContain('after:bg-transparent');
@@ -451,23 +451,25 @@ describe('图五：侧栏环境行比例与 ListRowBody 紧凑排版', () => {
         />
       </ul>,
     );
-    expect(document.querySelector<HTMLElement>('[data-slot="env-identity-chip"]')?.className).toContain('size-5');
+    expect(document.querySelector<HTMLElement>('[data-slot="sidebar-compact-env"]')).not.toBeNull();
+    expect(document.querySelector<HTMLElement>('[data-slot="env-identity-chip"]')?.className).toContain('size-7');
 
     const css = readFileSync(path.join(ROOT, 'src/renderer/components/ui/list-row.module.css'), 'utf8');
     expect(css).toContain('gap: var(--list-row-body-gap, 2px);');
+    expect(css).not.toContain('corner-shape');
   });
 });
 
-describe('图六：SurfaceTab 左右光学对称与全库均匀边框（无双层顶边）', () => {
-  it('带图标可关闭标签不再误用 pr-1，激活态使用 --shadow-chip 保持四边均匀', () => {
+describe('图六：SurfaceTab 左右光学对称与 OpenBot 扁平控件无外投影契约', () => {
+  it('带图标可关闭标签左右边距光学对称，且无旧微立体外投影', () => {
     const { rerender } = render(
       <SurfaceTab label="form fixture" active icon={<span data-testid="ico" />} onSelect={vi.fn()} onClose={vi.fn()} />,
     );
     const tab = document.querySelector<HTMLElement>('[data-slot="surface-tab"]');
-    expect(tab?.className).toContain('pl-1.5');
+    expect(tab?.className).toContain('pl-2');
     expect(tab?.className).toContain('pr-2.5');
     expect(tab?.className).not.toMatch(/(^|\s)pr-1(\s|$)/);
-    expect(tab?.className).toContain('[box-shadow:var(--shadow-chip)]');
+    expect(tab?.className).not.toContain('--shadow-chip');
     expect(tab?.className).not.toContain('--shadow-raised');
 
     // 不可关闭时对称 px-2.5
@@ -475,7 +477,7 @@ describe('图六：SurfaceTab 左右光学对称与全库均匀边框（无双�
     expect(document.querySelector<HTMLElement>('[data-slot="surface-tab"]')?.className).toContain('px-2.5');
   });
 
-  it('扩散校验：TabsTrigger / SpaceSwitcher / Outline Button 同步切换为均匀 --shadow-chip', () => {
+  it('扩散校验：TabsTrigger / SpaceSwitcher / Outline Button 均符合零投影扁平契约', () => {
     render(
       <div>
         <Tabs value="a">
@@ -499,11 +501,12 @@ describe('图六：SurfaceTab 左右光学对称与全库均匀边框（无双�
     const thumb = document.querySelector<HTMLElement>('[data-slot="space-switcher-thumb"]');
     const outlineBtn = screen.getByRole('button', { name: '⌘K' });
 
-    expect(trigger?.className).toContain('--shadow-chip');
+    expect(trigger?.className).not.toContain('--shadow-chip');
     expect(trigger?.className).not.toContain('--shadow-raised');
-    expect(thumb?.className).toContain('--shadow-chip');
-    expect(thumb?.className).not.toContain('--shadow-raised');
-    expect(outlineBtn.className).toContain('--shadow-chip');
+    expect(thumb?.className).toContain('warren-sliding-pill');
+    expect(thumb?.className).not.toContain('--shadow-chip');
+    expect(outlineBtn.className).toContain('border-border-strong');
+    expect(outlineBtn.className).not.toContain('--shadow-chip');
     expect(outlineBtn.className).not.toContain('--shadow-raised');
   });
 });

@@ -445,10 +445,10 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
       aria-label="全局命令栏"
       className={cn(
         elevatedDialogSurfaceClass,
-        'relative z-10 m-0 flex w-full max-w-[560px] flex-col overflow-hidden border-0 p-0 text-sm outline-none animate-in fade-in-0 zoom-in-95 duration-100',
+        'warren-dialog-enter relative z-10 m-0 flex w-full max-w-[620px] flex-col overflow-hidden border-0 p-0 text-[13px] outline-none',
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
+      <div className="flex h-12 items-center gap-2.5 border-b border-border px-4">
         <Icon name="Search" className="text-muted-foreground" />
         <input
           ref={inputRef}
@@ -549,7 +549,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
           执行失败：{runError}
         </div>
       )}
-      <div className="flex items-center justify-between border-t border-border/80 bg-surface-under/50 px-3.5 py-1.5 text-[length:var(--font-size-micro)] text-subtle-foreground">
+      <div className="flex items-center justify-between border-t border-border bg-sheet-inset px-4 py-2 text-[length:var(--font-size-micro)] text-muted-foreground">
         <span className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1">
             <Kbd>↑↓</Kbd> 选择

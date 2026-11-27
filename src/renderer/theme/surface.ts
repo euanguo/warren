@@ -1,134 +1,127 @@
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
 /**
- * Shared surface + control recipes.
- * All geometry/color come from theme tokens — components compose these, never invent px.
+ * 共享表面与控件配方（OpenBot 扁平精密体系）。
+ * 所有几何尺寸来自锁定基础 Token，所有颜色来自可配置配色皮肤层。
  */
 
-/** Floating menu / select / dropdown glass ( 0.5px hairline + dual shadow + blur). */
+/** 浮动菜单 / 下拉选择：纯实色 14px 卡片 + 1px 描边 + 克制阴影（零模糊）。 */
 export const elevatedMenuSurfaceClass = cn(
-  "[corner-shape:var(--corner-shape)] bg-menu text-menu-foreground shadow-none ring-[0.5px] ring-border-heavy backdrop-blur-[var(--blur-menu)] [box-shadow:var(--elevation-popover)]",
+  'rounded-[var(--radius-menu)] bg-menu text-menu-foreground shadow-none [box-shadow:var(--elevation-popover)]',
 );
 
+/** 对话框：20px 圆角实色层 + 1px dialog-ring。 */
 export const elevatedDialogSurfaceClass = cn(
-  "[corner-shape:var(--corner-shape)] rounded-[var(--radius-dialog)] bg-menu text-menu-foreground shadow-none ring-[0.5px] ring-border-heavy backdrop-blur-[var(--blur-dialog)] [box-shadow:var(--elevation-popover)]",
+  'rounded-[var(--radius-dialog)] bg-sheet text-foreground shadow-none [box-shadow:var(--elevation-dialog)]',
 );
 
+/** 浮层面板（Popover / 快捷弹层）：14px 实色卡片。 */
 export const elevatedPanelSurfaceClass = cn(
-  "[corner-shape:var(--corner-shape)] rounded-[var(--radius-menu)] bg-menu text-menu-foreground shadow-none ring-[0.5px] ring-border-heavy backdrop-blur-[var(--blur-menu)] [box-shadow:var(--elevation-popover)]",
+  'rounded-[var(--radius-menu)] bg-popover text-popover-foreground shadow-none [box-shadow:var(--elevation-popover)]',
 );
 
-/**
- * Tooltip — Measured: r12.5, 1px border (~8.4%), solid popover bg, no blur/shadow.
- */
+/** Tooltip：纯实色高对比气泡 + 1px 描边，无模糊。 */
 export const elevatedTooltipSurfaceClass = cn(
-  "rounded-[var(--control-radius)] border border-border-heavy bg-tooltip text-tooltip-foreground [box-shadow:var(--elevation-popover)] backdrop-blur-none [corner-shape:var(--corner-shape)]",
+  'rounded-[var(--radius-md)] border border-border-strong bg-tooltip text-tooltip-foreground [box-shadow:var(--elevation-popover)]',
 );
 
-/** Composer shell. */
+/** 输入组合壳层。 */
 export const elevatedComposerSurfaceClass = cn(
-  "[corner-shape:var(--corner-shape)] rounded-[var(--radius-composer)] bg-input-fill text-foreground shadow-none ring-[0.5px] ring-border-heavy backdrop-blur-[var(--blur-menu)] [box-shadow:var(--elevation-popover)]",
+  'rounded-[var(--radius-composer)] border border-border-strong bg-control text-foreground shadow-none',
 );
 
 /**
- * 面板内的一组内容（插件卡、凭据行、分组卡片…）。
- * 圆角走 token——各处手写 `rounded-lg` 会绕开 --radius-scale，换肤时对不上。
+ * 分组内容卡片（插件卡、凭据行、设置卡等）。
+ * 14px 标准圆角 + 1px 发丝边框 + 零阴影。
  */
 export const cardSurfaceClass = cn(
-  "rounded-[var(--radius-lg)] border border-border bg-surface-elevated/80 p-3 [box-shadow:var(--shadow-raised)] [corner-shape:var(--corner-shape)]",
+  'rounded-[var(--radius-card)] border border-border bg-grouped p-3 shadow-none',
 );
 
 /**
- * DEFAULT field chrome (Input / SelectTrigger / Textarea).
- * Recessed well fill + hairline focus.
+ * 默认表单字段外观（Input / SelectTrigger / Textarea）。
+ * 32px 高度 · 8px 圆角 · 纯实色表面 · 1px 边框 · 零内凹阴影。
  */
 export const controlFieldClass = cn(
-  "[corner-shape:var(--corner-shape)] h-[var(--control-height-field)] min-h-[var(--control-height-field)] rounded-[var(--control-radius-field)] border border-input bg-input-fill px-[var(--control-pad-x-field)] py-[var(--control-pad-y-field)] text-sm leading-[21px] text-foreground [box-shadow:var(--shadow-recessed)]",
-  "placeholder:text-subtle-foreground",
-  "disabled:cursor-not-allowed disabled:opacity-40",
-  "aria-invalid:border-destructive",
+  'h-[var(--control-height-field)] min-h-[var(--control-height-field)] rounded-[var(--control-radius-field)] border border-border-strong bg-control px-[var(--control-pad-x-field)] py-[var(--control-pad-y-field)] text-[13px] leading-[18px] text-foreground shadow-none',
+  'placeholder:text-subtle-foreground',
+  'disabled:cursor-not-allowed disabled:opacity-40',
+  'aria-invalid:border-danger-border',
 );
 
-/** Compact field (dense chrome / toolbar selects) — still tokenized. */
+/** 紧凑表单字段（28px 高度）。 */
 export const controlFieldCompactClass = cn(
-  "[corner-shape:var(--corner-shape)] h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] rounded-[var(--control-radius)] border border-input bg-input-fill px-[var(--control-pad-x-compact)] text-sm leading-[18px] text-foreground [box-shadow:var(--shadow-recessed)]",
-  "placeholder:text-subtle-foreground",
-  "disabled:cursor-not-allowed disabled:opacity-40",
-  "aria-invalid:border-destructive",
+  'h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] rounded-[var(--control-radius)] border border-border-strong bg-control px-[var(--control-pad-x-compact)] text-[13px] leading-[18px] text-foreground shadow-none',
+  'placeholder:text-subtle-foreground',
+  'disabled:cursor-not-allowed disabled:opacity-40',
+  'aria-invalid:border-danger-border',
 );
 
-/** Shared control focus: thin blue hairline, never ring bloom. */
+/** 统一控件焦点：1px 中性发丝环，绝不发蓝光晕。 */
 export const controlFocusClass = cn(
-  "outline-none focus:outline-none focus-visible:outline-none",
-  "focus-visible:ring-0 focus-visible:ring-transparent",
-  "focus-visible:border-focus",
+  'outline-none focus:outline-none focus-visible:outline-none',
+  'focus-visible:ring-0 focus-visible:ring-transparent',
+  'focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
 );
 
-/** Icon chrome often keeps 1px transparent border for stable hit geometry. */
+/** 图标按钮无边框稳定几何。 */
 export const controlIconChromeClass = cn(
-  "border border-transparent shadow-none",
-  "focus-visible:border-focus",
+  'border border-transparent shadow-none',
+  'focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
 );
 
-/** Sidebar / list row hover+focus wash (list-hover 7.8%). */
+/** 侧栏与列表行交互（0ms 瞬时悬停，无拖尾）。 */
 export const listItemInteractiveClass = cn(
-  "[corner-shape:var(--corner-shape)] rounded-[var(--radius-menu-item)] text-foreground outline-hidden",
-  "hover:bg-surface-hover focus:bg-surface-hover focus-visible:bg-surface-hover",
-  "active:bg-surface-hover",
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border",
+  'rounded-[var(--radius-menu-item)] text-foreground outline-hidden transition-none',
+  'hover:bg-surface-hover focus-visible:bg-surface-hover',
+  'active:bg-surface-active',
+  'focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
 );
 
-/** Selected / current row (list-active-selection 5.2%). */
-export const listItemSelectedClass = "bg-surface-selected";
+/** 选中列表行。 */
+export const listItemSelectedClass = 'bg-surface-selected';
 
-/**
- * Floating menu items ([cmdk-item]):
- * base opacity 0.7 → hover/selected opacity 1 + list-hover wash.
- */
+/** 菜单项交互（全对比文字 + 0ms 瞬时悬停，无半透明灰字）。 */
 export const menuItemInteractiveClass = cn(
-  "[corner-shape:var(--corner-shape)] rounded-[var(--radius-menu-item)] text-foreground outline-hidden opacity-70",
-  "hover:bg-surface-hover hover:opacity-100",
-  "focus:bg-surface-hover focus:opacity-100 focus:text-foreground",
-  "focus-visible:bg-surface-hover focus-visible:opacity-100",
-  "active:bg-surface-hover active:opacity-100",
-  "data-highlighted:bg-surface-hover data-highlighted:opacity-100 data-highlighted:text-foreground",
-  "data-[highlighted]:bg-surface-hover data-[highlighted]:opacity-100",
-  "aria-selected:bg-surface-hover aria-selected:opacity-100",
-  "data-disabled:pointer-events-none data-disabled:opacity-25",
-  "disabled:pointer-events-none disabled:opacity-25",
+  'rounded-[var(--radius-menu-item)] text-foreground outline-hidden transition-none',
+  'hover:bg-surface-hover',
+  'focus:bg-surface-hover focus:text-foreground',
+  'focus-visible:bg-surface-hover',
+  'active:bg-surface-active',
+  'data-highlighted:bg-surface-hover data-highlighted:text-foreground',
+  'data-[highlighted]:bg-surface-hover',
+  'aria-selected:bg-surface-hover',
+  'data-disabled:pointer-events-none data-disabled:opacity-35',
+  'disabled:pointer-events-none disabled:opacity-35',
 );
 
-/** Icon chrome press (enabled:active:bg-token-foreground/15). */
-export const controlActiveWashClass = "active:bg-foreground/15";
+/** 图标按钮按下反馈。 */
+export const controlActiveWashClass = 'active:bg-control-active active:scale-[0.97]';
 
-/** Muted icon → full ink on hover/focus. */
+/** 次级图标悬停转高对比文字。 */
 export const iconTintClass = cn(
-  "text-subtle-foreground",
-  "hover:text-foreground focus-visible:text-foreground",
+  'text-muted-foreground transition-none',
+  'hover:text-foreground focus-visible:text-foreground',
 );
 
-/** Sidebar / list row geometry: compact control height. */
+/** 列表行紧凑几何（28px）。 */
 export const controlRowClass = cn(
-  "[corner-shape:var(--corner-shape)] h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] rounded-[var(--control-radius)] px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-sm leading-[1.325]",
+  'h-[var(--control-height-compact)] min-h-[var(--control-height-compact)] rounded-[var(--control-radius)] px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-[13px] leading-[18px]',
 );
 
-/**
- * Shell surface tab chip (center content tabs / inspector pane tabs).
- * Height matches header icon chrome (28); active uses selected wash, not accent fill.
- */
+/** 顶栏/抽屉标签芯片（默认扁平、0ms 悬停、无阴影）。 */
 export const surfaceTabChipClass = cn(
-  "[corner-shape:var(--corner-shape)] inline-flex h-[var(--control-height-icon)] min-h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 overflow-hidden rounded-[var(--control-radius)] border border-transparent px-[var(--control-pad-x-compact)] text-[length:var(--font-size-caption)] font-normal text-subtle-foreground transition-colors select-none",
-  "hover:bg-surface-hover hover:text-foreground",
+  'inline-flex h-[var(--control-height-icon)] min-h-[var(--control-height-icon)] shrink-0 items-center gap-1.5 overflow-hidden rounded-[var(--control-radius)] border border-transparent px-[var(--control-pad-x-compact)] text-[12px] font-medium text-muted-foreground transition-none select-none',
+  'hover:bg-surface-hover hover:text-foreground',
   controlFocusClass,
 );
 
 export const surfaceTabChipActiveClass = cn(
-  "border-border-heavy/65 bg-surface-elevated text-foreground [box-shadow:var(--shadow-chip)] hover:bg-surface-elevated hover:text-foreground",
+  'bg-control-active text-foreground hover:bg-control-active hover:text-foreground',
 );
 
-export const surfaceTabChipIconOnlyClass =
-  "justify-center gap-0 px-0 size-[var(--control-height-icon)]";
+export const surfaceTabChipIconOnlyClass = 'justify-center gap-0 px-0 size-[var(--control-height-icon)]';
 
 export const surfaceTabStripClass = cn(
-  "scroll-fade-x flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden",
+  'scroll-fade-x flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden',
 );

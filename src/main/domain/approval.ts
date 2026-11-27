@@ -7,6 +7,7 @@
  * 见 docs/APPROVAL-EMBED-MEMORY-PLAN.md §3。
  */
 import { DEVTOOLS_BOTTOM_SIZE, DEVTOOLS_RIGHT_SIZE } from '../../shared/devtools-layout.ts';
+import { DEFAULT_SKIN_ID, isSkinId, sanitizeSkinOverrides } from '../../shared/skin.ts';
 import type {
   AppSettings,
   ApprovalMode,
@@ -23,6 +24,8 @@ export const DEFAULT_APP_SETTINGS: Required<AppSettings> = {
   controlPolicy: 'ask',
   pluginPolicy: 'ask',
   theme: 'dark',
+  skin: DEFAULT_SKIN_ID,
+  skinOverrides: {},
   compactTopbar: false,
   pageBorderRadius: true,
   devtoolsDefaultDock: 'right',
@@ -94,6 +97,8 @@ export function toAppSettings(raw: Record<string, string | undefined>): AppSetti
       typeof raw.theme === 'string' && (THEMES as readonly string[]).includes(raw.theme)
         ? (raw.theme as ThemePreference)
         : DEFAULT_APP_SETTINGS.theme,
+    skin: isSkinId(raw.skin) ? raw.skin : DEFAULT_APP_SETTINGS.skin,
+    skinOverrides: sanitizeSkinOverrides(raw.skinOverrides),
     compactTopbar: boolPref(raw.compactTopbar, DEFAULT_APP_SETTINGS.compactTopbar),
     pageBorderRadius: boolPref(raw.pageBorderRadius, DEFAULT_APP_SETTINGS.pageBorderRadius),
     devtoolsDefaultDock:

@@ -2,8 +2,9 @@ import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { loadPluginApps } from '@/lib/plugin-runtime';
 import { emptyRegistry, type PluginRegistry } from '@/lib/plugin-sdk-types';
-import { applyTheme } from '@/lib/theme';
+import { applyTheme, type ApplyThemeOptions } from '@/lib/theme';
 import { DEVTOOLS_BOTTOM_SIZE, DEVTOOLS_RIGHT_SIZE } from '@shared/devtools-layout';
+import { DEFAULT_SKIN_ID } from '@shared/skin';
 import type { AppSettings, InstalledPlugin } from '@shared/types';
 
 export interface PluginStoreSnapshot {
@@ -17,6 +18,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   controlPolicy: 'ask',
   pluginPolicy: 'ask',
   theme: 'dark',
+  skin: DEFAULT_SKIN_ID,
+  skinOverrides: {},
   compactTopbar: false,
   pageBorderRadius: true,
   devtoolsDefaultDock: 'right',
@@ -57,9 +60,14 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function syncTheme(settings: AppSettings): void {
+function syncTheme(settings: AppSettings, options?: ApplyThemeOptions): void {
   themeCleanup();
-  themeCleanup = applyTheme(settings.theme ?? 'dark');
+  themeCleanup = applyTheme(
+    settings.theme ?? 'dark',
+    settings.skin ?? DEFAULT_SKIN_ID,
+    settings.skinOverrides,
+    options,
+  );
 }
 
 export async function refreshSettingsOnly(): Promise<void> {
@@ -116,9 +124,12 @@ export function usePluginState(): PluginStoreSnapshot {
 }
 
 export const pluginActions = {
-  updateSettings: async (patch: Partial<AppSettings>): Promise<AppSettings> => {
+  updateSettings: async (patch: Partial<AppSettings>, themeOptions?: ApplyThemeOptions): Promise<AppSettings> => {
     const next = await window.envApi.setSettings(patch);
-    syncTheme(next);
+    const shouldAnimate =
+      themeOptions?.animate ??
+      (patch.theme !== undefined || patch.skin !== undefined || patch.skinOverrides !== undefined);
+    syncTheme(next, { ...themeOptions, animate: shouldAnimate });
     state = { ...state, settings: next };
     emit();
     return next;

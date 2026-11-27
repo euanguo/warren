@@ -1,53 +1,43 @@
-# components/ui — product visuals (single source)
+# components/ui — 产品视觉单源（OpenBot 扁平精密体系）
 
-**完整设计语言（无实机对照时用）：** [`docs/ui-design-language.md`](../../../../docs/ui-design-language.md)
+**完整设计语言：** [`docs/ui-design-language.md`](../../../../docs/ui-design-language.md)
 
-Import from **`@/components/ui/*`**.  
-Stock baseline: `src/renderer/components/ui-reference` (shadcn download only — **never import**).
+从 **`@/components/ui/*`** 导入所有基础控件。
+`src/renderer/components/ui-reference` 仅为 shadcn stock 快照，**禁止 import**。
 
-## Contract (default for every component)
+## 核心契约（每个组件默认遵循）
 
-**Corner profile:** uses `corner-shape: superellipse(1.5)` with the radius ladder. Matching only `border-radius` px still looks rounder — always keep superellipse on chrome (pills/avatars stay `round`).
+1. **双层严格隔离**：
+   - **基础结构层（锁定）**：高度阶梯、圆角（标准圆弧，**无 superellipse**）、字号、间距、动效曲线、z-index 锁定在 `@/theme/theme-tokens.css`。
+   - **配色皮肤层（可抽离/可配置）**：颜色变量由 `@shared/skin` 的 12 色板派生，皮肤**只能改色板**，不能越界修改结构 Token。
+2. **扁平发丝精密**：卡片与浅色浮层零阴影；控件使用 `1px` 发丝边框 + `1px` 中性焦点环（无蓝光晕）；悬停 `0ms` 瞬时响应；可点击控件按下 `active:scale-[0.97]`。
+3. **Recipe 先于局部 class**：表单字段、菜单、弹窗、Tooltip 与焦点统一复用 `@/theme/surface`。
+4. **DEFAULT 即正确**：调用侧默认省略 `size`；纯图标用 `IconButton`，文字按钮用 `Button`，设置分组用 `SettingsSection` + `ItemGroup` / `Item`。
 
-## Contract details
+## 控件高度阶梯（锁定）
 
-1. **Tokens first** — geometry/color from `@/theme/theme-tokens.css` (`--control-*`, surfaces, elevation). No raw `h-8` / hex in product recipes.
-2. **Shared recipes** — compose `@/theme/surface` (`controlFieldClass`, `elevatedMenuSurfaceClass`, `elevatedTooltipSurfaceClass`, …). Do not re-invent field/menu/tooltip chrome per file.
-3. **DEFAULT size** — omit `size` at call sites. Ladder steps exist only for rare density scale.
-4. **Token-driven DEFAULT** — DEFAULT geometry comes from the shared control ladder. Changing a token updates every consumer.
+| Step | px | 语义 DEFAULT |
+| ---- | -- | ------------ |
+| `2xs` | 20 | 密排行内图标 |
+| `xs` | 24 | 紧凑按钮 / 紧凑图标 |
+| `sm` / `icon` | 28 | **IconButton DEFAULT** / 紧凑输入与列表行 |
+| `md` | 32 | **Button / Input / Select / Tabs / Toggle DEFAULT** |
+| `lg` | 36 | 大号动作按钮 |
+| `xl` | 40 | 紧凑侧栏图标瓦片 / 头部大控件 |
 
-## Control ladder
+## 标准圆弧阶梯（锁定）
 
-| Step     | px       | Semantic DEFAULT                      |
-| -------- | -------- | ------------------------------------- |
-| 2xs      | 20       | dense icon                            |
-| icon     | 28       | **IconButton DEFAULT**                |
-| sm       | 26       | roomy toolbar icon                    |
-| md       | 29       | compact row / dense field             |
-| lg       | 32       | **Button / Toggle / Tabs DEFAULT**    |
-| field→32 | = button | **Input / Select / Textarea DEFAULT** |
+`xs 4px` · `sm 6px` · `md 8px`（按钮/输入/选择/默认控件） · `lg 12px`（Alert/紧凑侧栏按钮） · `card 14px`（卡片/菜单/主画布卡片） · `xl 20px`（Dialog/AlertDialog） · `modal 30px` · `pill 999px`
 
-Pads / radii: `--control-pad-*`, `--control-radius*`.
+## 核心原语与物理动效
 
-## Recipe map
-
-| Concern                | Recipe / token                                                   |
-| ---------------------- | ---------------------------------------------------------------- |
-| Text button            | `Button` → `--control-height` + pad/radius                       |
-| Icon button            | `IconButton` → `--control-height-icon` + transparent border      |
-| Field                  | `controlFieldClass` (Input, Select, Textarea)                    |
-| Dense field            | `controlFieldCompactClass` (toolbar selects via className)       |
-| Menu / select popup    | `elevatedMenuSurfaceClass`                                       |
-| Tooltip / shortcut tip | `elevatedTooltipSurfaceClass` (solid + 1px border, **no arrow**) |
-| Focus                  | `controlFocusClass` (blue hairline, no ring bloom)               |
-| Menu item              | `menuItemInteractiveClass`                                       |
-
-## Workflow
-
-```bash
-npx shadcn@latest add <name>   # → ui-reference
-npm run ui:promote <name>
-# restyle in components/ui using tokens + surface recipes
-```
-
-**Never** wait for a per-component request: any new/changed control must ship already on this contract.
+| 原语 | 文件 | 职责 |
+| ---- | ---- | ---- |
+| `Button` / `IconButton` | `button.tsx` | 7 变体（含 `destructive-ghost`）、`0ms` 悬停、`scale(0.97)` 按压 |
+| `Switch` | `switch.tsx` | 阻尼弹簧（`k=520, d=32`）+ 速度形变 + 指针拖拽 |
+| `Tabs` | `tabs.tsx` | 水平默认态带 `250ms` 滑动胶囊指示条，垂直态自动平铺高亮 |
+| `TabShape` | `tab-shape.tsx` | 顶栏凹角无界标签滑块（前进边 0ms、尾随边 70ms 延迟） |
+| `PanelResizer` | `panel-resizer.tsx` | 16px 隐形热区 + 1px 渐隐发丝线 + 双击复位 + 迟滞吸附紧凑态 |
+| `SettingsSection` / `ItemGroup` / `Item` | `item-group.tsx` | `14px` 圆角分组列表与 `1px` 发丝分隔线 |
+| `Badge` | `badge.tsx` | 实心 / 柔色 / 描边语义徽章（`success`/`warning`/`destructive`/`primary-light` 等） |
+| `SurfaceTab` | `surface-tab.tsx` | `variant="chip"`（扁平芯片）与 `variant="chrome"`（顶栏凹角无界标签） |

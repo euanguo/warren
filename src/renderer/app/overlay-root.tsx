@@ -35,7 +35,7 @@ export function OverlayRoot() {
     <div
       className={cn(
         'fixed inset-0 flex justify-center p-4',
-        request.kind === 'command-bar' ? 'items-start pt-[15vh]' : 'items-center',
+        request.kind === 'command-bar' ? 'items-start pt-[112px]' : 'items-center',
       )}
     >
       <button
@@ -43,7 +43,7 @@ export function OverlayRoot() {
         aria-label="关闭浮层"
         tabIndex={-1}
         onClick={() => void window.envApi.resolveOverlay(null)}
-        className="fixed inset-0 cursor-default bg-overlay backdrop-blur-[2px]"
+        className="fixed inset-0 cursor-default bg-dialog-overlay backdrop-blur-[var(--blur-dialog)]"
       />
       {request.kind === 'create-env' && <CreateEnvCard initialGroupId={request.initialGroupId} />}
       {request.kind === 'edit-env' && <EditEnvCard environment={request.environment} />}

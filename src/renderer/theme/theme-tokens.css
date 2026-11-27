@@ -1,22 +1,60 @@
 /*
- * Synara web-next design tokens
+ * Warren Design Tokens — OpenBot-aligned Foundation + Detachable Color-Only Skin Contract
  *
- * Theme-switch contract:
- * - Only override chrome seeds per theme: --theme-surface / --theme-surface-under /
- *   --theme-ink / --theme-accent (and optional semantic overrides).
- * - All component tokens derive from seeds so light/dark/custom themes stay consistent.
- * - Product UI must consume semantic tokens or @/ui recipes — never hard-coded hex in features.
+ * 两层严格隔离：
+ * 1. 基础结构层（Locked Foundation）：字号、控件高度阶梯、圆角、间距、动效曲线、层级、外壳尺寸。
+ *    由本文件统一锁定，皮肤引擎绝不可改写。
+ * 2. 配色皮肤层（Detachable Skin Palette）：颜色变量由 `src/shared/skin.ts` 按 12 色板派生，
+ *    并在下方 `:root`（浅色）与 `:root.dark`（深色）中保留默认 `neutral` 静态回退值。
  *
- * Feel source: product control ladder + surface recipes (web-next).
- * Key measured values (dark):
- *   surface #181818 / under #141414 / elevated rgb(45,45,45) / menu rgba(54,54,54,0.96)
- *   border 4.2% / 8.4% / 15.6% white · hover 7.8% · selected 5.2% · fog 2.5%
- *   focus rgba(131,195,255,0.76) · accent #339cff · radius scale 1.25 · row ~29px
- *   elevation: 0 0 0 .5px heavy + 0 3px 7.5px + 0 0 20px · blur-menu 16px
+ * 核心视觉基线：
+ * - 暗色（默认）：外框 #0d0d0d · 主画布/侧栏 #1a1a1a · 控件 #212121 · 悬停 #242424 · 激活 #2a2a2a
+ * - 浅色（纯值覆写）：外框 #e8e8eb · 主画布/侧栏 #f5f5f6 · 控件 #ffffff · 悬停 #f0f0f2 · 激活 #e8e8eb
+ * - 圆角：标准圆弧（4 / 6 / 8 / 12 / 14 / 20 / 30 / 999px），无 superellipse
+ * - 边框与阴影：超淡 1px 发丝边框 + 1px 中性焦点环；卡片零阴影，浅色浮层零阴影
+ * - 悬停响应：--duration-hover: 0ms（瞬时干脆）
  */
+
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: "Geist Variable", -apple-system, system-ui, "Segoe UI", sans-serif;
+  --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+
+  /* ── OpenBot 语义表面与颜色映射（Tailwind utility 可直接 bg-frame / bg-canvas / bg-control 等） ── */
+  --color-frame: var(--bg-frame);
+  --color-canvas: var(--bg-canvas);
+  --color-sheet: var(--bg-sheet);
+  --color-sheet-inset: var(--bg-sheet-inset);
+  --color-grouped: var(--bg-grouped);
+  --color-control: var(--bg-control);
+  --color-control-hover: var(--bg-control-hover);
+  --color-control-active: var(--bg-control-active);
+  --color-tabs-bar: var(--tabs-bar-bg);
+  --color-tabs-pill: var(--tabs-pill-bg);
+  --color-dialog-ring: var(--dialog-ring);
+  --color-border-strong: var(--border-strong);
+  --color-border-grouped: var(--border-grouped);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent-seed: var(--accent-seed);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-text: var(--accent-text);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-strong: var(--accent-strong);
+  --color-on-accent: var(--text-on-accent);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-text: var(--danger-text);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-hover: var(--danger-soft-hover);
+  --color-danger-border: var(--danger-border);
+
+  /* ── Warren 既有与插件兼容语义色映射 ── */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -70,70 +108,77 @@
   --color-tooltip-foreground: var(--tooltip-foreground);
   --color-menu: var(--menu);
   --color-menu-foreground: var(--menu-foreground);
-  /* ladder × corner-radius-scale 1.25; corner-shape superellipse(1.5) */
-  --default-corner-shape: var(--corner-shape);
 
-  --radius-sm: calc(0.375rem * var(--radius-scale));
-  --radius-md: calc(0.5rem * var(--radius-scale));
-  --radius-lg: calc(0.625rem * var(--radius-scale));
-  --radius-xl: calc(0.75rem * var(--radius-scale));
-  --radius-2xl: calc(1rem * var(--radius-scale));
-  --radius-3xl: calc(1.25rem * var(--radius-scale));
-  --radius-4xl: calc(1.5rem * var(--radius-scale));
-  --space-1: 0.25rem;
-  --space-2: 0.375rem;
-  --space-3: 0.5rem;
-  --space-4: 0.625rem;
-  --space-5: 0.75rem;
-  --space-6: 1rem;
-  --space-7: 1.25rem;
-  --space-8: 1.5rem;
-  /* Glyph sizes inside controls (not control hit-targets). */
-  --size-icon-xs: 0.75rem;
-  --size-icon-sm: 1rem;
-  --size-icon-md: 1.25rem;
+  /* ── 锁定基础圆角阶梯（标准圆弧，scale = 1，不可被皮肤改写） ── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-card: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 28px;
+  --radius-4xl: 30px;
+  --radius-pill: 999px;
 
-  /*
-   * Control size ladder (shared by Button / IconButton / Input / Select / Toggle / Tabs…).
-   * Components MUST consume these tokens — never raw px.
-   *   2xs 20 · xs 24 · sm 26 · md 29 · lg 32 · xl 39
-   */
-  /*
-   * Control size ladder (px @ 16 root):
-   * 2xs 20 · xs 24 · sm 26 · icon 28 · md 29 · lg 32 · xl 39
-   * Measured: header chrome icon 28×28 r12.5 glyph16; dialog action 32; field 39.
-   */
-  --control-size-2xs: 1.25rem;
-  --control-size-xs: 1.5rem;
-  --control-size-sm: 1.625rem;
-  --control-size-icon: 1.75rem;
-  --control-size-md: 1.8125rem;
-  --control-size-lg: 2rem;
-  --control-size-xl: 2.4375rem;
+  /* ── 锁定基础间距阶梯 ── */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
 
-  /* Semantic roles → ladder steps (DEFAULT = omit size prop). */
-  --control-height: var(--control-size-lg);
-  --control-height-compact: var(--control-size-md);
-  --control-height-field: var(
-    --control-height
-  ); /* product: align fields with button DEFAULT (32), not dialog 39 */
-  --control-height-icon: var(--control-size-icon);
+  /* ── 锁定图标尺寸阶梯 ── */
+  --size-icon-xs: 12px;
+  --size-icon-sm: 14px;
+  --size-icon-md: 16px;
+  --size-icon-lg: 20px;
+
+  /* ── 锁定控件高度阶梯（OpenBot 24 / 28 / 32 / 36 / 40px） ── */
+  --control-size-2xs: 20px;
+  --control-size-xs: 24px;
+  --control-size-sm: 28px;
+  --control-size-icon: 28px;
+  --control-size-md: 32px;
+  --control-size-lg: 36px;
+  --control-size-xl: 40px;
+
+  /* 语义控件角色 → 阶梯映射 */
+  --control-height: var(--control-size-md);
+  --control-height-compact: var(--control-size-sm);
+  --control-height-field: var(--control-size-md);
+  --control-height-icon: var(--control-size-sm);
   --control-height-icon-dense: var(--control-size-2xs);
   --control-height-icon-compact: var(--control-size-xs);
-  --control-height-icon-roomy: var(--control-size-sm);
+  --control-height-icon-roomy: var(--control-size-md);
 
-  --control-pad-x: 1rem; /* DEFAULT text control pad-x (16) */
-  --control-pad-y: 0.375rem; /* DEFAULT text control pad-y (6) */
-  --control-pad-x-compact: 0.5rem; /* row pad-x (8) */
-  --control-pad-y-compact: 0.25rem; /* row pad-y (4) */
-  --control-pad-x-field: 0.75rem; /* field pad-x (12) */
-  --control-pad-y-field: 0.5rem; /* field pad-y (8) */
+  --control-pad-x: 12px;
+  --control-pad-y: 6px;
+  --control-pad-x-compact: 8px;
+  --control-pad-y-compact: 4px;
+  --control-pad-x-field: 10px;
+  --control-pad-y-field: 6px;
 
-  --control-radius: var(--radius-lg); /* DEFAULT control radius ≈ 12.5 */
-  --control-radius-icon: var(--radius-md); /* icon chrome ≈ 10 */
-  --control-radius-field: var(--control-radius); /* match control radius for field/button harmony */
+  --control-radius: var(--radius-md);
+  --control-radius-icon: var(--radius-md);
+  --control-radius-field: var(--radius-md);
 
-  /* Back-compat aliases (prefer --control-* in new code). */
+  /* Switch 几何（锁定） */
+  --switch-width: 36px;
+  --switch-height: 20px;
+  --switch-thumb: 16px;
+  --switch-inset: 2px;
+  --switch-sm-width: 28px;
+  --switch-sm-height: 16px;
+  --switch-sm-thumb: 12px;
+  --switch-sm-inset: 2px;
+
+  /* 兼容既有大小别名 */
   --size-control-xs: var(--control-size-2xs);
   --size-control-sm: var(--control-size-sm);
   --size-control-md: var(--control-size-md);
@@ -145,23 +190,54 @@
   --padding-input-x: var(--control-pad-x-field);
   --padding-input-y: var(--control-pad-y-field);
   --size-row: var(--control-height-compact);
-  --size-viewer-meta: 2.25rem;
-  --size-shell-header: 46px;
+  --size-viewer-meta: 36px;
+  --size-shell-header: 38px;
   --size-empty-max-inline: 22rem;
-  --size-scope-rail: 3rem; /* fits IconButton DEFAULT (28) + pad */
-  --size-scope-glyph: 1.25rem; /* list-row monogram 20 */
-  --size-scope-glyph-lg: var(--control-size-lg); /* pane header ≈ 32 */
-  --tree-indent: calc(var(--size-icon-sm) / 2); /* half file/folder icon width */
-  --tree-leading: var(--space-3);
+  --size-scope-rail: 72px;
+  --size-scope-glyph: 20px;
+  --size-scope-glyph-lg: 32px;
+  --tree-indent: 8px;
+  --tree-leading: 8px;
   --viewer-gutter: 3.5rem;
   --viewer-diff-gutter: 2rem;
-  --font-size-micro: 0.6875rem; /* 11px — meta / dense chrome */
-  --font-size-caption: 0.75rem; /* 12px — list rows / side panes */
-  --font-size-body: 0.875rem; /* 14px — matches product `text-sm` / buttons */
-  --font-size-code: 0.75rem;
-  --line-height-code: 1.65;
-  --motion-disclosure-duration: 220ms;
-  --motion-disclosure-ease: ease-out;
+
+  /* ── 锁定排版字号阶梯（11 / 12 / 13 / 14 / 15 / 16 / 18 / 24px） ── */
+  --font-size-micro: 11px;
+  --font-size-caption: 12px;
+  --font-size-sm: 13px;
+  --font-size-body: 14px;
+  --font-size-lg: 15px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 18px;
+  --font-size-3xl: 24px;
+  --font-size-code: 12px;
+  --line-height-code: 1.6;
+
+  /* ── 锁定动效时长与物理曲线 ── */
+  --duration-hover: 0ms;
+  --duration-dialog: 120ms;
+  --duration-fast: 120ms;
+  --duration-menu: 150ms;
+  --duration-normal: 160ms;
+  --duration-slow: 200ms;
+  --duration-panel: 240ms;
+  --duration-tabs: 250ms;
+  --panel-resize-duration: 240ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-panel: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-menu: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-slide: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-disclosure-duration: 200ms;
+  --motion-disclosure-ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* ── 锁定 z-index 层级 ── */
+  --layer-dropdown: 40;
+  --layer-popover: 60;
+  --layer-dialog: 100;
+  --layer-toast: 120;
+  --layer-tooltip: 240;
+
+  /* 身份微彩固定色相 */
   --glyph-hue-1: 210;
   --glyph-hue-2: 160;
   --glyph-hue-3: 35;
@@ -172,217 +248,291 @@
   --glyph-hue-8: 55;
 }
 
+/* ============================================================================
+ * 1. 锁定结构参数（不随皮肤变化） + 2. 默认 neutral 浅色静态回退色板
+ * ============================================================================ */
 :root {
-  /* ── Chrome seeds (精密微立体 · 浅色三级冷银白阶梯) ── */
-  --theme-surface: #ffffff;
-  --theme-surface-under: #e9edf3;
-  --theme-ink: #111621;
-  --theme-accent: #3b5bdb;
-
-  --radius-scale: 1.25;
-  /* uses superellipse corners, not circular arcs — same px radius looks "rounder" without this. */
-  --corner-shape: superellipse(1.5);
-
-  --surface: var(--theme-surface);
-  --surface-under: var(--theme-surface-under);
-  --surface-elevated: #ffffff;
-  --surface-drawer: #f4f6fa;
-  --ink: var(--theme-ink);
-  --accent-seed: var(--theme-accent);
-
-  --background: var(--surface);
-  --foreground: var(--ink);
-  --card: var(--surface-elevated);
-  --card-foreground: var(--ink);
-  /* Elevated solid fallback (opaque windows / reduced transparency). */
-  --popover: #ffffff;
-  --popover-foreground: var(--ink);
-  /* Glass fill used by menus/dialogs/tooltips when blur is available. */
-  --menu: rgba(255, 255, 255, 0.94);
-  --menu-foreground: var(--ink);
-  --tooltip: #181c26;
-  --tooltip-foreground: #f4f6fa;
-  /* Primary CTA = ink reverse, high contrast focus anchor. */
-  --primary: var(--ink);
-  --primary-foreground: var(--surface);
-  --secondary: rgba(17, 22, 33, 0.055);
-  --secondary-foreground: var(--ink);
-  --muted: rgba(17, 22, 33, 0.035);
-  --muted-foreground: #475166;
-  /* WCAG AA ≥ 4.5:1 on both #ffffff (6.6:1) and #e9edf3 (5.6:1). */
-  --subtle-foreground: #525d73;
-  --status-idle: #647087;
-  --accent: rgba(17, 22, 33, 0.05);
-  --accent-foreground: var(--ink);
-  --destructive: #c81e1e;
-  --success: #047857;
-  --warning: #b45309;
-  --info: var(--accent-seed);
-  --diff-addition: #047857;
-  --diff-deletion: #c81e1e;
-  /* border ladder */
-  --border: rgba(17, 22, 33, 0.1);
-  --border-light: rgba(17, 22, 33, 0.055);
-  --border-heavy: rgba(17, 22, 33, 0.17);
-  --menu-border: rgba(17, 22, 33, 0.11);
-  --input: rgba(17, 22, 33, 0.14);
-  --input-fill: rgba(17, 22, 33, 0.052);
-  --chrome-field-fill: #ffffff;
-  /* Focus is brand indigo hairline — not ink gray, not ring bloom. */
-  --focus: color-mix(in oklab, var(--accent-seed) 82%, transparent);
-  --ring: var(--focus);
-  --divider: rgba(17, 22, 33, 0.085);
-  --surface-hover: rgba(17, 22, 33, 0.065);
-  --surface-active: rgba(17, 22, 33, 0.15);
-  --surface-selected: rgba(17, 22, 33, 0.105);
-  --surface-selected-solid: #d2d6dd;
-  --surface-fog: rgba(17, 22, 33, 0.05);
-  --overlay: rgba(15, 23, 42, 0.24);
-  /* Row denser pad — aliases of control compact pads */
+  /* ── 锁定外壳几何尺寸 ── */
+  --radius-scale: 1;
+  --radius: var(--radius-md);
+  --radius-menu: var(--radius-card);
+  --radius-menu-item: var(--radius-md);
+  --radius-dialog: var(--radius-xl);
+  --radius-control: var(--radius-md);
+  --radius-composer: var(--radius-xl);
+  --shell-title-bar-height: 38px;
+  --shell-top-row-height: 38px;
+  --shell-address-row-height: 38px;
+  --shell-frame-lip: 4px;
+  --shell-card-radius: var(--radius-card);
+  --shell-stage-radius: 8px;
+  --sidebar-width-default: 248px;
+  --sidebar-width-compact: 72px;
   --padding-row-x: var(--control-pad-x-compact);
   --padding-row-y: var(--control-pad-y-compact);
-  --chart-1: #3b5bdb;
-  --chart-2: #047857;
-  --chart-3: #d97706;
-  --chart-4: #7c3aed;
-  --chart-5: #dc2626;
-  --radius: calc(0.625rem * var(--radius-scale));
-  --radius-menu: var(--radius-xl);
-  --radius-menu-item: var(--radius-lg);
-  --radius-dialog: var(--radius-3xl);
-  --radius-control: var(--radius-lg);
-  --radius-composer: calc(1.375rem * var(--radius-scale));
-  --shell-stage-radius: 8px;
-  --sidebar: var(--surface-under);
-  --sidebar-foreground: var(--ink);
-  --sidebar-primary: var(--ink);
-  --sidebar-primary-foreground: var(--surface);
-  --sidebar-accent: rgba(17, 22, 33, 0.05);
-  --sidebar-accent-foreground: var(--ink);
-  --sidebar-border: var(--border);
-  --sidebar-ring: var(--focus);
-  /* Micro-depth lighting & elevation ladder (light) */
-  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  --shadow-recessed: inset 0 1px 2px rgba(15, 23, 42, 0.08);
-  --shadow-chip: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-raised: var(--highlight-top), 0 1px 2px rgba(15, 23, 42, 0.08);
-  --elevation-stroke: 0 0 0 0.5px var(--border-heavy);
-  --elevation-stage: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 2px 10px rgba(15, 23, 42, 0.07);
-  --elevation-popover:
-    var(--elevation-stroke), 0 10px 28px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.08);
-  --elevation-sidebar:
-    var(--elevation-stroke), 0 4px 14px rgba(15, 23, 42, 0.07);
-  --blur-menu: 12px;
-  --blur-dialog: 20px;
+
+  /* ── 锁定阴影策略（浅色克制透明阴影，卡片永远无阴影） ── */
+  --highlight-top: 0 0 0 transparent;
+  --shadow-recessed: 0 0 0 transparent;
+  --shadow-chip: 0 0 0 transparent;
+  --shadow-raised: 0 0 0 transparent;
+  --shadow-card: 0 0 0 transparent;
+  --shadow-menu: 0 4px 16px rgba(20, 20, 20, 0.06);
+  --shadow-dialog: 0 12px 32px rgba(20, 20, 20, 0.08);
+  --elevation-stroke: 0 0 0 1px var(--border-strong);
+  --elevation-stage: 0 0 0 1px var(--border);
+  --elevation-popover: 0 0 0 1px var(--border-strong), var(--shadow-menu);
+  --elevation-dialog: 0 0 0 1px var(--dialog-ring), var(--shadow-dialog);
+  --elevation-sidebar: 0 0 0 transparent;
+  --blur-menu: 0px;
+  --blur-dialog: 4px;
   --blur-tooltip: 0px;
 
-  /* ── Desktop shell ── */
-  --shell-title-bar-height: 3rem;
-  --shell-top-row-height: 2.5rem;
-  --shell-frame-lip: 0px;
-  --shell-address-row-height: 2.5rem;
-  --shell-card-radius: var(--radius-xl);
-  --surface-recessed: #e2e7ef;
+  /* ── 默认 neutral 浅色配色回退（运行时可被 skin.ts 覆写） ── */
+  --theme-surface: #f5f5f6;
+  --theme-surface-under: #e8e8eb;
+  --theme-ink: #141414;
+  --theme-accent: #007cf7;
+
+  --bg-frame: #e8e8eb;
+  --bg-canvas: #f5f5f6;
+  --bg-canvas-clear: rgba(245, 245, 246, 0);
+  --bg-sidebar: #f5f5f6;
+  --bg-sheet: #ffffff;
+  --bg-sheet-inset: #f0f0f2;
+  --bg-grouped: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #fcfcfc;
+  --bg-control: #ffffff;
+  --bg-control-hover: #f0f0f2;
+  --bg-control-active: #e8e8eb;
+  --tabs-bar-bg: #ececee;
+  --tabs-pill-bg: #ffffff;
+  --bg-overlay: rgba(245, 245, 246, 0.92);
+  --dialog-overlay: rgba(20, 20, 20, 0.14);
+  --dialog-ring: rgba(20, 20, 20, 0.1);
+  --hover: rgba(20, 20, 20, 0.05);
+
+  --border: rgba(20, 20, 20, 0.07);
+  --border-light: rgba(20, 20, 20, 0.045);
+  --border-strong: rgba(20, 20, 20, 0.11);
+  --border-heavy: rgba(20, 20, 20, 0.15);
+  --border-grouped: #d4d4d8;
+  --border-focus: #6b6b70;
+  --menu-border: rgba(20, 20, 20, 0.11);
+  --divider: rgba(20, 20, 20, 0.07);
+  --focus: var(--border-focus);
+  --ring: var(--border-focus);
+
+  --ink: #141414;
+  --foreground: #141414;
+  --text-secondary: #3a3a3c;
+  --muted-foreground: #6b6b70;
+  --subtle-foreground: #8e8e93;
+  --status-idle: #8e8e93;
+
+  --primary: #1c1c1e;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(20, 20, 20, 0.05);
+  --secondary-foreground: #141414;
+  --muted: rgba(20, 20, 20, 0.04);
+  --accent: rgba(20, 20, 20, 0.05);
+  --accent-foreground: #141414;
+  --accent-seed: #007cf7;
+  --accent-hover: #006ad4;
+  --accent-text: #0064c8;
+  --accent-soft: rgba(0, 124, 247, 0.12);
+  --accent-strong: rgba(0, 124, 247, 0.26);
+  --text-on-accent: #ffffff;
+
+  --success: #1fa85a;
+  --success-text: #187a41;
+  --success-soft: rgba(31, 168, 90, 0.12);
+  --warning: #f08a00;
+  --warning-text: #9c5200;
+  --warning-soft: rgba(240, 138, 0, 0.14);
+  --danger: #e8222d;
+  --danger-hover: #f04a53;
+  --danger-text: #c0141d;
+  --danger-soft: rgba(232, 34, 45, 0.12);
+  --danger-soft-hover: rgba(232, 34, 45, 0.2);
+  --danger-border: rgba(232, 34, 45, 0.45);
+  --destructive: #c0141d;
+  --info: #0064c8;
+  --diff-addition: #187a41;
+  --diff-deletion: #c0141d;
+
+  --background: var(--bg-canvas);
+  --surface: var(--bg-canvas);
+  --surface-under: var(--bg-frame);
+  --surface-elevated: var(--bg-surface);
+  --surface-drawer: var(--bg-sidebar);
+  --surface-recessed: var(--bg-sheet-inset);
+  --card: var(--bg-surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--bg-surface);
+  --popover-foreground: var(--foreground);
+  --menu: var(--bg-surface);
+  --menu-foreground: var(--foreground);
+  --tooltip: #1c1c1e;
+  --tooltip-foreground: #ffffff;
+  --input: var(--border-strong);
+  --input-fill: var(--bg-control);
+  --chrome-field-fill: var(--bg-control);
+  --surface-hover: rgba(20, 20, 20, 0.05);
+  --surface-active: rgba(20, 20, 20, 0.12);
+  --surface-selected: rgba(20, 20, 20, 0.085);
+  --surface-selected-solid: #e8e8eb;
+  --surface-fog: rgba(20, 20, 20, 0.04);
+  --overlay: rgba(20, 20, 20, 0.16);
+
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--surface-hover);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--focus);
+
+  --chart-1: #007cf7;
+  --chart-2: #1fa85a;
+  --chart-3: #f08a00;
+  --chart-4: #7c3aed;
+  --chart-5: #e8222d;
 
   color-scheme: light;
 }
 
+/* ============================================================================
+ * 默认 neutral 暗色静态回退色板（运行时可被 skin.ts 覆写）
+ * ============================================================================ */
 :root.dark,
-:root[data-theme="dark"] {
-  /* ── Chrome seeds (精密微立体 · 暗色四阶微冷锌靛灰阶) ── */
-  --theme-surface: #181b21;
-  --theme-surface-under: #111317;
-  --theme-ink: #f4f6fa;
-  --theme-accent: #5b8cff;
+:root[data-theme='dark'] {
+  --shadow-menu: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-dialog: 0 16px 40px rgba(0, 0, 0, 0.48);
+  --elevation-popover: 0 0 0 1px var(--border-strong), inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-menu);
+  --elevation-dialog: 0 0 0 1px var(--dialog-ring), var(--shadow-dialog);
 
-  --surface: var(--theme-surface);
-  --surface-under: var(--theme-surface-under);
-  --surface-elevated: #20242d;
-  --surface-drawer: #15181e;
-  --surface-recessed: #0c0e12;
-  --ink: var(--theme-ink);
-  --accent-seed: var(--theme-accent);
+  --theme-surface: #1a1a1a;
+  --theme-surface-under: #0d0d0d;
+  --theme-ink: #ffffff;
+  --theme-accent: #007cf7;
 
-  --background: var(--surface);
-  --foreground: var(--ink);
-  --card: var(--surface-elevated);
-  --card-foreground: var(--ink);
-  /* dropdown / elevated fallback */
-  --popover: #222630;
-  --popover-foreground: var(--ink);
-  /* menu glass */
-  --menu: rgba(34, 38, 48, 0.94);
-  --menu-foreground: var(--ink);
-  --tooltip: #262b37;
-  --tooltip-foreground: var(--ink);
-  --primary: var(--ink);
-  --primary-foreground: var(--surface-under);
-  --secondary: rgba(244, 246, 250, 0.06);
-  --secondary-foreground: var(--ink);
-  --muted: rgba(244, 246, 250, 0.038);
-  --muted-foreground: #adb6c7;
-  /* WCAG AA ≥ 4.5:1 across surface/under/menu (#222630 → CR 5.1:1). */
-  --subtle-foreground: #939db2;
-  --status-idle: #748096;
-  --accent: rgba(244, 246, 250, 0.06);
-  --accent-foreground: var(--ink);
-  --destructive: #ff6b6b;
-  --success: #3dd68c;
-  --warning: #f59e42;
-  --info: #5b8cff;
-  --diff-addition: #3dd68c;
-  --diff-deletion: #fa423e;
-  --border: rgba(244, 246, 250, 0.09);
-  --border-light: rgba(244, 246, 250, 0.05);
-  --border-heavy: rgba(244, 246, 250, 0.16);
-  --menu-border: rgba(244, 246, 250, 0.1);
-  --input: rgba(244, 246, 250, 0.13);
-  --input-fill: #0e1015;
-  --chrome-field-fill: #1b1f27;
-  --focus: color-mix(in oklab, var(--accent-seed) 82%, transparent);
-  --ring: var(--focus);
-  --divider: rgba(244, 246, 250, 0.08);
-  /* hover (6.5%) 与 selected (12%) 清晰拉开，彻底消除 #2a2a2a 撞色 */
-  --surface-hover: rgba(244, 246, 250, 0.065);
-  --surface-active: rgba(244, 246, 250, 0.17);
-  --surface-selected: rgba(244, 246, 250, 0.12);
-  --surface-selected-solid: #2c2e32;
-  --surface-fog: rgba(244, 246, 250, 0.055);
-  --overlay: rgba(6, 8, 12, 0.52);
-  --chart-1: #5b8cff;
-  --chart-2: #3dd68c;
-  --chart-3: #f59e42;
-  --chart-4: #a78bfa;
-  --chart-5: #ff6b6b;
-  --sidebar: var(--surface-under);
-  --sidebar-foreground: var(--ink);
-  --sidebar-primary: var(--accent-seed);
-  --sidebar-primary-foreground: var(--surface-under);
-  --sidebar-accent: rgba(244, 246, 250, 0.06);
-  --sidebar-accent-foreground: var(--ink);
+  --bg-frame: #0d0d0d;
+  --bg-canvas: #1a1a1a;
+  --bg-canvas-clear: rgba(26, 26, 26, 0);
+  --bg-sidebar: #1a1a1a;
+  --bg-sheet: #141414;
+  --bg-sheet-inset: #101010;
+  --bg-grouped: #212121;
+  --bg-surface: #212121;
+  --bg-surface-raised: #242424;
+  --bg-control: #212121;
+  --bg-control-hover: #242424;
+  --bg-control-active: #2a2a2a;
+  --tabs-bar-bg: #212121;
+  --tabs-pill-bg: #2a2a2a;
+  --bg-overlay: rgba(26, 26, 26, 0.92);
+  --dialog-overlay: rgba(0, 0, 0, 0.36);
+  --dialog-ring: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.06);
+
+  --border: rgba(255, 255, 255, 0.055);
+  --border-light: rgba(255, 255, 255, 0.035);
+  --border-strong: rgba(255, 255, 255, 0.085);
+  --border-heavy: rgba(255, 255, 255, 0.12);
+  --border-grouped: #333335;
+  --border-focus: #979797;
+  --menu-border: rgba(255, 255, 255, 0.09);
+  --divider: rgba(255, 255, 255, 0.055);
+  --focus: var(--border-focus);
+  --ring: var(--border-focus);
+
+  --ink: #ffffff;
+  --foreground: #ffffff;
+  --text-secondary: #dcdcdc;
+  --muted-foreground: #979797;
+  --subtle-foreground: #6a6a6a;
+  --status-idle: #6a6a6a;
+
+  --primary: #f0f0f0;
+  --primary-foreground: #141414;
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #ffffff;
+  --muted: rgba(255, 255, 255, 0.045);
+  --accent: rgba(255, 255, 255, 0.06);
+  --accent-foreground: #ffffff;
+  --accent-seed: #007cf7;
+  --accent-hover: #1f8fff;
+  --accent-text: #42a0ff;
+  --accent-soft: rgba(0, 124, 247, 0.16);
+  --accent-strong: rgba(0, 124, 247, 0.34);
+  --text-on-accent: #ffffff;
+
+  --success: #31cf76;
+  --success-text: #31cf76;
+  --success-soft: rgba(49, 207, 118, 0.14);
+  --warning: #ff9412;
+  --warning-text: #ff9412;
+  --warning-soft: rgba(255, 148, 18, 0.14);
+  --danger: #fd2f3b;
+  --danger-hover: #fd5d67;
+  --danger-text: #ff6069;
+  --danger-soft: rgba(253, 47, 59, 0.16);
+  --danger-soft-hover: rgba(253, 47, 59, 0.26);
+  --danger-border: rgba(253, 47, 59, 0.5);
+  --destructive: #ff6069;
+  --info: #42a0ff;
+  --diff-addition: #31cf76;
+  --diff-deletion: #ff6069;
+
+  --background: var(--bg-canvas);
+  --surface: var(--bg-canvas);
+  --surface-under: var(--bg-frame);
+  --surface-elevated: var(--bg-surface);
+  --surface-drawer: var(--bg-sidebar);
+  --surface-recessed: var(--bg-frame);
+  --card: var(--bg-surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--bg-surface);
+  --popover-foreground: var(--foreground);
+  --menu: var(--bg-surface);
+  --menu-foreground: var(--foreground);
+  --tooltip: #2c2c2e;
+  --tooltip-foreground: #ffffff;
+  --input: var(--border-strong);
+  --input-fill: var(--bg-control);
+  --chrome-field-fill: var(--bg-control);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(255, 255, 255, 0.14);
+  --surface-selected: rgba(255, 255, 255, 0.1);
+  --surface-selected-solid: #2a2a2a;
+  --surface-fog: rgba(255, 255, 255, 0.045);
+  --overlay: rgba(0, 0, 0, 0.44);
+
+  --sidebar: var(--bg-sidebar);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--surface-hover);
+  --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--focus);
-  /* Micro-depth lighting & elevation ladder (dark) */
-  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  --shadow-recessed: inset 0 1px 2px rgba(0, 0, 0, 0.44);
-  --shadow-chip: 0 1px 2px rgba(0, 0, 0, 0.24);
-  --shadow-raised: var(--highlight-top), 0 1px 2px rgba(0, 0, 0, 0.34);
-  --elevation-stroke: 0 0 0 0.5px var(--border-heavy);
-  --elevation-stage: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 4px 18px rgba(0, 0, 0, 0.38);
-  --elevation-popover:
-    var(--elevation-stroke), var(--highlight-top), 0 10px 28px rgba(0, 0, 0, 0.48), 0 2px 6px rgba(0, 0, 0, 0.32);
-  --elevation-sidebar: var(--elevation-stroke), 0 4px 16px rgba(0, 0, 0, 0.28);
+
+  --chart-1: #007cf7;
+  --chart-2: #31cf76;
+  --chart-3: #ff9412;
+  --chart-4: #a78bfa;
+  --chart-5: #fd2f3b;
+
   color-scheme: dark;
 }
 
-/* Reduced transparency: fall back to opaque elevated surfaces. */
 @media (prefers-reduced-transparency: reduce) {
   :root,
   :root.dark,
-  :root[data-theme="dark"] {
-    --menu: var(--popover);
-    --tooltip: var(--popover);
-    --tooltip-foreground: var(--popover-foreground);
+  :root[data-theme='dark'] {
     --blur-menu: 0px;
     --blur-dialog: 0px;
     --blur-tooltip: 0px;

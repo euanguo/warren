@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { Icon } from '@/components/icons';
 import { IconButton } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { SurfaceTab, SurfaceTabAction, SurfaceTabStrip } from '@/components/ui/surface-tab';
+import { TabShape } from '@/components/ui/tab-shape';
 import { cn } from '@/lib/utils';
 import type { NativeMenuItem, TabRef, TabState } from '@shared/types';
 
@@ -33,7 +34,8 @@ function Favicon({ url }: { url: string }) {
 }
 
 /**
- * 一个 Environment 的标签条，使用系统原生 `popupMenu` 右键菜单，不遮挡底部网页。
+ * 顶栏浏览器标签条（OpenBot 凹角无界滑动 TabShape + 边缘 mask-fade 渐隐）。
+ * 使用系统原生 `popupMenu` 右键菜单，不遮挡底部原生网页。
  */
 export function EnvironmentTabstrip({
   tabs,
@@ -59,6 +61,28 @@ export function EnvironmentTabstrip({
 
   const activeTabTitle = tabs.find((tab) => tab.id === activeTabId)?.title ?? '';
 
+  const syncEdgeFade = useCallback(() => {
+    const scroller = stripHostRef.current?.querySelector<HTMLElement>('[data-slot="surface-tab-strip"]');
+    if (!scroller) return;
+    const start = scroller.scrollLeft > 4;
+    const end = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 4;
+    scroller.dataset.fadeStart = start ? 'true' : 'false';
+    scroller.dataset.fadeEnd = end ? 'true' : 'false';
+  }, []);
+
+  useEffect(() => {
+    const scroller = stripHostRef.current?.querySelector<HTMLElement>('[data-slot="surface-tab-strip"]');
+    if (!scroller) return;
+    syncEdgeFade();
+    scroller.addEventListener('scroll', syncEdgeFade, { passive: true });
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncEdgeFade) : null;
+    observer?.observe(scroller);
+    return () => {
+      scroller.removeEventListener('scroll', syncEdgeFade);
+      observer?.disconnect();
+    };
+  }, [syncEdgeFade, tabs.length]);
+
   useEffect(() => {
     if (!activeTabId || !stripHostRef.current) return;
     const frame = window.requestAnimationFrame(() => {
@@ -66,9 +90,10 @@ export function EnvironmentTabstrip({
         (el) => el.dataset.tabId === activeTabId,
       );
       activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      syncEdgeFade();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeTabId, tabs.length, activeTabTitle]);
+  }, [activeTabId, tabs.length, activeTabTitle, syncEdgeFade]);
 
   const endDrag = () => {
     setDragIndex(null);
@@ -130,13 +155,20 @@ export function EnvironmentTabstrip({
   };
 
   return (
-    <div ref={stripHostRef} className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+    <div ref={stripHostRef} className="relative flex h-full min-w-0 flex-1 items-end gap-1 overflow-hidden">
+      <TabShape
+        selected='[data-slot="surface-tab"][data-state="active"]'
+        sized='[data-slot="surface-tab"]'
+        scroller='[data-slot="surface-tab-strip"]'
+      />
       <SurfaceTabStrip
         aria-label="标签"
-        className="min-w-0 max-w-full flex-initial [app-region:no-drag] [-webkit-app-region:no-drag]"
+        className="warren-fade-x h-full min-w-0 max-w-full flex-initial items-end gap-0.5 px-2 [app-region:no-drag] [-webkit-app-region:no-drag]"
       >
         {tabs.map((tab, index) => {
           const label = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : '新标签页');
+          const isActive = tab.id === activeTabId;
+          const nextIsActive = tabs[index + 1]?.id === activeTabId;
           return (
             <div
               key={tab.id}
@@ -164,23 +196,24 @@ export function EnvironmentTabstrip({
               onDragEnd={endDrag}
               onContextMenu={(event) => void openTabMenu(event, tab, index, label)}
               className={cn(
-                'relative flex max-w-[180px] shrink-0 items-center rounded-[var(--control-radius)]',
+                'group/tab-item relative flex h-full max-w-[184px] shrink-0 items-end',
                 tab.sleeping && 'opacity-65',
-                tab.id !== activeTabId &&
+                !isActive &&
                   index < tabs.length - 1 &&
-                  tabs[index + 1]?.id !== activeTabId &&
-                  'after:pointer-events-none after:absolute after:right-0 after:h-3.5 after:w-px after:bg-border/70',
+                  !nextIsActive &&
+                  'after:pointer-events-none after:absolute after:top-1/2 after:-right-[1px] after:h-3.5 after:w-px after:-translate-y-1/2 after:bg-border-strong after:transition-opacity hover:after:opacity-0',
                 dragging && dragIndex === index && 'opacity-40',
                 dragging && dropIndex === index && dragIndex !== index
-                  ? 'shadow-[inset_2px_0_0_0_var(--theme-accent)]'
+                  ? 'shadow-[inset_2px_0_0_0_var(--accent-seed)]'
                   : undefined,
               )}
             >
               <SurfaceTab
-                className="max-w-[180px]"
-                label={tab.sleeping ? `${label}` : label}
+                variant="chrome"
+                className="max-w-[184px]"
+                label={label}
                 title={tab.sleeping ? `${tab.url || label}（已休眠，点击恢复）` : tab.url || label}
-                active={tab.id === activeTabId}
+                active={isActive}
                 icon={
                   tab.loading ? (
                     <Spinner label="加载中" className="size-3.5" />
@@ -203,24 +236,25 @@ export function EnvironmentTabstrip({
                     </SurfaceTabAction>
                   ) : undefined
                 }
-                closeLabel={`关闭第 ${index + 1} 个标签：${label}`}
                 onSelect={locked ? undefined : () => onSelect(tab.id)}
                 onClose={locked ? undefined : () => onClose(tab.id)}
+                closeLabel={`关闭 ${label}`}
               />
             </div>
           );
         })}
       </SurfaceTabStrip>
-      <IconButton
-        variant="ghost"
-        title="新建标签 (⌘T)"
-        aria-label="新建标签"
-        disabled={disabled || locked}
-        onClick={onCreate}
-        className="shrink-0 [app-region:no-drag] [-webkit-app-region:no-drag]"
-      >
-        <Icon name="Plus" />
-      </IconButton>
+      <div className="flex h-full shrink-0 items-center pb-0.5 [app-region:no-drag] [-webkit-app-region:no-drag]">
+        <IconButton
+          size="icon-sm"
+          aria-label="新建标签页"
+          title={locked ? 'Agent 操作中 · 只读' : '新建标签页 (⌘T)'}
+          disabled={disabled || locked}
+          onClick={onCreate}
+        >
+          <Icon name="Plus" />
+        </IconButton>
+      </div>
     </div>
   );
 }

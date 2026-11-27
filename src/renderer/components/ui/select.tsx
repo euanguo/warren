@@ -132,7 +132,7 @@ function SelectContent({
           className={cn(
             elevatedMenuSurfaceClass,
             "relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-[var(--radius-menu)] p-1 text-menu-foreground",
-            "duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "warren-menu-enter data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}
           {...props}
@@ -167,7 +167,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
       data-slot="select-item"
       className={cn(
         menuItemInteractiveClass,
-        "relative flex w-full cursor-pointer items-center gap-1.5 px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-sm leading-[18px] select-none",
+        "relative flex min-h-[30px] w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[13px] leading-[18px] select-none",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}

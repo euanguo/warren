@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { usePanelRef } from 'react-resizable-panels';
 import { toast } from 'sonner';
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { PanelResizer } from '@/components/ui/panel-resizer';
 import { cn } from '@/lib/utils';
 import { DevToolsResizeHandle } from './devtools-resize-handle';
 import { EnvironmentAddressBar } from './environment-address-bar';
@@ -69,6 +68,7 @@ interface Props {
   onNetRuleToggle: (id: string, ruleId: string, enabled: boolean) => void;
   stageRef: RefObject<HTMLDivElement | null>;
   stageReplaced?: boolean;
+  onInspectorMaximizedChange?: (maximized: boolean) => void;
   onStart: (id: string) => void;
   onStartAndNavigate: (id: string, space: SpaceId, url: string) => void;
   onTabSelect: (id: string, space: SpaceId, ref: TabRef) => void;
@@ -83,7 +83,7 @@ interface Props {
   pluginRailPages?: PluginRailPage[];
 }
 
-const INSPECTOR_WIDTH = { default: 360, min: 280, max: 520 };
+const INSPECTOR_WIDTH = { default: 360, min: 280, max: 560 };
 const INSPECTOR_WIDTH_KEY = 'warren.inspector.width';
 const EXCLUSIVITY_HINT_COUNT_KEY = 'warren.panelExclusivityHintCount';
 const INSPECTOR_TABS = ['events', 'snapshot', 'console', 'network', 'rules', 'storage'] as const;
@@ -113,6 +113,7 @@ export function EnvironmentStage({
   onNetRuleToggle,
   stageRef,
   stageReplaced = false,
+  onInspectorMaximizedChange,
   onStart,
   onStartAndNavigate,
   onTabSelect,
@@ -196,11 +197,10 @@ export function EnvironmentStage({
   };
   const hasActiveDownload = activePrefs?.hasActiveDownload ?? false;
 
-  const inspectorPanelRef = usePanelRef();
-  const inspectorElementRef = useRef<HTMLDivElement>(null);
   const stageContainerRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const { inspectorOpen, inspectorTab } = useNavigationState();
+  const [inspectorMaximized, setInspectorMaximized] = useState(false);
   const inspectorTabIds = [...INSPECTOR_TABS, ...pluginTabs.map((tab) => `plugin:${tab.pluginId}:${tab.id}`)];
   const activeInspectorTab = inspectorTabIds.includes(inspectorTab) ? inspectorTab : 'events';
   const [inspectorWidth, setInspectorWidth] = useState(() => {
@@ -210,15 +210,25 @@ export function EnvironmentStage({
       : INSPECTOR_WIDTH.default;
   });
   const inspectorWidthRef = useRef(inspectorWidth);
-  const inspectorReadyRef = useRef(false);
   useEffect(() => {
     inspectorWidthRef.current = inspectorWidth;
   }, [inspectorWidth]);
 
+  const persistInspectorWidth = useCallback((nextWidth: number) => {
+    try {
+      localStorage.setItem(INSPECTOR_WIDTH_KEY, String(Math.round(nextWidth)));
+    } catch {
+      // 忽略存储写入异常
+    }
+  }, []);
+
   useEffect(() => {
-    const timer = window.setTimeout(() => localStorage.setItem(INSPECTOR_WIDTH_KEY, String(inspectorWidth)), 250);
-    return () => window.clearTimeout(timer);
-  }, [inspectorWidth]);
+    onInspectorMaximizedChange?.(inspectorOpen && inspectorMaximized);
+  }, [inspectorOpen, inspectorMaximized, onInspectorMaximizedChange]);
+
+  useEffect(() => {
+    return () => onInspectorMaximizedChange?.(false);
+  }, [onInspectorMaximizedChange]);
 
   useEffect(() => {
     return window.envApi.onTargetUrl((payload) => setHoverTarget(payload));
@@ -298,12 +308,15 @@ export function EnvironmentStage({
     [devToolsState.dock, devToolsState.size],
   );
 
+  const closeInspector = useCallback(() => {
+    dismissExclusivityNotice();
+    setInspectorMaximized(false);
+    setInspectorOpen(false);
+  }, [dismissExclusivityNotice]);
+
   const toggleInspector = useCallback(() => {
-    const panel = inspectorPanelRef.current;
-    if (!panel) return;
     if (inspectorOpen) {
-      dismissExclusivityNotice();
-      panel.collapse();
+      closeInspector();
       return;
     }
     if (current && running && devToolsState.open && shouldExcludeRight(devToolsState.dock)) {
@@ -312,12 +325,10 @@ export function EnvironmentStage({
     } else {
       dismissExclusivityNotice();
     }
-    panel.expand();
-    const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
-    window.requestAnimationFrame(() => panel.resize(targetWidth));
+    setInspectorOpen(true);
   }, [
     inspectorOpen,
-    inspectorPanelRef,
+    closeInspector,
     current,
     running,
     devToolsState.open,
@@ -336,7 +347,8 @@ export function EnvironmentStage({
       void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
     } else {
       if (inspectorOpen && shouldExcludeRight(devToolsState.dock)) {
-        inspectorPanelRef.current?.collapse();
+        setInspectorMaximized(false);
+        setInspectorOpen(false);
         showExclusivityNotice('inspector');
       } else {
         dismissExclusivityNotice();
@@ -350,7 +362,6 @@ export function EnvironmentStage({
     devToolsState.open,
     devToolsState.dock,
     inspectorOpen,
-    inspectorPanelRef,
     shouldExcludeRight,
     syncPagePrefs,
     showExclusivityNotice,
@@ -360,13 +371,14 @@ export function EnvironmentStage({
   const changeDevToolsDock = useCallback(
     (dock: DevToolsDockMode) => {
       if (dock === 'right' && devToolsState.open && inspectorOpen && shouldExcludeRight('right')) {
-        inspectorPanelRef.current?.collapse();
+        setInspectorMaximized(false);
+        setInspectorOpen(false);
       } else {
         dismissExclusivityNotice();
       }
       void window.envApi.setDevToolsDock(dock).then(() => void syncPagePrefs());
     },
-    [devToolsState.open, inspectorOpen, inspectorPanelRef, shouldExcludeRight, syncPagePrefs, dismissExclusivityNotice],
+    [devToolsState.open, inspectorOpen, shouldExcludeRight, syncPagePrefs, dismissExclusivityNotice],
   );
 
   const resizeDevTools = useCallback(
@@ -405,13 +417,9 @@ export function EnvironmentStage({
       .setDevToolsDock('bottom')
       .then(() => window.envApi.openDevTools(current.id, activeSpaceId))
       .then(() => void syncPagePrefs());
-    const panel = inspectorPanelRef.current;
-    if (panel) {
-      panel.expand();
-      const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
-      window.requestAnimationFrame(() => panel.resize(targetWidth));
-    }
-  }, [current, running, activeSpaceId, dismissExclusivityNotice, syncPagePrefs, inspectorPanelRef]);
+    setInspectorMaximized(false);
+    setInspectorOpen(true);
+  }, [current, running, activeSpaceId, dismissExclusivityNotice, syncPagePrefs]);
 
   const openPluginPopover = useCallback(
     (
@@ -577,29 +585,6 @@ export function EnvironmentStage({
   ]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      const panel = inspectorPanelRef.current;
-      if (!panel) return;
-      panel.resize(inspectorWidthRef.current);
-      panel.collapse();
-      window.requestAnimationFrame(() => {
-        inspectorReadyRef.current = true;
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [inspectorPanelRef]);
-
-  useEffect(() => {
-    const node = inspectorElementRef.current;
-    if (!node) return;
-    const sync = () => setInspectorOpen(node.getBoundingClientRect().width > 1);
-    sync();
-    const observer = new ResizeObserver(sync);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
     const node = stageRef.current;
     if (!node) return;
     const sync = () => {
@@ -637,13 +622,10 @@ export function EnvironmentStage({
       if (!inspectorOpen && current && running && devToolsState.open && shouldExcludeRight(devToolsState.dock)) {
         void window.envApi.closeDevTools(current.id, activeSpaceId).then(() => void syncPagePrefs());
       }
-      inspectorPanelRef.current?.expand();
-      const targetWidth = Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, inspectorWidthRef.current));
-      window.requestAnimationFrame(() => inspectorPanelRef.current?.resize(targetWidth));
+      setInspectorOpen(true);
     },
     [
       inspectorOpen,
-      inspectorPanelRef,
       current,
       running,
       devToolsState.open,
@@ -737,7 +719,7 @@ export function EnvironmentStage({
       : undefined;
 
   return (
-    <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-under">
+    <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-canvas">
       <EnvironmentAddressBar
         envId={current?.id}
         spaceId={activeSpaceId}
@@ -803,67 +785,75 @@ export function EnvironmentStage({
         />
       )}
 
-      <div ref={stageContainerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel id="page" className="min-w-0">
-            <div className="h-full bg-surface-under px-1.5 pt-0.5 pb-1.5">
-              <div
-                ref={stageRef}
-                data-slot="stage-placeholder"
-                className={cn(
-                  'relative h-full overflow-hidden rounded-[var(--shell-stage-radius)] [box-shadow:var(--elevation-stage)]',
-                  devToolsDocked ? 'bg-surface-under' : 'bg-background',
-                )}
-              >
-                {(!running || tabs.length === 0) && (
-                  <StageEmptyPlaceholder
-                    current={current}
-                    running={Boolean(running)}
-                    locked={locked}
-                    activeSpaceId={activeSpaceId}
-                    onStart={onStart}
-                    onTabCreate={onTabCreate}
-                  />
-                )}
-                {simLayout?.emulated && (
-                  <SimulatedViewportBackdrop
-                    container={splitPageRect}
-                    layout={simLayout}
-                    roundedOuter={!devToolsDocked}
-                    onReset={resetViewportPreset}
-                  />
-                )}
-                {devToolsDocked && devToolsSplit?.gap && isDockedDevToolsMode(devToolsState.dock) && (
-                  <DevToolsResizeHandle
-                    dock={devToolsState.dock}
-                    size={devToolsState.size}
-                    viewport={stageViewport}
-                    gap={devToolsSplit.gap}
-                    onResize={resizeDevTools}
-                    onReset={resetDevToolsSize}
-                  />
-                )}
-                {showTargetUrl && <TargetUrlPreviewPill url={hoverTarget.url} />}
-              </div>
-            </div>
-          </ResizablePanel>
+      <div ref={stageContainerRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas">
+        <div className={cn('h-full min-h-0 min-w-0 flex-1 p-1.5', inspectorOpen && inspectorMaximized && 'hidden')}>
+          <div
+            ref={stageRef}
+            data-slot="stage-placeholder"
+            className={cn(
+              'relative h-full overflow-hidden rounded-[var(--shell-stage-radius)] border border-border-strong',
+              devToolsDocked ? 'bg-sheet-inset' : 'bg-canvas',
+            )}
+          >
+            {(!running || tabs.length === 0) && (
+              <StageEmptyPlaceholder
+                current={current}
+                running={Boolean(running)}
+                locked={locked}
+                activeSpaceId={activeSpaceId}
+                onStart={onStart}
+                onTabCreate={onTabCreate}
+              />
+            )}
+            {simLayout?.emulated && (
+              <SimulatedViewportBackdrop
+                container={splitPageRect}
+                layout={simLayout}
+                roundedOuter={!devToolsDocked}
+                onReset={resetViewportPreset}
+              />
+            )}
+            {devToolsDocked && devToolsSplit?.gap && isDockedDevToolsMode(devToolsState.dock) && (
+              <DevToolsResizeHandle
+                dock={devToolsState.dock}
+                size={devToolsState.size}
+                viewport={stageViewport}
+                gap={devToolsSplit.gap}
+                onResize={resizeDevTools}
+                onReset={resetDevToolsSize}
+              />
+            )}
+            {showTargetUrl && <TargetUrlPreviewPill url={hoverTarget.url} />}
+          </div>
+        </div>
 
-          <ResizableHandle subtle />
-
-          <ResizablePanel
-            id="inspector"
-            panelRef={inspectorPanelRef}
-            elementRef={inspectorElementRef}
-            defaultSize={inspectorWidth}
-            minSize={INSPECTOR_WIDTH.min}
-            maxSize={INSPECTOR_WIDTH.max}
-            onResize={(size) => {
-              if (!inspectorReadyRef.current) return;
-              if (size.inPixels > 0) setInspectorWidth(size.inPixels);
+        {inspectorOpen && !inspectorMaximized && (
+          <PanelResizer
+            label="调整右侧工作台宽度"
+            controls="warren-inspector-pane"
+            direction="right"
+            value={inspectorWidth}
+            defaultValue={INSPECTOR_WIDTH.default}
+            min={INSPECTOR_WIDTH.min}
+            max={INSPECTOR_WIDTH.max}
+            onResize={setInspectorWidth}
+            onResizeEnd={persistInspectorWidth}
+            onReset={() => {
+              setInspectorWidth(INSPECTOR_WIDTH.default);
+              persistInspectorWidth(INSPECTOR_WIDTH.default);
             }}
-            collapsible
-            collapsedSize={0}
-            className="min-w-0"
+          />
+        )}
+
+        {inspectorOpen && (
+          <div
+            id="warren-inspector-pane"
+            data-slot="inspector-pane"
+            style={inspectorMaximized ? undefined : { width: `${inspectorWidth}px` }}
+            className={cn(
+              'warren-side-panel-enter h-full min-h-0 min-w-0 shrink-0 overflow-hidden bg-canvas',
+              inspectorMaximized ? 'flex-1' : 'border-l border-border',
+            )}
           >
             <EnvironmentInspector
               current={current}
@@ -888,9 +878,12 @@ export function EnvironmentStage({
               space={activeSpaceId}
               url={currentUrl}
               onOpenPluginPage={(pluginId, surfaceId) => openPluginPage(pluginId, surfaceId)}
+              maximized={inspectorMaximized}
+              onToggleMaximize={() => setInspectorMaximized((prev) => !prev)}
+              onClose={closeInspector}
             />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+          </div>
+        )}
       </div>
     </main>
   );

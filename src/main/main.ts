@@ -205,9 +205,9 @@ function createMainWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 640,
     show: !startInactive,
-    backgroundColor: '#1c1c1c',
+    backgroundColor: '#0d0d0d',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 14 },
+    trafficLightPosition: { x: 14, y: 12 },
     icon: assetPath('icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

@@ -31,17 +31,9 @@ function tierBadge(permission: string, needsConfirm = true) {
     if (!needsConfirm) {
       return <Badge variant="secondary">{permission} · 已确认</Badge>;
     }
-    return (
-      <Badge variant="outline" className="border-[var(--warning)]/50 text-[var(--warning)]">
-        {permission} · 确认
-      </Badge>
-    );
+    return <Badge variant="warning">{permission} · 确认</Badge>;
   }
-  return (
-    <Badge variant="outline" className="border-destructive/50 text-destructive">
-      {permission} · 禁止
-    </Badge>
-  );
+  return <Badge variant="destructive">{permission} · 禁止</Badge>;
 }
 
 const STATUS_LABEL: Record<InstalledPlugin['status'], string> = {
@@ -57,12 +49,11 @@ const RUNTIME_HINT: Record<InstalledPlugin['runtime'], string> = {
   host: '独立 Node 宿主进程：拥有完整的 Node 能力（读写文件、起子进程）',
 };
 
-function statusTone(status: InstalledPlugin['status']): string {
-  if (status === 'running') return 'border-[var(--success)]/50 text-[var(--success)]';
-  if (status === 'starting') return 'border-[var(--warning)]/50 text-[var(--warning)]';
-  if (status === 'error') return 'border-destructive/50 text-destructive';
-  if (status === 'needs-configuration') return 'border-[var(--warning)]/50 text-[var(--warning)]';
-  return 'text-muted-foreground';
+function statusVariant(status: InstalledPlugin['status']): 'success' | 'warning' | 'destructive' | 'outline' {
+  if (status === 'running') return 'success';
+  if (status === 'starting' || status === 'needs-configuration') return 'warning';
+  if (status === 'error') return 'destructive';
+  return 'outline';
 }
 
 /** 一个设置项的编辑行。secret 只显示「已配置 / 未配置」，值永远不回渲染层。 */
@@ -177,9 +168,7 @@ export function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onC
               <Badge variant="outline" title={RUNTIME_HINT[plugin.runtime]}>
                 {plugin.runtime === 'host' ? 'Node 宿主进程' : '受限 VM 进程'}
               </Badge>
-              <Badge variant="outline" className={statusTone(plugin.status)}>
-                {STATUS_LABEL[plugin.status]}
-              </Badge>
+              <Badge variant={statusVariant(plugin.status)}>{STATUS_LABEL[plugin.status]}</Badge>
               {plugin.skill && (
                 <Badge
                   variant="outline"

@@ -2,6 +2,7 @@
 // 审批策略与应用设置（docs/APPROVAL-EMBED-MEMORY-PLAN.md）
 // ---------------------------------------------------------------------------
 
+import type { SkinColorOverrides } from '../skin.ts';
 import type { DevToolsDockMode, ViewportPresetId } from './common.ts';
 import type { LruEvictAction } from './memory.ts';
 
@@ -29,6 +30,10 @@ export interface AppSettings {
   controlPolicy: ControlPolicy;
   pluginPolicy: PluginPolicy;
   theme?: ThemePreference;
+  /** 配色皮肤 ID（仅影响配色板，不改变基础结构 Token）。 */
+  skin?: string;
+  /** 可选配色微调覆写（仅允许 12 个 Hex 配色键，任何结构键均会被忽略）。 */
+  skinOverrides?: SkinColorOverrides;
   compactTopbar?: boolean;
   pageBorderRadius?: boolean;
   devtoolsDefaultDock?: DevToolsDockMode;

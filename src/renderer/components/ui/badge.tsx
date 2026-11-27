@@ -4,19 +4,23 @@ import { cn } from "@/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 
 /**
+ * OpenBot 风格语义徽章（含实心、柔色与描边变体）。
  */
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border-0 border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:outline-none focus-visible:ring-0 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-[11px] font-medium leading-none whitespace-nowrap transition-none outline-none [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
-        default: "bg-foreground text-background",
-        secondary: "bg-surface-selected text-foreground",
-        destructive: "bg-destructive/10 text-destructive",
-        // Soft chip — no stroke (chrome chips are fill, not outlined boxes).
-        outline: "border border-border bg-surface-fog text-muted-foreground",
-        ghost: "bg-transparent text-subtle-foreground",
-        link: "bg-transparent text-foreground underline-offset-4 hover:underline",
+        default: "bg-primary text-primary-foreground",
+        secondary: "bg-control-active text-foreground",
+        outline: "border-border-strong bg-transparent text-muted-foreground",
+        ghost: "bg-transparent text-muted-foreground",
+        link: "bg-transparent text-accent-text underline-offset-4 hover:underline",
+        destructive: "bg-danger-soft text-danger-text",
+        "primary-light": "bg-accent-soft text-accent-text",
+        success: "bg-success-soft text-success-text",
+        warning: "bg-warning-soft text-warning-text",
+        info: "bg-accent-soft text-accent-text",
       },
     },
     defaultVariants: {

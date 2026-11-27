@@ -41,9 +41,8 @@ function DropdownMenuContent({
           data-slot="dropdown-menu-content"
           className={cn(
             elevatedMenuSurfaceClass,
-            "z-50 max-h-(--available-height) w-(--anchor-width) min-w-44 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-[var(--radius-menu)] p-1 text-menu-foreground outline-none flex flex-col gap-0.5",
-            "duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95",
+            "z-50 flex max-h-(--available-height) w-(--anchor-width) min-w-44 origin-(--transform-origin) flex-col gap-0.5 overflow-x-hidden overflow-y-auto rounded-[var(--radius-menu)] p-1 text-menu-foreground outline-none",
+            "warren-menu-enter data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}
           {...props}
@@ -91,10 +90,10 @@ function DropdownMenuItem({
       data-variant={variant}
       className={cn(
         menuItemInteractiveClass,
-        "relative flex cursor-pointer items-center gap-1.5 px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-sm leading-[18px] select-none data-inset:pl-7",
+        "relative flex min-h-[30px] cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[13px] leading-[18px] select-none data-inset:pl-7",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         variant === "destructive" &&
-          "text-destructive opacity-100 hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive",
+          "text-danger-text hover:bg-danger-soft hover:text-danger-text focus:bg-danger-soft focus:text-danger-text focus-visible:bg-danger-soft focus-visible:text-danger-text data-highlighted:bg-danger-soft data-highlighted:text-danger-text data-[highlighted]:bg-danger-soft data-[highlighted]:text-danger-text",
         className,
       )}
       {...props}

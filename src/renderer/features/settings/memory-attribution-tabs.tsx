@@ -76,7 +76,7 @@ export function MemoryAttributionTabs({ snapshot, pinnedSet, busyAction, onToggl
                     key={env.id}
                     data-slot="memory-env-row"
                     data-env-id={env.id}
-                    className="rounded-[var(--radius-md)] border border-border bg-surface-under/40"
+                    className="rounded-[var(--radius-md)] border border-border bg-canvas"
                   >
                     <div className="flex flex-wrap items-center gap-2 px-2.5 py-2">
                       <button
@@ -244,7 +244,7 @@ export function MemoryAttributionTabs({ snapshot, pinnedSet, busyAction, onToggl
               {snapshot.plugins.map((plugin) => (
                 <div
                   key={plugin.id}
-                  className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-border bg-surface-under/40 px-2.5 py-2 text-xs"
+                  className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-border bg-canvas px-2.5 py-2 text-xs"
                 >
                   <StatusDot
                     tone={plugin.status === 'running' ? 'success' : plugin.status === 'error' ? 'error' : 'idle'}

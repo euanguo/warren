@@ -27,7 +27,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-overlay backdrop-blur-[2px] duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-dialog-overlay backdrop-blur-[var(--blur-dialog)] duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className,
       )}
       {...props}
@@ -51,8 +51,7 @@ function SheetContent({
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          // Floating surface, edge-flush: glass fill + hairline + elevation token, no radius.
-          "fixed z-50 flex flex-col gap-4 bg-menu text-menu-foreground shadow-none ring-[0.5px] ring-border-heavy backdrop-blur-[var(--blur-dialog)] [box-shadow:var(--elevation-popover)] transition ease-in-out data-open:animate-in data-closed:animate-out data-closed:duration-100 data-open:duration-150",
+          "fixed z-50 flex flex-col gap-4 bg-sheet text-foreground shadow-none [box-shadow:var(--elevation-dialog)] transition ease-out data-open:animate-in data-closed:animate-out data-closed:duration-150 data-open:duration-200",
           side === "right" &&
             "inset-y-0 right-0 h-full w-3/4 border-l data-closed:slide-out-to-right data-open:slide-in-from-right sm:max-w-sm",
           side === "left" &&

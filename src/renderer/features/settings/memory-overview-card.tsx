@@ -116,7 +116,7 @@ export function MemoryOverviewCard({ snapshot, loading, busyAction, onRefresh, o
 
       {/* 4 分类堆叠条 */}
       <div className="flex flex-col gap-2">
-        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-under">
+        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-sheet-inset">
           {segments.map((seg) =>
             seg.kb > 0 ? (
               <div
@@ -132,7 +132,7 @@ export function MemoryOverviewCard({ snapshot, loading, busyAction, onRefresh, o
           {segments.map((seg) => (
             <div
               key={seg.key}
-              className="flex items-center justify-between rounded-[var(--control-radius)] border border-border/70 bg-surface-under/50 px-2.5 py-1.5 text-xs"
+              className="flex items-center justify-between rounded-[var(--control-radius)] border border-border bg-canvas px-2.5 py-1.5 text-xs"
             >
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <span className={cn('size-2 shrink-0 rounded-full', seg.dotClass)} />

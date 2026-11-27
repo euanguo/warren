@@ -14,7 +14,7 @@ interface Props {
 export function SidebarGroupHeader({ title, count, runningCount, collapsed, onToggle }: Props) {
   return (
     <SidebarGroupLabel
-      className="h-[var(--size-row)] cursor-pointer select-none rounded-[var(--control-radius)] transition-colors duration-150 ease-out hover:bg-surface-hover motion-reduce:transition-none"
+      className="h-[var(--size-row)] cursor-pointer select-none rounded-[var(--control-radius)] text-[11px] font-medium tracking-wide text-muted-foreground transition-none hover:bg-surface-hover hover:text-foreground"
       onClick={onToggle}
     >
       <Icon name="ChevronRight" className={disclosureChevronClassName(!collapsed, 'size-4')} />

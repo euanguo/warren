@@ -23,7 +23,7 @@ export function PanelExclusivityNoticeBar({
   return (
     <output
       data-slot="panel-exclusivity-bar"
-      className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-under px-3 text-xs text-foreground animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none"
+      className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border bg-sheet-inset px-3 text-xs text-foreground animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none"
     >
       <div className="flex min-w-0 items-center gap-2">
         <Icon name="Info" className="size-3.5 shrink-0 text-[var(--info)]" />
@@ -73,7 +73,7 @@ export function StageEmptyPlaceholder({
       <EmptyHeader>
         <EmptyMedia className="relative mb-2">
           <div aria-hidden className="warren-brand-aura pointer-events-none absolute -inset-12 rounded-full" />
-          <div className="relative flex size-16 items-center justify-center rounded-[var(--radius-2xl)] border border-border-heavy/80 bg-surface-elevated/90 [box-shadow:var(--shadow-raised)]">
+          <div className="relative flex size-16 items-center justify-center rounded-[var(--radius-xl)] border border-border-strong bg-grouped">
             <WarrenMark className="size-11" />
           </div>
         </EmptyMedia>
@@ -206,7 +206,7 @@ export function SimulatedViewportBackdrop({
       <div
         data-slot="viewport-pill"
         style={{ left: pillCenterX, top: pillTop }}
-        className="absolute z-10 flex h-6 max-w-[calc(100%-16px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-heavy/80 bg-surface-elevated/95 pr-1 pl-2.5 text-[length:var(--font-size-micro)] text-foreground [box-shadow:var(--shadow-chip)]"
+        className="absolute z-10 flex h-6 max-w-[calc(100%-16px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-strong bg-popover pr-1 pl-2.5 text-[length:var(--font-size-micro)] text-foreground"
       >
         <Icon name={spec.icon} className="size-3.5 shrink-0 text-[var(--theme-accent)]" />
         <span className="truncate font-medium">{spec.label}</span>

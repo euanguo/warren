@@ -119,7 +119,7 @@ export function MemoryPolicyForm({ settings, onSave }: Props) {
                 'flex flex-col gap-1 rounded-[var(--radius-md)] border px-3 py-2.5 text-left transition-colors',
                 active
                   ? 'border-[var(--theme-accent)] bg-surface-selected'
-                  : 'border-border bg-surface-under/40 hover:bg-surface-hover',
+                  : 'border-border bg-canvas hover:bg-surface-hover',
               )}
             >
               <span className="text-xs font-medium">{preset.label}</span>

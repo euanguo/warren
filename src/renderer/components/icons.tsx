@@ -17,8 +17,10 @@ import Activity01Icon from '@hugeicons/core-free-icons/Activity01Icon';
 import Alert02Icon from '@hugeicons/core-free-icons/Alert02Icon';
 import AppWindowIcon from '@hugeicons/core-free-icons/AppWindowIcon';
 import ArrowDown01Icon from '@hugeicons/core-free-icons/ArrowDown01Icon';
+import ArrowExpand02Icon from '@hugeicons/core-free-icons/ArrowExpand02Icon';
 import ArrowLeft01Icon from '@hugeicons/core-free-icons/ArrowLeft01Icon';
 import ArrowRight01Icon from '@hugeicons/core-free-icons/ArrowRight01Icon';
+import ArrowShrink02Icon from '@hugeicons/core-free-icons/ArrowShrink02Icon';
 import ArrowUp01Icon from '@hugeicons/core-free-icons/ArrowUp01Icon';
 import Bug01Icon from '@hugeicons/core-free-icons/Bug01Icon';
 import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon';
@@ -52,6 +54,7 @@ import ListBulletIcon from '@hugeicons/core-free-icons/LeftToRightListBulletIcon
 import MonitorSmartphoneIcon from '@hugeicons/core-free-icons/MonitorSmartphoneIcon';
 import MoreHorizontalIcon from '@hugeicons/core-free-icons/MoreHorizontalIcon';
 import Package01Icon from '@hugeicons/core-free-icons/Package01Icon';
+import PaletteIcon from '@hugeicons/core-free-icons/PaletteIcon';
 import PanelLeftCloseIcon from '@hugeicons/core-free-icons/PanelLeftCloseIcon';
 import PanelLeftOpenIcon from '@hugeicons/core-free-icons/PanelLeftOpenIcon';
 import PlayIcon from '@hugeicons/core-free-icons/PlayIcon';
@@ -117,9 +120,12 @@ const ICON_MAP = {
   List: ListBulletIcon,
   Loading: Loading03Icon,
   Lock: LockIcon,
+  Maximize: ArrowExpand02Icon,
+  Minimize: ArrowShrink02Icon,
   Mobile: SmartPhone01Icon,
   More: MoreHorizontalIcon,
   Package: Package01Icon,
+  Palette: PaletteIcon,
   PanelLeft: SidebarLeftIcon,
   PanelLeftClose: PanelLeftCloseIcon,
   PanelLeftOpen: PanelLeftOpenIcon,

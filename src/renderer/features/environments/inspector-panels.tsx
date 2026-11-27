@@ -19,8 +19,8 @@ import type {
 } from '@shared/types';
 
 const actorClass: Record<string, string> = {
-  agent: 'text-[var(--info)]',
-  human: 'text-[var(--success)]',
+  agent: 'text-accent-text',
+  human: 'text-success-text',
   system: 'text-muted-foreground',
 };
 

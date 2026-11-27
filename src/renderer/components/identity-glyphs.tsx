@@ -52,7 +52,11 @@ export function EnvIdentityAvatar({
       {status !== undefined && (
         <StatusDot
           tone={hasError ? 'error' : statusTone(status)}
-          className={cn('absolute -right-0.5 -bottom-0.5', dotSizeClass, ringClassName ?? 'ring-surface-elevated')}
+          className={cn(
+            'absolute -right-0.5 -bottom-0.5',
+            dotSizeClass,
+            ringClassName ?? 'ring-[var(--avatar-outline,var(--bg-sidebar))]',
+          )}
         />
       )}
     </span>

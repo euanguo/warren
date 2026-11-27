@@ -1,4 +1,5 @@
 import type { CSSProperties, MouseEvent } from 'react';
+import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon } from '@/components/icons';
 import {
   ListRow,
@@ -7,7 +8,6 @@ import {
   ListRowBody,
   ListRowLabel,
   ListRowMain,
-  ListRowMeta,
 } from '@/components/ui/list-row';
 import { EnvIdentityAvatar } from '@/components/identity-glyphs';
 import { Spinner } from '@/components/ui/spinner';
@@ -37,13 +37,13 @@ function rowTitle(env: Environment): string {
 function badgeToneClass(tone: PluginEnvBadge['tone']): string {
   switch (tone) {
     case 'info':
-      return 'text-[var(--info)]';
+      return 'text-accent-text';
     case 'success':
-      return 'text-[var(--success)]';
+      return 'text-success-text';
     case 'warning':
-      return 'text-[var(--warning)]';
+      return 'text-warning-text';
     case 'danger':
-      return 'text-destructive';
+      return 'text-danger-text';
     default:
       return 'text-muted-foreground';
   }
@@ -76,7 +76,7 @@ interface Props {
   onContextMenu: (event: MouseEvent, env: Environment) => void;
 }
 
-/** 高信噪比环境行：默认仅展示 状态圆点 + 名称 + 出口微标，占锁时补充控制方标识。 */
+/** 高信噪比环境行：展开态双行信息；紧凑态（72px 图标轨道）自动切换为居中头像卡片 + 右侧富提示。 */
 export function SidebarEnvRow({
   env,
   selected,
@@ -88,20 +88,67 @@ export function SidebarEnvRow({
   onContextMenu,
 }: Props) {
   const badge = badgesForEnv(env.id, pluginBadges);
-  const showSecondLine = !compact;
+
+  if (compact) {
+    const subtitle = [
+      statusLabel[env.status] ?? env.status,
+      egressLabel(env.proxy),
+      env.owner !== 'none' ? ownerLabel[env.owner] : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    return (
+      <li className="relative flex justify-center" data-env-id={env.id}>
+        <ActionTooltip label={env.name} description={subtitle} side="right">
+          <button
+            type="button"
+            data-slot="sidebar-compact-env"
+            data-selected={selected ? 'true' : undefined}
+            aria-label={rowTitle(env)}
+            onClick={() => onSelect(env.id)}
+            onDoubleClick={() => {
+              if (env.status !== 'running' && env.status !== 'starting') onStart(env.id);
+            }}
+            onContextMenu={(event) => onContextMenu(event, env)}
+            className={cn(
+              'relative flex size-10 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] transition-transform duration-100 outline-none active:scale-[0.96]',
+              'focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
+              selected
+                ? '[--avatar-outline:color-mix(in_srgb,var(--bg-sidebar),var(--foreground)_10%)] bg-surface-selected'
+                : '[--avatar-outline:var(--bg-sidebar)] hover:[--avatar-outline:color-mix(in_srgb,var(--bg-sidebar),var(--foreground)_6%)] hover:bg-surface-hover',
+            )}
+          >
+            {selected && (
+              <span
+                aria-hidden="true"
+                className="absolute top-2.5 bottom-2.5 left-0 w-[2.5px] rounded-r-full bg-accent-seed"
+              />
+            )}
+            <EnvIdentityAvatar
+              envId={env.id}
+              name={env.name}
+              status={env.status}
+              hasError={Boolean(env.error)}
+              size="md"
+              ringClassName="ring-[var(--avatar-outline)]"
+            />
+          </button>
+        </ActionTooltip>
+      </li>
+    );
+  }
 
   return (
     <li className="relative" data-env-id={env.id}>
       <ListRow
         selected={selected}
-        className={showSecondLine ? 'py-1.5' : undefined}
+        className="py-1.5"
         style={
-          showSecondLine
-            ? ({
-                '--list-row-gap': '0.625rem',
-                '--list-row-body-gap': '1px',
-              } as CSSProperties)
-            : undefined
+          {
+            '--list-row-gap': '0.625rem',
+            '--list-row-body-gap': '1px',
+          } as CSSProperties
         }
       >
         <ListRowMain
@@ -117,73 +164,59 @@ export function SidebarEnvRow({
             name={env.name}
             status={env.status}
             hasError={Boolean(env.error)}
-            size={showSecondLine ? 'md' : 'sm'}
-            ringClassName={selected ? 'ring-surface-selected-solid' : 'ring-sidebar'}
+            size="md"
+            ringClassName="ring-[var(--avatar-outline)]"
           />
           <ListRowBody>
             <ListRowLabel className="flex-1">
-              <span
-                className={cn(
-                  'min-w-0 flex-1 truncate font-medium text-foreground',
-                  showSecondLine ? 'text-[13px] leading-4 tracking-[-0.01em]' : 'text-xs leading-4',
-                )}
-              >
+              <span className="min-w-0 flex-1 truncate text-[13px] leading-4 font-medium tracking-[-0.01em] text-foreground">
                 {env.name}
               </span>
-              {!showSecondLine && (
-                <ListRowMeta className="ml-1 max-w-[44%] shrink-0 pl-1" title={egressLabel(env.proxy)}>
-                  {egressLabel(env.proxy)}
-                </ListRowMeta>
-              )}
             </ListRowLabel>
-            {showSecondLine && (
-              <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--font-size-micro)] leading-[14px] text-subtle-foreground">
-                <span className="min-w-0 truncate font-mono" title={egressLabel(env.proxy)}>
-                  {egressLabel(env.proxy)}
+            <div className="flex min-w-0 items-center gap-1.5 text-[length:var(--font-size-micro)] leading-[14px] text-muted-foreground">
+              <span className="min-w-0 truncate font-mono" title={egressLabel(env.proxy)}>
+                {egressLabel(env.proxy)}
+              </span>
+              {env.status === 'dormant' && (
+                <span className="shrink-0 text-warning-text" title="已休眠，登录态与标签已保留">
+                  已休眠
                 </span>
-                {env.status === 'dormant' && (
-                  <span className="shrink-0 text-[var(--warning)]" title="已休眠，登录态与标签已保留">
-                    已休眠
+              )}
+              {env.error && (
+                <span className="shrink-0 text-danger-text" title={env.error}>
+                  异常
+                </span>
+              )}
+              {env.owner !== 'none' && (
+                <span
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-0.5 font-mono',
+                    env.owner === 'agent' ? 'text-accent-text' : 'text-success-text',
+                  )}
+                  title={ownerLabel[env.owner]}
+                >
+                  <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3" />
+                  <span className="max-w-[6.5rem] truncate">
+                    {env.owner === 'agent' ? env.leaseLabel || 'AI' : '接管中'}
                   </span>
-                )}
-                {env.error && (
-                  <span className="shrink-0 text-destructive" title={env.error}>
-                    异常
-                  </span>
-                )}
-                {env.owner !== 'none' && (
-                  <span
-                    className={cn(
-                      'inline-flex shrink-0 items-center gap-0.5 font-mono',
-                      env.owner === 'agent' ? 'text-[var(--info)]' : 'text-[var(--success)]',
-                    )}
-                    title={ownerLabel[env.owner]}
-                  >
-                    <Icon name={env.owner === 'agent' ? 'Robot' : 'User'} className="size-3" />
-                    <span className="max-w-[6.5rem] truncate">
-                      {env.owner === 'agent' ? env.leaseLabel || 'AI' : '接管中'}
-                    </span>
-                  </span>
-                )}
-                {badge.first && (
-                  <span
-                    data-slot="env-badge"
-                    className={cn(
-                      'inline-flex max-w-[4.5rem] shrink-0 items-center gap-0.5',
-                      badgeToneClass(badge.first.tone),
-                    )}
-                    title={
-                      badge.labels.length > 1
-                        ? `插件状态：${badge.labels.join(' / ')}`
-                        : `插件状态：${badge.first.label}`
-                    }
-                  >
-                    <Icon name={badge.first.icon ?? 'Zap'} className="size-3" />
-                    <span className="truncate">{badge.first.label}</span>
-                  </span>
-                )}
-              </div>
-            )}
+                </span>
+              )}
+              {badge.first && (
+                <span
+                  data-slot="env-badge"
+                  className={cn(
+                    'inline-flex max-w-[4.5rem] shrink-0 items-center gap-0.5',
+                    badgeToneClass(badge.first.tone),
+                  )}
+                  title={
+                    badge.labels.length > 1 ? `插件状态：${badge.labels.join(' / ')}` : `插件状态：${badge.first.label}`
+                  }
+                >
+                  <Icon name={badge.first.icon ?? 'Zap'} className="size-3" />
+                  <span className="truncate">{badge.first.label}</span>
+                </span>
+              )}
+            </div>
           </ListRowBody>
         </ListRowMain>
         <ListRowActions alwaysVisible>

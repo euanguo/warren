@@ -14,10 +14,7 @@ import { cn } from '@/lib/utils';
 import type { SettingsSection, StageRoute } from '@/state/navigation-store';
 import type { Environment, Group, NativeMenuItem, SpaceId, TabRef, TabState } from '@shared/types';
 
-/**
- * macOS 红绿灯占位。窗口是 `titleBarStyle: 'hiddenInset'`，红绿灯浮在内容上，
- * 不留位就会被盖住（bb 同样留 84px）。
- */
+/** macOS hiddenInset 红绿灯占位（84px）。 */
 const TRAFFIC_LIGHT_RESERVE_CLASS = 'pl-[84px]';
 
 const DRAG_CLASS = 'select-none [app-region:drag] [-webkit-app-region:drag]';
@@ -65,9 +62,9 @@ interface Props {
 }
 
 /**
- * 两层精密浏览器壳首行（Row 1）：
- * - 环境模式：红绿灯 + 侧栏折叠 + 当前环境胶囊 + 我的/Agent 空间切换 + 标签条 + 仅 Agent 空间显示的控制权胶囊 + ⌘K / 全局扩展 / 设置；
- * - 全局模式（设置 / 插件全屏页）：切为纯全局导航条（← 返回环境 + 全局页面切换），避免环境胶囊与全局配置概念错位。
+ * OpenBot 风格 38px 无边框顶栏（位于外框 bg-frame 上，下方衔接 14px 圆角主画布卡片）：
+ * - 环境模式：红绿灯 + 侧栏切换 + 扁平环境胶囊 + SlidingTabs 空间切换 + 凹角无界标签条 + Agent 控制胶囊 + ⌘K / 扩展 / 设置；
+ * - 全局模式（设置 / 插件全屏页）：切为纯全局导航条（← 返回环境 + 居中滑动胶囊导航）。
  */
 export function AppTitlebar({
   route,
@@ -120,21 +117,29 @@ export function AppTitlebar({
     const nav = globalNavRef.current;
     const thumb = globalThumbRef.current;
     if (!nav || !thumb) return;
+    let initialized = false;
     const sync = () => {
       const activeEl = nav.querySelector<HTMLElement>('[aria-current="page"]');
       if (!activeEl) {
         thumb.style.opacity = '0';
         return;
       }
+      if (!initialized) nav.dataset.initializing = 'true';
       thumb.style.opacity = '1';
       thumb.style.width = `${activeEl.offsetWidth}px`;
-      thumb.style.transform = `translateX(${activeEl.offsetLeft}px)`;
+      thumb.style.transform = `translate3d(${activeEl.offsetLeft}px, 0, 0)`;
+      if (!initialized) {
+        void thumb.getBoundingClientRect();
+        delete nav.dataset.initializing;
+        initialized = true;
+      }
     };
     sync();
     const observer = new ResizeObserver(sync);
     observer.observe(nav);
     return () => observer.disconnect();
   }, [isGlobalMode, activeGlobalKey, railPages.length]);
+
   const agentOwner =
     (environment?.spaces ?? []).find((space) => space.id === 'agent')?.owner ?? environment?.owner ?? 'none';
 
@@ -186,7 +191,7 @@ export function AppTitlebar({
       <header
         data-slot="global-header"
         className={cn(
-          'relative flex h-[var(--shell-top-row-height)] w-full min-w-0 shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-border/60 bg-surface-under pr-2.5',
+          'relative flex h-[var(--shell-top-row-height)] w-full min-w-0 shrink-0 items-center justify-between gap-2 overflow-hidden bg-frame pr-2',
           window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
           DRAG_CLASS,
         )}
@@ -199,7 +204,7 @@ export function AppTitlebar({
             aria-label="返回环境"
             title="返回环境工作台 (Esc)"
             onClick={onBackToEnvironments}
-            className="max-w-[220px] text-foreground/85 hover:text-foreground"
+            className="max-w-[220px] text-muted-foreground hover:text-foreground"
           >
             <Icon name="ChevronLeft" />
             <span className="truncate">返回环境{environment ? ` · ${environment.name}` : ''}</span>
@@ -211,7 +216,7 @@ export function AppTitlebar({
           aria-label="全局视图"
           data-slot="global-nav"
           className={cn(
-            'absolute left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-input-fill p-0.5 [box-shadow:var(--shadow-recessed)]',
+            'absolute left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-tabs-bar p-0.5',
             NO_DRAG_CLASS,
           )}
         >
@@ -219,7 +224,7 @@ export function AppTitlebar({
             ref={globalThumbRef}
             aria-hidden
             data-slot="global-nav-thumb"
-            className="pointer-events-none absolute top-0.5 bottom-0.5 left-0 rounded-[var(--control-radius-icon)] border border-border-heavy/65 bg-surface-elevated opacity-0 [box-shadow:var(--shadow-chip)] transition-[transform,width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+            className="warren-sliding-pill opacity-0"
           />
           <Button
             size="xs"
@@ -228,8 +233,8 @@ export function AppTitlebar({
             aria-current={route === 'settings' ? 'page' : undefined}
             onClick={() => onOpenSettings()}
             className={cn(
-              'relative z-10 hover:bg-transparent',
-              route === 'settings' ? 'font-medium text-foreground' : 'text-subtle-foreground hover:text-foreground',
+              'relative z-10 hover:bg-transparent active:scale-100',
+              route === 'settings' ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <Icon name="Settings" />
@@ -249,8 +254,8 @@ export function AppTitlebar({
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onOpenPluginPage(page.pluginId, page.id)}
                 className={cn(
-                  'relative z-10 hover:bg-transparent',
-                  active ? 'font-medium text-foreground' : 'text-subtle-foreground hover:text-foreground',
+                  'relative z-10 hover:bg-transparent active:scale-100',
+                  active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 <PluginBrandGlyph pluginId={page.pluginId} icon={page.icon} className={cn(!active && 'opacity-80')} />
@@ -268,7 +273,7 @@ export function AppTitlebar({
               data-slot="command-bar-trigger"
               aria-label="命令栏 (⌘K)"
               onClick={onOpenCommandBar}
-              className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-subtle-foreground hover:text-foreground"
+              className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
             >
               <Icon name="Search" className="size-3.5" />
               <Kbd>⌘K</Kbd>
@@ -283,12 +288,12 @@ export function AppTitlebar({
     <header
       data-slot="app-header"
       className={cn(
-        'flex h-[var(--shell-top-row-height)] w-full min-w-0 shrink-0 items-center gap-1.5 overflow-hidden bg-surface-under pr-2.5',
+        'relative z-10 -mb-px flex h-[var(--shell-top-row-height)] w-full min-w-0 shrink-0 items-center gap-1.5 overflow-hidden bg-transparent pr-2',
         window.envApi.platform === 'darwin' ? TRAFFIC_LIGHT_RESERVE_CLASS : 'pl-2',
         DRAG_CLASS,
       )}
     >
-      <div className={cn('flex shrink-0 items-center gap-2', NO_DRAG_CLASS)}>
+      <div className={cn('flex shrink-0 items-center gap-1.5', NO_DRAG_CLASS)}>
         <ActionTooltip label={sidebarOpen ? '收起环境侧栏' : '展开环境侧栏'} shortcut="⌘B" side="bottom">
           <IconButton
             data-slot="sidebar-toggle"
@@ -307,7 +312,7 @@ export function AppTitlebar({
             onClick={openCurrentEnvMenu}
             onContextMenu={openCurrentEnvMenu}
             title={`${environment.name} (${environment.id}) · ${environment.proxy ?? '直连'} · 点击管理环境`}
-            className="flex h-[var(--control-height-icon)] max-w-[232px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-heavy/65 bg-surface-elevated px-2 text-xs [box-shadow:var(--shadow-chip)] outline-none transition-colors hover:bg-surface-hover focus-visible:border-focus"
+            className="flex h-[var(--control-height-icon)] max-w-[232px] shrink-0 items-center gap-1.5 rounded-[var(--control-radius)] border border-border-strong bg-control px-2 text-xs outline-none transition-none hover:bg-control-hover active:scale-[0.97] focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]"
           >
             <EnvIdentityAvatar
               envId={environment.id}
@@ -315,13 +320,14 @@ export function AppTitlebar({
               status={environment.status}
               hasError={Boolean(environment.error)}
               size="xs"
-              className="mr-1"
+              ringClassName="ring-control"
+              className="mr-0.5"
             />
             <span className="truncate font-medium text-foreground">{environment.name}</span>
             <span className="truncate font-mono text-[length:var(--font-size-micro)] text-muted-foreground">
               {environment.error ? '加载失败' : egressLabel(environment.proxy)}
             </span>
-            <Icon name="ChevronDown" className="size-3 shrink-0 text-subtle-foreground" />
+            <Icon name="ChevronDown" className="size-3 shrink-0 text-muted-foreground" />
           </button>
         ) : (
           <span data-slot="env-capsule" className="px-1.5 text-xs text-muted-foreground">
@@ -331,19 +337,19 @@ export function AppTitlebar({
 
         {environment && running && (environment.spaces?.length ?? 0) > 0 && (
           <>
-            <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+            <span className="h-3.5 w-px shrink-0 bg-border-strong" aria-hidden />
             <EnvironmentSpaceSwitcher
               spaces={environment.spaces ?? []}
               activeSpaceId={activeSpaceId}
               leaseLabel={environment.leaseLabel}
               onSelect={(space) => onSpaceSelect(environment.id, space)}
             />
-            <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+            <span className="h-3.5 w-px shrink-0 bg-border-strong" aria-hidden />
           </>
         )}
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+      <div className="flex h-full min-w-0 flex-1 items-end overflow-hidden">
         {environment && running ? (
           <EnvironmentTabstrip
             tabs={tabs}
@@ -373,10 +379,9 @@ export function AppTitlebar({
             data-owner={agentOwner}
             className={cn(
               'mr-1 flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none',
-              agentOwner === 'agent' && 'border-[var(--info)]/55 bg-[var(--info)]/14 [box-shadow:var(--shadow-chip)]',
-              agentOwner === 'human' &&
-                'border-[var(--success)]/50 bg-[var(--success)]/12 [box-shadow:var(--shadow-chip)]',
-              agentOwner === 'none' && 'border-border-heavy/75 bg-surface-elevated/90 [box-shadow:var(--shadow-chip)]',
+              agentOwner === 'agent' && 'border-accent-strong bg-accent-soft',
+              agentOwner === 'human' && 'border-success/40 bg-success-soft',
+              agentOwner === 'none' && 'border-border-strong bg-control',
             )}
           >
             <StatusDot
@@ -408,7 +413,7 @@ export function AppTitlebar({
                 className={cn(
                   'h-[22px] rounded-full px-2.5',
                   agentOwner === 'agent' &&
-                    'border border-[var(--info)]/45 bg-[var(--info)]/18 text-[var(--info)] hover:bg-[var(--info)]/28',
+                    'border border-accent-strong bg-accent-soft text-accent-text hover:bg-accent-strong/50',
                 )}
                 onClick={() => onTakeover(environment.id)}
               >
@@ -426,7 +431,7 @@ export function AppTitlebar({
             data-slot="command-bar-trigger"
             aria-label="命令栏 (⌘K)"
             onClick={onOpenCommandBar}
-            className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-subtle-foreground hover:text-foreground"
+            className="h-[var(--control-height-icon)] gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
           >
             <Icon name="Search" className="size-3.5" />
             <Kbd>⌘K</Kbd>

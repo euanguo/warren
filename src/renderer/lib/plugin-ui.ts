@@ -13,6 +13,16 @@ import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+  SettingsSection,
+} from '@/components/ui/item-group';
+import {
   Card,
   CardAction,
   CardContent,
@@ -134,6 +144,14 @@ export const PLUGIN_UI = {
   CardAction,
   CardContent,
   CardFooter,
+  SettingsSection,
+  ItemGroup,
+  Item,
+  ItemMedia,
+  ItemContent,
+  ItemTitle,
+  ItemDescription,
+  ItemActions,
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
