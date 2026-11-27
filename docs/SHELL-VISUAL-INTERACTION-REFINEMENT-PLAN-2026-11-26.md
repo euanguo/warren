@@ -3,7 +3,7 @@
 > 状态：**方案已定稿，待分阶段实施（Phase 1 优先落地）**  
 > 日期：2026-11-26  
 > 分支基线：`feat/shell-layout-interaction`（`b2d4f8d`）  
-> 关联文档：[`docs/SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md`](./SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md)、[`docs/ui-design-language.md`](./ui-design-language.md)、[`docs/verification/shell-layout-interaction-2026-11-26/README.md`](./verification/shell-layout-interaction-2026-11-26/README.md)  
+> 关联文档：[`docs/SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md`](./SHELL-LAYOUT-INTERACTION-PLAN-2026-11-26.md)、[`docs/ui-design-language.md`](./ui-design-language.md)  
 > 评审依据：7 套本地视觉与交互 Skill（`oil-ui`、`impeccable A+B`、`refactoring-ui`、`ux-heuristics`、`design-everyday-things`、`microinteractions`、`steve-jobs-design-review`）交叉核验结论。
 
 ---

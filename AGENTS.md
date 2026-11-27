@@ -36,8 +36,7 @@ fixtures/login/             本地测试站点
 scripts/                    serve-fixture / serve-shots / ui-promote / test-changed / regress/{lib.sh,*.sh}
 tests/                      node:test 单测 + Vitest/happy-dom 无头 UI 测试（tests/ui/） + helpers/
 assets/                     品牌资产（app icon.icns / icon.png + tray 图标）
-legacy/                     旧的独立 Chrome 看板原型（前身，勿参考）
-docs/                       PRD / 技术选型 / 设计语言 / 交接与改造文档
+docs/                       PRD / 技术选型 / 设计语言 / 交接与改造文档 / 实机截图（screenshots/）
 ```
 
 ### 路径别名
@@ -427,5 +426,3 @@ python3 -c "from PIL import Image;import numpy as np;a=np.asarray(Image.open('sh
 | `docs/NET-INTERCEPT-PLAN.md` | **网络拦截通用能力**：`ses.protocol.handle` 方案（R8–R11 已实测）、规则模型、批次与验收。whistle 降级为兜底 |
 | `docs/FULL-REGRESSION-2026-10-15.md` | **全量回归记录**：`scripts/regress/run-all.sh` 跑什么与历史修复记录 |
 | `docs/CODE-ARCHITECTURE-QUALITY-PLAN-2026-11-27.md` | **全仓库零 Shim 代码质量与架构质量改造计划**：Wave 0–4 实施路线、第 5 节文档校准清单与第 6 节端到端实测协议 |
-
-`legacy/` 是前身原型（独立 Chrome 进程看板），**不作为当前实现依据**。

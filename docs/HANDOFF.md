@@ -28,7 +28,7 @@
 
 > Worktree 不用，不是我们这个应用应该理解的概念，我们理解的概念应该是**隔离的环境以及隔离的代理功能**。
 
-所以代码里**不应该**出现 worktree 概念。`legacy/` 里的旧原型是唯一例外。
+所以代码里**不应该**出现 worktree 概念（早期的 Chrome 看板原型已从仓库移除）。
 
 ---
 
@@ -233,7 +233,7 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
   - 升级 `src/main/input-shield.ts` 至 `8px` 圆角、深/浅双色高对比靛蓝/青蓝光学环与顶部扫光、去重后的纯实时遥测右上角磨砂芯片（仅活跃态展示，自动左避让）、外扩防撞色目标锚框及避字右下角 AI 光标，并同步全原生 `WebContentsView` `8px` 圆角。
 - **Phase 5 — 栅栏背面清理与诚实真机闭环（Module E）**：
   - 清除 Cookie 面板内部文档 `§9` 泄露，升级 `NetRulesPanel` 可复制 CLI 空态；设置页正文居中 `max-w-3xl`、升级全宽 `ThemePreviewThumb` 迷你窗预览并修正 `WARREN_HOME` 信息层级；命令面板 `⌘K` 重构为带分组头、环境色标芯片、唯一行高亮、`<Kbd>` 快捷键与底部图例栏；
-  - 3 轮 16 态窗口级真机像素 ROI 校验 **16/16 PASS**，盲评 `9.3–9.7 / 10`（0 P0 / 0 P1），留档于 `docs/verification/shell-layout-interaction-2026-11-26/`。
+  - 3 轮 16 态窗口级真机像素 ROI 校验 **16/16 PASS**，盲评 `9.3–9.7 / 10`（0 P0 / 0 P1），后续真实网站全量实机截图统一归档于 `docs/screenshots/`。
 
 ### 插件生态 2.0：双业务插件全栈重构 + 人类一键填充 + 自动插件 Skill 注入（2026-11-27，合入自 `feat/plugin-ecosystem-2`）
 
@@ -260,7 +260,7 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 - **Phase 3 — 右侧智能互斥与插件随行面板**：新增 `src/renderer/state/workbench-layout.ts`（`shouldExcludeRightPanels`），当 DevTools 为右侧停靠且舞台较窄（`< 1120px` 或网页剩余宽 `< 520px`）时与 Warren 工作台抽屉自动互斥，`bottom` / `detach` 模式自由并存；Whistle 与账号管理插件新增随页 `inspectorTab`（保留全屏 `railPage` 与明文安全警示 `data-slot="account-plaintext-warning"`）。
 - **Phase 4 — AI 透明蒙层与实时动作轨迹**：升级 `src/main/input-shield.ts` 与 `LeaseCoordinator`，区分 `owner === 'agent'`（四边呼吸光晕、顶部轻流光、中心 100% 通透）与 `owner === 'none'`（静默灰边无动画）；取消底部常驻黑药丸遮挡页面按钮，改为误点时于指针旁弹出 1.8s 轻提示；经 `PageContext.onVisualAction` 把 `actions.ts` / `keymouse.ts` 缩放换算后的视口坐标/控件框推给 `'shield'` 绘制阻尼虚拟光标、目标锚框与点击波纹（严禁携带输入明文）。
 - **Phase 5 — 回归探针与单测补齐**：更新 `scripts/regress/ui.cjs`、`scripts/regress/net-n4.sh` 与 `scripts/regress/run-all.sh` 探针，新增 `tests/shell-layout-interaction.test.ts` 与 `LeaseCoordinator` 遮罩模式/轨迹播报单测。
-- **实机自循环验收与细节优化（4 轮 16 截图闭环，留档于 `docs/verification/shell-layout-interaction-2026-11-26/`）**：
+- **实机自循环验收与细节优化（4 轮 16 截图闭环，现已统一由 `docs/screenshots/` 承载真实网站截图）**：
   - 静态门禁 `npm run check` 全绿（`oxlint` 0 警告 / `prettier` 0 差异 / `tsc --noEmit` 0 错误 / 全量单测 PASS / Vite 渲染层构建通过）；
   - 全量实机回归 `scripts/regress/run-all.sh` **154 PASS / 0 FAIL**（4 个预期 SKIP，UI 21/21 全绿）；专项 14 项外壳交互验收 **14/14 PASS**；
   - 4 轮实机 1440×920 @2x 截图逐帧审计修复并复验清零：修复打包/本地冷启动 `main.ts` 漏发 `broadcastPluginChanged()` 导致的插件面丢失竞态；为 `InputShield` / `DevToolsHost` / `OverlayHost` 补全 `backgroundThrottling: false`、`setBorderRadius(6)` 与 `invalidate()` 刷新，并打通暗色/浅色双主题 AI 护盾；修正 `react-resizable-panels` 首帧回调污染工作台宽度至 `maxSize` 及 `TabsList` 居中左溢出裁切问题（锁定默认 `360px`、`justify-start` + `scrollIntoView`）；补全 `--color-surface-under` 与 `--sidebar` 浅灰层次映射、macOS 红绿灯垂直同轴（`y=14`）、侧栏头 `40px` 与地址栏 `0px` 对齐、全局顶栏导航 `0px` 绝对居中、持锁态侧栏保护环境名、青蓝色系全链路统一、`top-right` 顶栏安全区 Toast、以及 Whistle/账号伴随空态卡片与账号页 `1040px` 居中版心。最终全部 16 张页面/状态截图 0 P0 / 0 P1 验收通过。
