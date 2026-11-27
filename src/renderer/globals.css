@@ -418,12 +418,9 @@ html.panel-resizing * {
   color: var(--foreground);
 }
 
-.warren-chrome-strip[data-dragging='true'] [data-surface-tab-icon] {
-  opacity: 0.85 !important;
-}
-
-.warren-chrome-strip[data-dragging='true'] [data-surface-tab-close-glyph] {
+.warren-chrome-strip[data-dragging='true'] [data-surface-tab-close] {
   opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* ============================================================================

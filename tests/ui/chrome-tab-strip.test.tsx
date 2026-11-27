@@ -58,7 +58,7 @@ describe('OpenBot 风格 Chrome 标签栏 CSS 契约与边界行为', () => {
     installMockEnvApi();
   });
 
-  it('chrome 标签使用 28px 居中全圆角胶囊、18px 圆形关闭槽位，以及双层凹角 1px 发丝描边', () => {
+  it('chrome 标签采用标准浏览器「左图标 + 中标题 + 右圆形 ×」布局，激活态常显 ×、非激活态悬停右侧展开', () => {
     render(
       <TooltipProvider>
         <EnvironmentTabstrip
@@ -83,11 +83,26 @@ describe('OpenBot 风格 Chrome 标签栏 CSS 契约与边界行为', () => {
     // 完整四角圆角（不再是贴底切平的 rounded-t-[10px]）
     expect(tabs[0].className).toContain('rounded-[var(--radius-md)]');
     expect(tabs[0].className).not.toContain('rounded-t-[10px]');
-    // 紧凑圆形关闭槽位（不再套用方形灰底 IconButton）
-    const closeBtn = screen.getByRole('button', { name: '关闭 React' });
-    expect(closeBtn.className).toContain('rounded-full');
-    expect(closeBtn.className).toContain('size-[18px]');
-    expect(closeBtn.className).not.toContain('group-hover/surface-tab:bg-surface-hover');
+
+    // 左图标悬停不消失、DOM 顺序严格为：左图标 → 标题 → 右侧关闭按钮
+    const icons = document.querySelectorAll<HTMLElement>('[data-surface-tab-icon]');
+    const labels = document.querySelectorAll<HTMLElement>('[data-slot="chrome-tab-label"]');
+    const idleCloseBtn = screen.getByRole('button', { name: '关闭 React' });
+    const activeCloseBtn = screen.getByRole('button', { name: '关闭 Google 搜索' });
+
+    expect(icons[0].className).not.toContain('group-hover/surface-tab:opacity-0');
+    expect(icons[0].compareDocumentPosition(labels[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(labels[0].compareDocumentPosition(idleCloseBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(icons[1].compareDocumentPosition(labels[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(labels[1].compareDocumentPosition(activeCloseBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 激活标签右侧 × 常显（w-[18px]），非激活标签静息收起让位（w-0 opacity-0）并在悬停右侧展开
+    expect(activeCloseBtn.className).toContain('rounded-full');
+    expect(activeCloseBtn.className).toContain('w-[18px]');
+    expect(activeCloseBtn.className).not.toContain('w-0');
+    expect(idleCloseBtn.className).toContain('w-0');
+    expect(idleCloseBtn.className).toContain('group-hover/surface-tab:w-[18px]');
+    expect(idleCloseBtn.className).not.toContain('group-hover/surface-tab:bg-surface-hover');
 
     // globals.css 具备 OpenBot 连续 1px 描边 + 双层 radial-gradient 凹角 + 双向相邻分隔线隐藏 + 滚动裁切 + 宽度上下限与标题过长右侧渐隐蒙层
     const css = readFileSync(path.join(ROOT, 'src/renderer/globals.css'), 'utf8');
@@ -204,7 +219,7 @@ describe('OpenBot 风格 Chrome 标签栏 CSS 契约与边界行为', () => {
     expect(strip.dataset.frozen).toBeUndefined();
   });
 
-  it('音频/静音按钮固定位于标题右侧 trailingAction，不顶替左侧图标与关闭槽位', () => {
+  it('音频/静音按钮紧贴右侧关闭按钮左侧，不顶替左侧 favicon', () => {
     const onToggleMute = vi.fn();
     render(
       <TooltipProvider>
@@ -224,12 +239,12 @@ describe('OpenBot 风格 Chrome 标签栏 CSS 契约与边界行为', () => {
       </TooltipProvider>,
     );
 
-    const closeBtn = screen.getByRole('button', { name: '关闭 音乐播放' });
+    const icon = document.querySelector<HTMLElement>('[data-surface-tab-icon]')!;
     const muteBtn = screen.getByRole('button', { name: '静音 音乐播放' });
-    expect(closeBtn).toBeTruthy();
-    expect(muteBtn).toBeTruthy();
-    // 静音按钮位于关闭按钮之后（DOM 顺序靠右）
-    expect(closeBtn.compareDocumentPosition(muteBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const closeBtn = screen.getByRole('button', { name: '关闭 音乐播放' });
+    // 顺序：左 favicon → 标题 → 静音按钮 → 最右关闭按钮 ×
+    expect(icon.compareDocumentPosition(muteBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(muteBtn.compareDocumentPosition(closeBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(muteBtn);
     expect(onToggleMute).toHaveBeenCalledWith('t1', true);
   });

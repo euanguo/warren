@@ -161,9 +161,11 @@ export function SurfaceTab({
         iconOnly && surfaceTabChipIconOnlyClass,
         !iconOnly &&
           (isChrome
-            ? canClose && hasIcon
-              ? 'pl-1.5 pr-2'
-              : 'px-2'
+            ? canClose
+              ? active
+                ? 'pl-2.5 pr-1.5'
+                : 'pl-2.5 pr-2.5 hover:pr-1.5 focus-within:pr-1.5'
+              : 'px-2.5'
             : canClose && hasIcon
               ? 'gap-1.5 pl-2 pr-2.5'
               : canClose && !hasIcon
@@ -180,95 +182,83 @@ export function SurfaceTab({
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
     >
-      {canClose && hasIcon ? (
-        isChrome ? (
-          <ChromeTabCloseSlot
-            label={closeLabel ?? label}
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose();
-            }}
-          >
+      {isChrome ? (
+        <>
+          {hasIcon ? (
             <span
               data-surface-tab-icon=""
               className={cn(
-                'col-start-1 row-start-1 flex items-center justify-center transition-opacity duration-100 group-hover/surface-tab:opacity-0 group-focus-within/surface-tab:opacity-0',
-                active ? 'opacity-100' : 'opacity-80',
+                'flex size-4 shrink-0 items-center justify-center transition-opacity duration-[var(--duration-fast)] [&_svg]:size-3.5',
+                active ? 'opacity-100' : 'opacity-80 group-hover/surface-tab:opacity-100',
               )}
+              aria-hidden
             >
               {icon}
             </span>
-            <Icon
-              name="X"
-              data-surface-tab-close-glyph=""
-              className="col-start-1 row-start-1 size-3 shrink-0 opacity-0 transition-opacity duration-100 group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100"
-            />
-          </ChromeTabCloseSlot>
-        ) : (
-          <SurfaceTabAction
-            label={closeLabel ?? label}
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose();
-            }}
-          >
-            <span className="flex items-center justify-center transition-opacity group-hover/surface-tab:opacity-0 group-focus-within/surface-tab:opacity-0">
+          ) : null}
+          {iconAction}
+          {iconOnly ? <span className="sr-only">{label}</span> : null}
+          {!iconOnly ? <ChromeTabLabel label={label} isPreview={isPreview} className={labelClassName} /> : null}
+          {trailingAction || canClose ? (
+            <span className="flex shrink-0 items-center">
+              {trailingAction}
+              {canClose ? (
+                <ChromeTabCloseSlot
+                  label={closeLabel ?? label}
+                  alwaysVisible={active}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onClose();
+                  }}
+                />
+              ) : null}
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {canClose && hasIcon ? (
+            <SurfaceTabAction
+              label={closeLabel ?? label}
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose();
+              }}
+            >
+              <span className="flex items-center justify-center transition-opacity group-hover/surface-tab:opacity-0 group-focus-within/surface-tab:opacity-0">
+                {icon}
+              </span>
+              <Icon
+                name="X"
+                className="absolute size-3.5 shrink-0 opacity-0 transition-opacity group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100"
+              />
+            </SurfaceTabAction>
+          ) : hasIcon ? (
+            <span className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5" aria-hidden>
               {icon}
             </span>
-            <Icon
-              name="X"
-              className="absolute size-3.5 shrink-0 opacity-0 transition-opacity group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100"
-            />
-          </SurfaceTabAction>
-        )
-      ) : hasIcon ? (
-        <span
-          data-surface-tab-icon=""
-          className={cn(
-            'flex shrink-0 items-center justify-center [&_svg]:size-3.5',
-            isChrome ? 'size-[18px]' : 'size-3.5',
-            isChrome && !active && 'opacity-80',
-          )}
-          aria-hidden
-        >
-          {icon}
-        </span>
-      ) : null}
-      {iconAction}
-      {iconOnly ? <span className="sr-only">{label}</span> : null}
-      {!iconOnly ? (
-        isChrome ? (
-          <ChromeTabLabel label={label} isPreview={isPreview} className={labelClassName} />
-        ) : (
-          <span className={cn('flex min-w-0 flex-1 items-center text-left', isPreview && 'italic', labelClassName)}>
-            <span className="truncate">{label}</span>
-          </span>
-        )
-      ) : null}
-      {trailingAction}
-      {canClose && !hasIcon ? (
-        isChrome ? (
-          <ChromeTabCloseSlot
-            label={closeLabel ?? label}
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose();
-            }}
-          >
-            <Icon name="X" data-surface-tab-close-glyph="" className="size-3 shrink-0" />
-          </ChromeTabCloseSlot>
-        ) : (
-          <SurfaceTabAction
-            label={closeLabel ?? label}
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose();
-            }}
-          >
-            <Icon name="X" className="size-3.5" />
-          </SurfaceTabAction>
-        )
-      ) : null}
+          ) : null}
+          {iconAction}
+          {iconOnly ? <span className="sr-only">{label}</span> : null}
+          {!iconOnly ? (
+            <span className={cn('flex min-w-0 flex-1 items-center text-left', isPreview && 'italic', labelClassName)}>
+              <span className="truncate">{label}</span>
+            </span>
+          ) : null}
+          {trailingAction}
+          {canClose && !hasIcon ? (
+            <SurfaceTabAction
+              label={closeLabel ?? label}
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose();
+              }}
+            >
+              <Icon name="X" className="size-3.5" />
+            </SurfaceTabAction>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -320,14 +310,14 @@ function ChromeTabLabel({
   );
 }
 
-/** OpenBot 同款 18px 圆形图标/关闭槽位：静息全透明、悬停 Tab 交叉淡入 ×、仅悬停 × 本身才亮圆形底。 */
+/** 浏览器顶栏右侧 18px 圆形关闭按钮：激活标签常显、非激活标签静息收起让位给标题，悬停/聚焦时于右侧展开。 */
 function ChromeTabCloseSlot({
   label,
-  children,
+  alwaysVisible,
   onClick,
 }: {
   label: string;
-  children: ReactNode;
+  alwaysVisible: boolean;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
@@ -336,13 +326,17 @@ function ChromeTabCloseSlot({
       aria-label={label}
       title={label}
       data-surface-tab-action=""
+      data-surface-tab-close=""
       className={cn(
         controlRingFocusClass,
-        'relative grid size-[18px] shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted-foreground transition-colors duration-[var(--duration-fast)] hover:bg-surface-active hover:text-foreground active:scale-95',
+        'relative grid h-[18px] shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full border-0 bg-transparent p-0 text-muted-foreground transition-[opacity,background-color,color] duration-[var(--duration-fast)] hover:bg-surface-active hover:text-foreground hover:opacity-100 active:scale-95',
+        alwaysVisible
+          ? 'ml-1 w-[18px] opacity-70'
+          : 'ml-0 w-0 opacity-0 pointer-events-none group-hover/surface-tab:ml-1 group-hover/surface-tab:w-[18px] group-hover/surface-tab:opacity-75 group-hover/surface-tab:pointer-events-auto group-focus-within/surface-tab:ml-1 group-focus-within/surface-tab:w-[18px] group-focus-within/surface-tab:opacity-75 group-focus-within/surface-tab:pointer-events-auto',
       )}
       onClick={onClick}
     >
-      {children}
+      <Icon name="X" data-surface-tab-close-glyph="" className="size-3 shrink-0" />
     </button>
   );
 }
