@@ -28,7 +28,7 @@ export interface SecretFillContext {
 export interface SecretFillOptions {
   /** 域名名单（抄 Browser Use secret_bindings）：不在名单的 origin 拒绝填充 */
   allowedDomains?: string[];
-  /** 是否要求必须提供非空域名名单（Agent 渠道强制开启，防止空名单放行） */
+  /** 是否要求必须提供非空域名名单；由调用方按需开启（Agent-first 下不再按 caller 强制） */
   requireDomains?: boolean;
   /** 名单外的域；调用方用它记事件（谁被拒、拒在哪） */
   onDenied?: (host: string) => void;

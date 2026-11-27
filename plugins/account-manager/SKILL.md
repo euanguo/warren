@@ -11,8 +11,8 @@ description: 使用 Warren 账号管理插件（com.warren.accounts）进行测�
 
 1. **Agent 通道无明文返还**：`list` / `match` / `get` 仅返 `usernameHint`、`hasPassword`、`hasTotp`、`extraFieldKeys`；Agent 搜索不会探测明文 `username`（只匹配名称、网址、别名、备注、标签）。
 2. **禁止调用 UI 专属方法**：`reveal`、`totpCode` 与 `export` 均仅限 UI 通道（`caller === 'ui'`），Agent 调用返回 `ACCOUNT_REVEAL_UI_ONLY` / `ACCOUNT_TOTP_UI_ONLY` / `ACCOUNT_EXPORT_UI_ONLY`。
-3. **域名绑定仅限 UI 修改**：Agent 调 `update` 修改 `url` / `urls` / `allowedHosts` 会返回 `ACCOUNT_DOMAIN_BINDING_UI_ONLY`，需由用户在 Warren 桌面端「账号管理」界面维护允许域名。
-4. **锁定 Agent Space 与非空域名白名单**：禁止传 `space: "person"`；账号必须由 `url` / `urls` / `allowedHosts` 推导出非空 `allowedDomains` 才允许 Agent 填充，未配任何域名的账号会被拦截（`PATH_DENIED`）。
+3. **Agent-first 域名绑定**：`url` / `urls` / `allowedHosts` 可由 Agent 通过 `update` 直接维护（CLI 与 RPC 均可），不再有 UI-only 门槛；插件界面仍可编辑。
+4. **锁定 Agent Space 与按白名单校验**：禁止传 `space: "person"`；账号若由 `url` / `urls` / `allowedHosts` 推导出非空 `allowedDomains`，填充时按名单校验，名单外站点仍报 `PATH_DENIED`（`allowCrossOrigin` 仅插件界面可显式二次确认）。未配任何域名的账号不再被强制拒绝，Agent 可自行补齐域名后登录。
 
 ## 标准 AI 登录流程与停止判据
 
@@ -40,8 +40,7 @@ warren plugin run com.warren.accounts saveSelectors --input='{"id":1,"selectors"
 | `ACCOUNT_NO_MATCH` | 调 `list` 确认账号是否缺少 `url`/`urls`/`allowedHosts`，或新建测试账号 |
 | `ACCOUNT_AMBIGUOUS` | 按 `usernameHint` / `note` 选定 `id`，显式传 `id` 调 `fill` / `autoFill` |
 | `ACCOUNT_NO_FIELDS` | 先 `detectFields` 或 `warren browser snapshot <env>`，再显式传 `fields` 调 `fill` |
-| `PATH_DENIED` | 当前域名不在账号允许列表或账号未配域名；核对当前页面或请用户在「账号管理」补充域名 |
-| `ACCOUNT_DOMAIN_BINDING_UI_ONLY` | Agent 通道禁止修改 `url`/`urls`/`allowedHosts`，请用户在 Warren「账号管理」界面修改 |
+| `PATH_DENIED` | 当前域名不在账号允许列表；核对当前页面，或用 `update` 补齐 `allowedHosts` / `url` |
 | `ACCOUNT_EXPORT_UI_ONLY` | 明文导出仅限 UI 通道，请用户在 Warren「账号管理」界面手工备份 |
 | `SPACE_FORBIDDEN` / `ENV_NOT_LEASED` | 移除 `space: "person"`；写前确保已 `warren env acquire <envId>` |
 

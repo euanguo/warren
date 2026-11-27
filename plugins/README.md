@@ -129,7 +129,7 @@ export default function register(app) {
 ### 核心 `ctx.host` 能力摘要
 
 - **环境管理**：`host.environment.{list, get, update, start, stop}`（`update` 支持 `proxy` / `trustedCa` 传 `null` 清除）。
-- **表单探测与零手写填充**：`host.browser.detectLoginFields(envId, { space? })`（在隔离世界识别 `username` / `password` / `totp` / `submit` / 多步登录与验证码状态）、`host.browser.fillSecret(envId, target, value, { space?, allowedDomains?, requireDomains? }) => Promise<{ filled, space }>`（值只在主进程内部进页面，Agent 通道强制校验非空域名白名单）。
+- **表单探测与零手写填充**：`host.browser.detectLoginFields(envId, { space? })`（在隔离世界识别 `username` / `password` / `totp` / `submit` / 多步登录与验证码状态）、`host.browser.fillSecret(envId, target, value, { space?, allowedDomains?, requireDomains? }) => Promise<{ filled, space }>`（值只在主进程内部进页面；调用方可按需传 `requireDomains`，不再按 caller 强制，Agent-first）。
 - **完整页面控制与等待**：`browser.{url, title, info, snapshot, events, highlight, screenshot, navigate, reload, goBack, goForward, click, dblclick, hover, drag, fill, selectOption, focus, press, setInputFiles, openTab, acceptDialog, dismissDialog, console, network, waitFor, waitForSelector, waitForURL, waitForFunction, waitForLoadState, waitForTimeout, waitForEvent}`。
 - **Vault 与打码**：`host.vault.{listRefs, fill, maskHint}`（无明文 reveal）。
 - **受控 Cookie 搬运（`storage.cookie.port`）**：`host.cookie.{names, copy, import, clear}`（`names` 只返回名称、域与标志，**绝不返回 Cookie 值**；`copy` 在主进程内迁移；`storage.cookie.read` / `write` 永久 `denied`）。

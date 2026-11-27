@@ -6,7 +6,7 @@ import path from 'node:path';
 import { dispatchHostRead } from '../src/main/plugins/host-read.ts';
 import { createTestPluginHost } from './helpers/plugin-host.ts';
 
-test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Space，agent 严锁 Agent Space 与域名白名单', async () => {
+test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Space，agent 锁定 Agent Space 并按已配域名白名单校验', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'warren-dual-space-'));
   const pluginSrc = path.join(root, 'plugin-src');
   const fillCalls: Array<{ envId: string; space: string; target: unknown; value: string }> = [];
@@ -164,6 +164,15 @@ test('caller 权威透传与双 Space fillSecret：ui 可免 lease 填 Person Sp
     assert.equal(agentOk.ok, true, agentOk.message);
     assert.equal(leaseAcquires.length, leasesBefore + 1);
     assert.equal(fillCalls.at(-1)?.space, 'agent');
+
+    // 4b. Agent-first：未配置域名名单时不再按 caller 强制 requireDomains，Agent 可直接填充
+    const agentNoDomains = await host.rpc(
+      'com.test.dualspace',
+      'doFill',
+      { envId: 'env-a', options: {} },
+      { caller: 'agent' },
+    );
+    assert.equal(agentNoDomains.ok, true, agentNoDomains.message);
 
     // 5. hostRead: environment.activeContext 返回当前选中环境、Space 与活跃 Tab
     const activeCtx = await dispatchHostRead(

@@ -9,7 +9,7 @@
 | `list` | CLI & RPC | 列出/搜索（无明文） | `query`, `tag`, `includeDeleted`, `onlyDeleted`, `sortBy` (`updated`\|`recent`\|`frequent`\|`name`), `pinnedFirst` |
 | `get` | **仅 RPC** | 读取单条元数据 | `id` |
 | `create` | CLI & RPC | 新增账号 | `name`(必填), `url`, `urls[]`, `username`, `password`, `totpSecret`, `extraFields{}`, `selectors{}`, `allowedHosts[]`, `envIds[]`, `pinned`, `manualVerificationHint`, `note`, `tags` |
-| `update` | CLI & RPC | 修改字段（Agent 不可改 `url`/`urls`/`allowedHosts`，报 `ACCOUNT_DOMAIN_BINDING_UI_ONLY`） | `id`(必填) + 任意允许修改的字段 |
+| `update` | CLI & RPC | 修改字段；Agent-first，`url` / `urls` / `allowedHosts` 也可由 Agent 维护 | `id`(必填) + 任意允许修改的字段 |
 | `match` | CLI & RPC | 智能站点匹配 | `url`, `host`, `environmentId`, `query`, `limit` |
 | `detectFields` | CLI & RPC | 隔离世界探测登录框 | `environmentId` |
 | `fill` | CLI & RPC | 定向填充（可选选择器） | `id`, `environmentId`, `fields?`, `submit?`, `noWaitAfter?` |

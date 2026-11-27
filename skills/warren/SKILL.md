@@ -73,7 +73,7 @@ warren browser detect-login <env>
 ```
 
 - 账号凭据统一收拢在「账号管理」插件（`com.warren.accounts`，本地明文存储、受控直填页面）；`storage.cookie.read` / `write` 永久禁用（仅受控 `storage.cookie.port` 允许元数据搬运）。
-- 按下方已启用插件索引按需读取 `com.warren.accounts` Skill 后使用 `autoFill` / `fill` 受控填充；**Agent 通道绝不读取或导出密码/TOTP 明文，未绑定域名的空域名账号也会被白名单拦截（`PATH_DENIED`）**。
+- 按下方已启用插件索引按需读取 `com.warren.accounts` Skill 后使用 `autoFill` / `fill` 受控填充；**Agent 通道绝不读取或导出密码/TOTP 明文**；账号若配了域名白名单，名单外站点会报 `PATH_DENIED`，未配域名的账号可由 Agent 用 `update` 补齐 `allowedHosts` 后填充（Agent-first）。
 
 ## 会改变行为分支的错误码
 
@@ -86,7 +86,7 @@ warren browser detect-login <env>
 | `TARGET_NOT_FILLABLE` | 目标不是可输入或可选控件 | 用 `detect-login` 或 `snapshot -i` 重新定位真实控件 |
 | `CONTROL_REVOKED` / `ENV_BUSY` | 人接管了环境或他人持锁 | 停止写入询问人，或 `acquire --wait` |
 | `SPACE_FORBIDDEN` | Agent 请求或越权操作 `Person Space` | 去掉 `space: "person"`，仅操作 Agent Space |
-| `PATH_DENIED` | 路径越界（系统/数据目录），或凭据域名不在白名单 | 传安全绝对路径；核对站点域与账号允许域名 |
+| `PATH_DENIED` | 路径越界（系统/数据目录），或凭据域名不在已配置的白名单 | 传安全绝对路径；核对站点域，或用账号插件 `update` 补齐允许域名 |
 | `ENV_NOT_VISIBLE` | 主窗切到设置/插件全屏页或开着浮层让出了视图 | 关闭浮层或切回环境页（非后台运行问题） |
 | `DIALOG_OPEN` | 页面存在未处理的原生弹窗 | 先 `browser dialog <env> accept` 或 `dismiss` |
 | `CDP_BLOCKED` / `UNSUPPORTED_PAGE_API` | 超出干净 CDP 白名单或调用了不支持的 `page` 方法 | 改用 `page.evaluate` 或检查 `warren exec --capabilities` |

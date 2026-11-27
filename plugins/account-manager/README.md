@@ -23,5 +23,5 @@ Warren 官方插件包，提供站点账号库、智能匹配、零手写选择�
 
 1. **Agent 通道绝不返回明文**：`list` / `match` / `get` 对 `caller !== 'ui'` 只返回 `usernameHint`、`hasPassword`、`hasTotp`、`extraFieldKeys`；Agent 关键词搜索不会查询明文 `username`。
 2. **`reveal` 与 `totpCode` 仅限 UI**：Agent 调用直接拒绝（`ACCOUNT_REVEAL_UI_ONLY` / `ACCOUNT_TOTP_UI_ONLY`）。
-3. **强制域白名单与 Agent Space 锁定**：Agent 填充必须由 `url` / `urls` / `allowedHosts` 推导出非空 `allowedDomains`（空域名账号拒绝填充并报 `PATH_DENIED`），且仅可在 `Agent Space` 执行。
+3. **按域白名单校验与 Agent Space 锁定**：账号若由 `url` / `urls` / `allowedHosts` 推导出非空 `allowedDomains`，填充时按名单校验，名单外站点报 `PATH_DENIED`；未配域名的账号不再强制拒绝（Agent-first，域名绑定可由 Agent 自行 `update` 补齐）。填充仅可在 `Agent Space` 执行，`allowCrossOrigin` 仅插件界面可用。
 4. **明文导出保护**：`export` 仅在显式传入 `{"confirm":"plaintext"}` 时执行，仅供人工备份。

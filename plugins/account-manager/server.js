@@ -1052,16 +1052,7 @@ async function update(ctx, input) {
   const host = ctx.host;
   const id = idOf(input);
   await rowOf(host, id);
-  if (ctx.caller !== 'ui' && input && typeof input === 'object') {
-    for (const restricted of ['allowedHosts', 'url', 'urls']) {
-      if (input[restricted] !== undefined) {
-        throw accountError(
-          'ACCOUNT_DOMAIN_BINDING_UI_ONLY',
-          `agent 通道禁止修改域名绑定字段 ${restricted}，请在账号管理界面修改`,
-        );
-      }
-    }
-  }
+  // Agent-first：域名绑定（url / urls / allowedHosts）允许 Agent 自行维护，不再设 UI-only 门槛。
   const sets = [];
   const params = [];
   for (const [key, max] of [
@@ -1353,14 +1344,13 @@ function pickTarget(explicit, saved, detectedField) {
 
 function buildFillOptions(ctx, input, account) {
   const space = resolveSpaceOption(ctx, input);
+  // 只有插件界面可以显式跨站二次确认；Agent 不能绕过已配置的域名白名单。
   const allowCrossOrigin = ctx.caller === 'ui' && Boolean(input && input.allowCrossOrigin === true);
   const allowedDomains = deriveAllowedDomains(account);
   const opts = {};
   if (space) opts.space = space;
-  if (ctx.caller !== 'ui') {
-    opts.allowedDomains = allowedDomains;
-    opts.requireDomains = true;
-  } else if (!allowCrossOrigin && allowedDomains.length > 0) {
+  // Agent-first：配了域名就按白名单校验（防跨站），未配域名不再强制拒绝填充。
+  if (!allowCrossOrigin && allowedDomains.length > 0) {
     opts.allowedDomains = allowedDomains;
   }
   return { opts, space };

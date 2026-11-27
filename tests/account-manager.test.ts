@@ -187,6 +187,26 @@ async function createFixture(runtime: SandboxRuntime, overrides: Record<string, 
   return list.accounts[0]!;
 }
 
+test('Agent-first：agent 通道可直接维护 url / urls / allowedHosts', async () => {
+  await withPlugin(async (runtime) => {
+    const account = await createFixture(runtime);
+    await runtime.command('update', {
+      input: {
+        id: account.id,
+        url: 'https://cloud.tencent.com/login',
+        urls: ['https://console.cloud.tencent.com'],
+        allowedHosts: ['cloud.tencent.com'],
+      },
+      caller: 'agent',
+    });
+    const list = (await runtime.rpc('list', {}, { caller: 'agent' })) as { accounts: PublicAccount[] };
+    const item = list.accounts.find((a) => a.id === account.id)!;
+    assert.deepEqual(item.allowedHosts, ['cloud.tencent.com']);
+    assert.equal((item as unknown as { url: string }).url, 'https://cloud.tencent.com/login');
+    assert.deepEqual((item as unknown as { urls: string[] }).urls, ['https://console.cloud.tencent.com']);
+  });
+});
+
 test('账号管理插件：明文新增、搜索、改备注、删除与 changed 信号', async () => {
   await withPlugin(async (runtime, { signals }) => {
     const account = await createFixture(runtime);

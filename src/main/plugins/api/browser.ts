@@ -285,7 +285,7 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
         secret,
         {
           allowedDomains,
-          requireDomains: ctx.caller() !== 'ui' || requireDomains,
+          requireDomains,
           onDenied: (host) => {
             ctx.deps.record('plugin.fillDenied', `凭据不允许填入 ${host || '当前页面'}`);
           },

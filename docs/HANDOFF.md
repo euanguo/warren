@@ -192,6 +192,13 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
+### Agent-first：账号域名绑定与凭据填充不再设 UI 门槛（2026-11-27）
+
+- `plugins/account-manager/server.js` 移除 `update` 的 `ACCOUNT_DOMAIN_BINDING_UI_ONLY` 检查（Agent 可用 CLI/RPC 维护 `url` / `urls` / `allowedHosts`）；`buildFillOptions` 不再对 Agent 强制 `requireDomains=true`；`src/main/plugins/api/browser.ts` 的 `fillSecret` 不再按 `caller` 强制 `requireDomains`。
+- **保留的边界**：`reveal` / `totpCode` / `export` 仍仅 UI（AGENTS.md 硬约束：Agent 通道永不返回明文）；`space: "person"` 仍禁；`allowCrossOrigin` 仍仅插件界面可显式跨站；账号配了非空域名白名单时仍按 `hostAllowed` 校验并拒绝名单外站点（原有跨站断言保持成立）。
+- **行为变化**：未配置任何域名的账号现在可由 Agent 直接填充（原报 `PATH_DENIED`）；Agent 可自助完成「补域名 → 登录」全流程，不再需要人先去账号管理界面。
+- 同步更新：插件 `SKILL.md` / `README.md` / `references/commands.md`、`skills/warren/SKILL.md`、`plugins/README.md`、`src/main/browser/fill-secret.ts` 注释，以及 `tests/account-manager.test.ts` 与 `tests/plugin-dual-space-caller.test.ts` 的 Agent-first 用例。
+
 ### 原生 `win.hide()` 后台隐藏 + 多屏位置保持改造（2026-11-27）
 
 彻底移除早期 `-10000, -10000` 离屏停放 + `setOpacity(0)` + `showInactive()` 方案及冗余接口：
