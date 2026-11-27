@@ -2,7 +2,7 @@
  * Wave 0 安全加固、CDP 批量化、RPC 客户端与遥测批量落盘回归测试。
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import net from 'node:net';
@@ -24,7 +24,7 @@ import { createFakePageContext } from './helpers/fake-cdp.ts';
 
 const require = createRequire(import.meta.url);
 
-test('forge.config.cjs：FusesPlugin 顶层配置正确生效且启用全部 7 项安全 Fuse', () => {
+test('forge.config.cjs：FusesPlugin 顶层配置正确生效，6 项安全 Fuse 生效、RunAsNode 为内置 Whistle 保留', () => {
   const forgeConfig = require('../forge.config.cjs') as {
     plugins: Array<{ name?: string; fusesConfig?: Record<string | number, unknown> }>;
   };
@@ -33,13 +33,29 @@ test('forge.config.cjs：FusesPlugin 顶层配置正确生效且启用全部 7 �
   const cfg = fusesPlugin.fusesConfig;
   assert.ok(cfg, 'FusesPlugin 必须暴露扁平 fusesConfig');
   assert.equal(cfg.version, FuseVersion.V1);
-  assert.equal(cfg[FuseV1Options.RunAsNode], false);
+  // 内置 Whistle 依赖 ELECTRON_RUN_AS_NODE，见下一条测试
+  assert.equal(cfg[FuseV1Options.RunAsNode], true);
   assert.equal(cfg[FuseV1Options.EnableCookieEncryption], true);
   assert.equal(cfg[FuseV1Options.EnableNodeOptionsEnvironmentVariable], false);
   assert.equal(cfg[FuseV1Options.EnableNodeCliInspectArguments], false);
   assert.equal(cfg[FuseV1Options.EnableEmbeddedAsarIntegrityValidation], true);
   assert.equal(cfg[FuseV1Options.OnlyLoadAppFromAsar], true);
   assert.equal(cfg[FuseV1Options.GrantFileProtocolExtraPrivileges], false);
+});
+
+test('forge.config.cjs：Whistle 插件用 ELECTRON_RUN_AS_NODE 启动 whistle.js 时，RunAsNode Fuse 必须开启', () => {
+  const forgeConfig = require('../forge.config.cjs') as {
+    plugins: Array<{ name?: string; fusesConfig?: Record<string | number, unknown> }>;
+  };
+  const cfg = forgeConfig.plugins.find((p) => p?.name === 'fuses')?.fusesConfig ?? {};
+  const w2Client = readFileSync(new URL('../plugins/whistle/lib/w2-client.mjs', import.meta.url), 'utf8');
+  if (w2Client.includes('ELECTRON_RUN_AS_NODE')) {
+    assert.equal(
+      cfg[FuseV1Options.RunAsNode],
+      true,
+      '关掉 RunAsNode 会让 Helper 拒绝执行 whistle.js（"This is a helper executable…"），所有 Whistle 实例都起不来',
+    );
+  }
 });
 
 test('plugin-protocol：拒绝 data.db、HTML、package.json、后端源码与越界路径，仅放行前端资产', () => {

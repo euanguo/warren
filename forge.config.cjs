@@ -68,7 +68,10 @@ module.exports = {
     },
     new FusesPlugin({
       version: FuseVersion.V1,
-      [FuseV1Options.RunAsNode]: false,
+      // 必须保持开启：内置 Whistle 用 `process.execPath + ELECTRON_RUN_AS_NODE=1` 跑 whistle.js
+      // （plugins/whistle/lib/w2-client.mjs）。关掉后 Helper 拒绝执行，所有 Whistle 实例都起不来（v0.2.1 实测）。
+      // 代价：Warren 二进制可被当成 node 使用；换成随包独立 Node 之后再关。
+      [FuseV1Options.RunAsNode]: true,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
