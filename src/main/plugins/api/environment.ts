@@ -42,18 +42,19 @@ export const environmentCapabilities: Record<string, CapabilitySpec> = {
     handler: async ({ deps, text }, input) => {
       const patch = (input ?? {}) as { id?: unknown; proxy?: unknown; trustedCa?: unknown };
       const id = text(patch.id);
-      return deps.manager.update(id, {
+      const updated = await deps.manager.update(id, {
         // null / '' 都是「清掉」：解绑代理要能表达
         ...(patch.proxy === null || patch.proxy === '' ? { proxy: null } : {}),
         ...(typeof patch.proxy === 'string' && patch.proxy ? { proxy: patch.proxy } : {}),
         ...(patch.trustedCa === null || patch.trustedCa === '' ? { trustedCa: null } : {}),
         ...(typeof patch.trustedCa === 'string' && patch.trustedCa ? { trustedCa: patch.trustedCa } : {}),
       });
+      return toPluginEnvironment(updated);
     },
   },
   'environment.start': {
     permission: 'environment.write',
-    handler: async ({ deps, text }, id) => deps.manager.start(text(id)),
+    handler: async ({ deps, text }, id) => toPluginEnvironment(await deps.manager.start(text(id))),
   },
   'environment.stop': {
     permission: 'environment.write',

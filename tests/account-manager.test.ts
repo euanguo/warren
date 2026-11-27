@@ -371,7 +371,7 @@ test('安全边界：agent 通道绝不返回明文 username / password / totpSe
   });
 });
 
-test('export 没有 confirm 直接拒绝，带 confirm 才给 v2 明文（人工备份）', async () => {
+test('export 仅对插件界面开放且必须显式 confirm=plaintext（防 agent 导出明文全库）', async () => {
   await withPlugin(async (runtime) => {
     const account = await createFixture(runtime, {
       totpSecret: 'JBSWY3DPEHPK3PXP',
@@ -379,19 +379,24 @@ test('export 没有 confirm 直接拒绝，带 confirm 才给 v2 明文（人工
       urls: ['https://backup.example.test'],
     });
 
+    // Agent 通道即便传 confirm=plaintext 也一律拒绝
     await assert.rejects(
-      () => runtime.command('export', { input: {} }),
-      (error: Error & { code?: string }) => {
-        assert.equal(error.code, 'ACCOUNT_EXPORT_CONFIRM_REQUIRED');
-        return true;
-      },
+      () => runtime.command('export', { input: { confirm: 'plaintext' }, caller: 'agent' }),
+      (error: Error & { code?: string }) => error.code === 'ACCOUNT_EXPORT_UI_ONLY',
     );
     await assert.rejects(
-      () => runtime.rpc('export', {}, {}),
+      () => runtime.rpc('export', { confirm: 'plaintext' }, { caller: 'agent' }),
+      (error: Error & { code?: string }) => error.code === 'ACCOUNT_EXPORT_UI_ONLY',
+    );
+
+    // UI 通道不带 confirm 拒绝
+    await assert.rejects(
+      () => runtime.rpc('export', {}, { caller: 'ui' }),
       (error: Error & { code?: string }) => error.code === 'ACCOUNT_EXPORT_CONFIRM_REQUIRED',
     );
 
-    const exported = (await runtime.command('export', { input: { confirm: 'plaintext' } })) as {
+    // UI 通道带 confirm=plaintext 返回 v2 明文备份
+    const exported = (await runtime.rpc('export', { confirm: 'plaintext' }, { caller: 'ui' })) as {
       version: number;
       accounts: Array<{ id: number; password: string; totpSecret: string; extraFields: Record<string, string> }>;
     };

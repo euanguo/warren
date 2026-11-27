@@ -121,7 +121,9 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
   ),
   'browser.waitForURL': cdpRead('browser.dom.read', (c, [m, o]) => c.waitForURL(asUrlMatcher(m), asWaitOptions(o))),
   'browser.waitForFunction': {
-    permission: 'browser.dom.read',
+    // 任意 JS 求值归入 denied 层的 browser.evaluate，防止借默认读权限绕过求值限制
+    permission: 'browser.evaluate',
+    needsLease: true,
     handler: ({ deps, env, text }, fn, arg, o) =>
       deps.manager.controllerFor(env()).waitForFunction(text(fn), arg, asWaitOptions(o)),
   },

@@ -27,71 +27,92 @@ export function invalidateAxCache(wcId: number): void {
   worldCtxCache.delete(wcId);
 }
 
-interface SelectorWalkResult {
-  count?: number;
-  skipped?: number;
-  errorKind?: 'syntax' | 'other';
-  error?: string;
+const DESCRIBE_CONCURRENCY = 16;
+
+async function mapConcurrent<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = Array.from<R>({ length: items.length });
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= items.length) break;
+        results[index] = await fn(items[index]!, index);
+      }
+    }),
+  );
+  return results;
 }
 
 /**
- * 选择器遍历的页面内脚本：
- * - `document.querySelector` 抛 SyntaxError → 选择器真的非法（`errorKind: 'syntax'`）；
- * - `shadowRoot` / `contentDocument` 单个子树上取不到 → 跳过，不牵连整次查询；
- * - 其它异常原样带回（`errorKind: 'other'`），由调用方报 `SELECTOR_EVAL_FAILED`。
+ * 选择器遍历的页面内脚本（零全局状态）：
+ * - 直接返回匹配元素数组（远程 objectId），彻底消除 `window.__warrenMatches` 并发覆盖与 N+1 逐项 evaluate；
+ * - 若传入 `hasText` / `textIs`，在隔离世界内一次性过滤，免去每个候选节点 3 次 CDP 往返；
+ * - 错误以 `__WARREN_ERR__:<kind>:<msg>` 字符串返回。
  */
-function selectorWalkScript(selector: string): string {
+function selectorWalkScript(selector: string, filter?: { hasText?: string; textIs?: string }): string {
   return `(() => {
     const sel = ${JSON.stringify(selector)};
+    const hasText = ${JSON.stringify(filter?.hasText ?? null)};
+    const textIs = ${JSON.stringify(filter?.textIs ?? null)};
     const describe = (e) => String((e && (e.message || e.name)) || e);
     try {
       document.querySelector(sel);
     } catch (e) {
-      return { errorKind: e && e.name === 'SyntaxError' ? 'syntax' : 'other', error: describe(e) };
+      const kind = e && e.name === 'SyntaxError' ? 'syntax' : 'other';
+      return '__WARREN_ERR__:' + kind + ':' + describe(e);
     }
     const out = [];
-    const skipped = [];
+    const matchText = (el) => {
+      if (hasText === null && textIs === null) return true;
+      const t = String(el.innerText ?? el.textContent ?? '');
+      if (hasText !== null && !t.includes(hasText)) return false;
+      if (textIs !== null && t.trim() !== textIs) return false;
+      return true;
+    };
     const walk = (root) => {
       let matches;
       try {
         matches = root.querySelectorAll(sel);
-      } catch (e) {
-        skipped.push(describe(e));
+      } catch {
         return;
       }
       // 逐个 push，不用 push(...matches)：匹配数上十万时展开实参会撑爆调用栈（实测 RangeError）
-      for (const el of matches) out.push(el);
+      for (const el of matches) {
+        if (matchText(el)) out.push(el);
+      }
       let all;
       try {
         all = root.querySelectorAll('*');
-      } catch (e) {
-        skipped.push(describe(e));
+      } catch {
         return;
       }
       for (const el of all) {
         let shadow = null;
         try {
           shadow = el.shadowRoot;
-        } catch (e) {
-          skipped.push(describe(e));
-        }
+        } catch {}
         if (shadow) walk(shadow);
         let doc = null;
         try {
           doc = el.contentDocument;
-        } catch (e) {
-          skipped.push(describe(e));
-        }
+        } catch {}
         if (doc) walk(doc);
       }
     };
     try {
       walk(document);
     } catch (e) {
-      return { errorKind: 'other', error: describe(e) };
+      return '__WARREN_ERR__:other:' + describe(e);
     }
-    window.__warrenMatches = out;
-    return { count: out.length, skipped: skipped.length };
+    return out;
   })()`;
 }
 
@@ -125,78 +146,97 @@ async function isolatedContext(ctx: PageContext, sessionId?: string): Promise<nu
   return executionContextId;
 }
 
-async function evalInWorld<T>(ctx: PageContext, contextId: number, expression: string, sessionId?: string): Promise<T> {
-  const r = await ctx.sendOn<{
-    result: { value: T };
-    exceptionDetails?: { text?: string; exception?: { description?: string } };
-  }>(sessionId, 'Runtime.evaluate', { contextId, expression, returnByValue: true, awaitPromise: true });
-  if (r.exceptionDetails) throw richErr('BAD_REQUEST', `页面内求值抛错: ${pageError(r.exceptionDetails)}`);
-  return r.result?.value;
-}
-
-async function backendIdsFromWorldArray(
+/**
+ * 单次 `Runtime.getProperties` 批量拆出数组内所有元素 `objectId`，
+ * 再以有界并发（16）执行 `DOM.describeNode` + `Runtime.releaseObject`，替代 N+1 串行往返。
+ */
+async function backendIdsFromArrayObject(
   ctx: PageContext,
-  contextId: number,
-  name: string,
-  count: number,
+  arrayObjectId: string,
   sessionId?: string,
 ): Promise<number[]> {
-  const out: number[] = [];
-  for (let i = 0; i < count; i++) {
-    const ref = await ctx
-      .sendOn<{ result: { objectId?: string } }>(sessionId, 'Runtime.evaluate', {
-        contextId,
-        expression: `window.${name}[${i}]`,
-        returnByValue: false,
+  let elementRefs: Array<{ index: number; objectId: string }> = [];
+  try {
+    const props = await ctx
+      .sendOn<{ result?: Array<{ name: string; value?: { objectId?: string } }> }>(sessionId, 'Runtime.getProperties', {
+        objectId: arrayObjectId,
+        ownProperties: true,
       })
       .catch(() => null);
-    const objectId = ref?.result?.objectId;
-    if (!objectId) continue;
+    for (const prop of props?.result ?? []) {
+      if (!/^\d+$/.test(prop.name)) continue;
+      const objectId = prop.value?.objectId;
+      if (objectId) elementRefs.push({ index: Number(prop.name), objectId });
+    }
+  } finally {
+    await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: arrayObjectId }).catch(() => {});
+  }
+  elementRefs.sort((a, b) => a.index - b.index);
+  const resolved = await mapConcurrent(elementRefs, DESCRIBE_CONCURRENCY, async ({ objectId }) => {
     try {
       const node = await ctx
-        .sendOn<{ node: { backendNodeId: number } }>(sessionId, 'DOM.describeNode', { objectId })
+        .sendOn<{ node?: { backendNodeId?: number } }>(sessionId, 'DOM.describeNode', { objectId })
         .catch(() => null);
-      if (node?.node.backendNodeId) out.push(node.node.backendNodeId);
+      return typeof node?.node?.backendNodeId === 'number' ? node.node.backendNodeId : null;
     } finally {
       await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId }).catch(() => {});
     }
-  }
-  await ctx
-    .sendOn(sessionId, 'Runtime.evaluate', {
-      contextId,
-      expression: `delete window.${name}`,
-      returnByValue: true,
-    })
-    .catch(() => {});
-  return out;
+  });
+  return resolved.filter((id): id is number => id !== null);
 }
 
 async function runSelectorWalk(
   ctx: PageContext,
   selector: string,
+  filter: { hasText?: string; textIs?: string } | undefined,
   allowRetry: boolean,
   sessionId?: string,
-): Promise<{ contextId: number; count: number }> {
+): Promise<number[]> {
   const contextId = await isolatedContext(ctx, sessionId);
-  let result: SelectorWalkResult;
+  let r: {
+    result?: { type?: string; value?: unknown; objectId?: string };
+    exceptionDetails?: { text?: string; exception?: { description?: string } };
+  };
   try {
-    result = await evalInWorld<SelectorWalkResult>(ctx, contextId, selectorWalkScript(selector), sessionId);
+    r = await ctx.sendOn(sessionId, 'Runtime.evaluate', {
+      contextId,
+      expression: selectorWalkScript(selector, filter),
+      returnByValue: false,
+      awaitPromise: false,
+    });
   } catch (error) {
     const message = String((error as Error)?.message ?? error);
     if (allowRetry && /context|destroyed|cannot find|target closed|session closed/i.test(message)) {
       worldCtxCache.get(ctx.wc.id)?.delete(sessionId ?? '');
-      return runSelectorWalk(ctx, selector, false, sessionId);
+      return runSelectorWalk(ctx, selector, filter, false, sessionId);
     }
     throw richErr('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；原始错误：${message}`);
   }
-  if (typeof result?.error === 'string') {
-    if (result.errorKind === 'syntax') throw richErr('BAD_SELECTOR', `CSS 非法: ${selector}（${result.error}）`);
-    throw richErr('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；原始错误：${result.error}`);
+  if (r.exceptionDetails) {
+    const message = pageError(r.exceptionDetails);
+    if (allowRetry && /context|destroyed|cannot find|target closed|session closed/i.test(message)) {
+      worldCtxCache.get(ctx.wc.id)?.delete(sessionId ?? '');
+      return runSelectorWalk(ctx, selector, filter, false, sessionId);
+    }
+    throw richErr('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；原始错误：${message}`);
   }
-  if (!result || typeof result.count !== 'number') {
-    throw richErr('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；隔离世界没有返回值`);
+  if (
+    r.result?.type === 'string' &&
+    typeof r.result.value === 'string' &&
+    r.result.value.startsWith('__WARREN_ERR__:')
+  ) {
+    const rest = r.result.value.slice('__WARREN_ERR__:'.length);
+    const sep = rest.indexOf(':');
+    const kind = sep >= 0 ? rest.slice(0, sep) : 'other';
+    const detail = sep >= 0 ? rest.slice(sep + 1) : rest;
+    if (kind === 'syntax') throw richErr('BAD_SELECTOR', `CSS 非法: ${selector}（${detail}）`);
+    throw richErr('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；原始错误：${detail}`);
   }
-  return { contextId, count: result.count };
+  const arrayObjectId = r.result?.objectId;
+  if (!arrayObjectId) {
+    throw richErr('SELECTOR_EVAL_FAILED', `选择器求值失败（不是选择器非法）：${selector}；隔离世界没有返回结果数组`);
+  }
+  return backendIdsFromArrayObject(ctx, arrayObjectId, sessionId);
 }
 
 /**
@@ -261,16 +301,14 @@ async function pierceClosedShadowSelector(
 async function backendIdsBySelector(
   ctx: PageContext,
   selector: string,
-): Promise<Array<{ backendNodeId: number; sessionId?: string }>> {
+  filter?: { hasText?: string; textIs?: string },
+): Promise<{ items: Array<{ backendNodeId: number; sessionId?: string }>; fromClosedShadow: boolean }> {
   const all: Array<{ backendNodeId: number; sessionId?: string }> = [];
   let firstSyntaxError: unknown;
   for (const sessionId of targetSessions(ctx)) {
     try {
-      const { contextId, count } = await runSelectorWalk(ctx, selector, true, sessionId);
-      if (count > 0) {
-        const ids = await backendIdsFromWorldArray(ctx, contextId, '__warrenMatches', count, sessionId);
-        for (const backendNodeId of ids) all.push({ backendNodeId, sessionId });
-      }
+      const ids = await runSelectorWalk(ctx, selector, filter, true, sessionId);
+      for (const backendNodeId of ids) all.push({ backendNodeId, sessionId });
     } catch (error) {
       const code = (error as { code?: string })?.code;
       if (code === 'BAD_SELECTOR') {
@@ -282,9 +320,10 @@ async function backendIdsBySelector(
   }
   if (firstSyntaxError) throw firstSyntaxError;
   if (all.length === 0) {
-    all.push(...(await pierceClosedShadowSelector(ctx, selector)));
+    const pierced = await pierceClosedShadowSelector(ctx, selector);
+    if (pierced.length > 0) return { items: pierced, fromClosedShadow: true };
   }
-  return all;
+  return { items: all, fromClosedShadow: false };
 }
 
 async function backendIdForCss(
@@ -293,10 +332,15 @@ async function backendIdForCss(
 ): Promise<{ backendNodeId: number; sessionId?: string }> {
   let selector = norm.selector ?? '';
   if (norm.href !== undefined) selector = `a[href*="${norm.href.replace(/"/g, '\\"')}"]`;
-  const candidates = await backendIdsBySelector(ctx, selector);
-  if (candidates.length === 0) throw richErr('TARGET_NOT_FOUND', `selector not found: ${selector}`);
+  const textFilter = norm.hasText || norm.textIs ? { hasText: norm.hasText, textIs: norm.textIs } : undefined;
+  const { items: candidates, fromClosedShadow } = await backendIdsBySelector(ctx, selector, textFilter);
+  if (candidates.length === 0) {
+    if (textFilter) throw richErr('TARGET_NOT_FOUND', `selector 文本过滤无匹配: ${selector}`);
+    throw richErr('TARGET_NOT_FOUND', `selector not found: ${selector}`);
+  }
   let filtered = candidates;
-  if (norm.hasText || norm.textIs) {
+  // 常规 DOM / Open Shadow 已在隔离世界完成文本过滤；仅 Closed Shadow 兜底路径需补做文本校验
+  if (fromClosedShadow && textFilter) {
     filtered = [];
     for (const item of candidates) {
       const nodeId = await nodeIdFor(ctx, item.backendNodeId, item.sessionId).catch(() => 0);
@@ -344,32 +388,30 @@ async function xpathBackendIds(
       if (!sessionId) throw richErr('BAD_SELECTOR', `xpath 非法: ${xpath}`);
       continue;
     }
-    const count = await evalInWorld<number>(
-      ctx,
-      contextId,
-      `(() => {
-         const xp = ${JSON.stringify(xpath)};
-         try {
-           const it = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-           const out = [];
-           for (let i = 0; i < Math.min(it.snapshotLength, 50); i++) {
-             const el = it.snapshotItem(i);
-             if (el instanceof Element) out.push(el);
-           }
-           window.__warrenXpath = out;
-           return out.length;
-         } catch { return -1; }
-       })()`,
-      sessionId,
-    ).catch(() => -1);
-    if (typeof count !== 'number' || count < 0) {
+    const evaluated = await ctx
+      .sendOn<{ result?: { type?: string; value?: unknown; objectId?: string } }>(sessionId, 'Runtime.evaluate', {
+        contextId,
+        expression: `(() => {
+           const xp = ${JSON.stringify(xpath)};
+           try {
+             const it = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+             const out = [];
+             for (let i = 0; i < Math.min(it.snapshotLength, 50); i++) {
+               const el = it.snapshotItem(i);
+               if (el instanceof Element) out.push(el);
+             }
+             return out;
+           } catch { return '__WARREN_XPATH_ERR__'; }
+         })()`,
+        returnByValue: false,
+      })
+      .catch(() => null);
+    if (!evaluated || evaluated.result?.value === '__WARREN_XPATH_ERR__' || !evaluated.result?.objectId) {
       if (!sessionId) throw richErr('BAD_SELECTOR', `xpath 非法: ${xpath}`);
       continue;
     }
-    if (count > 0) {
-      const ids = await backendIdsFromWorldArray(ctx, contextId, '__warrenXpath', count, sessionId);
-      for (const backendNodeId of ids) all.push({ backendNodeId, sessionId });
-    }
+    const ids = await backendIdsFromArrayObject(ctx, evaluated.result.objectId, sessionId);
+    for (const backendNodeId of ids) all.push({ backendNodeId, sessionId });
   }
   return all;
 }

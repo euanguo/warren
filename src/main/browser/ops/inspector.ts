@@ -1,7 +1,9 @@
 import type { TargetInput } from '../../../shared/types.ts';
 import type { PageContext } from '../ctx.ts';
+import { frameOffsetFor } from '../locator.ts';
 import { evalOnNode, nodeIdFor, resolveTarget } from '../page-helpers.ts';
 import { richErr } from '../errors.ts';
+import { isSensitiveKey } from '../redact.ts';
 
 export type InspectProp = 'url' | 'title' | 'text' | 'html' | 'value' | 'attr' | 'box';
 export type InspectState = 'visible' | 'enabled' | 'checked';
@@ -51,20 +53,86 @@ export async function readTargetProperty(
     case 'text':
       return evalOnNode(ctx, nodeId, '(el) => String(el.innerText ?? el.textContent ?? "").trim()', sessionId);
     case 'html':
-      return evalOnNode(ctx, nodeId, '(el) => String(el.outerHTML ?? "")', sessionId);
-    case 'value':
-      return evalOnNode(ctx, nodeId, '(el) => ("value" in el ? el.value : el.getAttribute("value"))', sessionId);
-    case 'attr': {
-      if (!attrName) throw richErr('BAD_REQUEST', 'attr 需要指定属性名');
-      return evalOnNode(ctx, nodeId, `(el) => el.getAttribute(${JSON.stringify(attrName)})`, sessionId);
-    }
-    case 'box':
       return evalOnNode(
         ctx,
         nodeId,
-        '(el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.x * 100) / 100, y: Math.round(r.y * 100) / 100, width: Math.round(r.width * 100) / 100, height: Math.round(r.height * 100) / 100 }; }',
+        `(el) => {
+          const clone = el.cloneNode(true);
+          const maskInput = (node) => {
+            if (!node || node.nodeType !== 1) return;
+            const tag = String(node.tagName || '').toLowerCase();
+            if (tag === 'input') {
+              const type = String(node.getAttribute('type') || node.type || '').toLowerCase();
+              const ac = String(node.getAttribute('autocomplete') || '').toLowerCase();
+              if (type === 'password' || ac.includes('password')) {
+                if (node.hasAttribute('value')) node.setAttribute('value', '••••••••');
+                if ('value' in node && node.value) node.value = '••••••••';
+              }
+            }
+          };
+          maskInput(clone);
+          if (typeof clone.querySelectorAll === 'function') {
+            for (const item of clone.querySelectorAll('input')) maskInput(item);
+          }
+          return String(clone.outerHTML ?? '');
+        }`,
         sessionId,
       );
+    case 'value':
+      return evalOnNode(
+        ctx,
+        nodeId,
+        `(el) => {
+          const tag = String(el.tagName || '').toLowerCase();
+          if (tag === 'input') {
+            const type = String(el.type || el.getAttribute('type') || '').toLowerCase();
+            const ac = String(el.getAttribute('autocomplete') || '').toLowerCase();
+            if (type === 'password' || ac.includes('password')) {
+              const raw = 'value' in el ? el.value : el.getAttribute('value');
+              return raw ? '••••••••' : '';
+            }
+          }
+          return 'value' in el ? el.value : el.getAttribute('value');
+        }`,
+        sessionId,
+      );
+    case 'attr': {
+      if (!attrName) throw richErr('BAD_REQUEST', 'attr 需要指定属性名');
+      const attrLower = attrName.toLowerCase();
+      return evalOnNode(
+        ctx,
+        nodeId,
+        `(el) => {
+          const raw = el.getAttribute(${JSON.stringify(attrName)});
+          if (raw === null || raw === '') return raw;
+          const tag = String(el.tagName || '').toLowerCase();
+          if (tag === 'input' && ${JSON.stringify(attrLower)} === 'value') {
+            const type = String(el.type || el.getAttribute('type') || '').toLowerCase();
+            const ac = String(el.getAttribute('autocomplete') || '').toLowerCase();
+            if (type === 'password' || ac.includes('password')) return '••••••••';
+          }
+          if (${JSON.stringify(isSensitiveKey(attrLower))}) return '[REDACTED]';
+          return raw;
+        }`,
+        sessionId,
+      );
+    }
+    case 'box': {
+      const rect = (await evalOnNode(
+        ctx,
+        nodeId,
+        '(el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }',
+        sessionId,
+      )) as { x: number; y: number; width: number; height: number } | null;
+      if (!rect) return null;
+      const offset = sessionId ? await frameOffsetFor(ctx, sessionId) : { x: 0, y: 0 };
+      return {
+        x: Math.round((rect.x + offset.x) * 100) / 100,
+        y: Math.round((rect.y + offset.y) * 100) / 100,
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100,
+      };
+    }
     default:
       throw richErr('BAD_REQUEST', `未知属性 ${String(prop)}`);
   }

@@ -1,5 +1,7 @@
 import type { Session, WebContents } from 'electron';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { redactUrl } from './browser/redact.ts';
+import { tx } from './db.ts';
 
 export interface ConsoleEntry {
   id?: number;
@@ -36,11 +38,38 @@ const LIMIT = 300;
 /** 攒够这么多条才清一次旧数据（每条都 COUNT 太贵）。 */
 const PRUNE_EVERY = 50;
 
+/** 批量落盘阈值：单页并发加载 50-150 个资源时合并进同一事务，避免主线程 I/O 抖动。 */
+const FLUSH_BATCH_SIZE = 50;
+const FLUSH_INTERVAL_MS = 250;
+const MAX_CONSOLE_MESSAGE_LEN = 4096;
+const MAX_NETWORK_URL_LEN = 2048;
+
 /** 超过此毫秒仍未结束的在途请求视为长轮询/流式请求，不再阻塞 networkidle。 */
 const STALE_INFLIGHT_MS = 1500;
 
 /** 不计入 networkidle 在途计数的非页面就绪类资源。 */
 const IGNORED_INFLIGHT_TYPES = new Set(['webSocket', 'media', 'ping', 'cspReport', 'other']);
+
+interface PendingConsoleRow {
+  envId: string;
+  tabId: string;
+  at: string;
+  level: string;
+  message: string;
+  line: number;
+  source: string;
+}
+
+interface PendingNetworkRow {
+  envId: string;
+  tabId: string;
+  at: string;
+  method: string;
+  url: string;
+  status: number;
+  resourceType: string;
+  error: string;
+}
 
 /**
  * 每个标签的 console 与 network 摘要，读取时按 Environment 聚合。
@@ -50,21 +79,71 @@ const IGNORED_INFLIGHT_TYPES = new Set(['webSocket', 'media', 'ping', 'cspReport
  */
 export class Telemetry {
   #db: DatabaseSync;
-  #counts = new Map<string, number>();
+  #consoleCounts = new Map<string, number>();
+  #networkCounts = new Map<string, number>();
   #envTabs = new Map<string, Set<string>>();
   #tabToEnv = new Map<string, string>();
   #webContentsToTab = new Map<number, string>();
+  #tabConsoleListeners = new Map<string, { wc: WebContents; listener: (...args: unknown[]) => void }>();
   #sessions = new Set<Session>();
   #lastActivity = new Map<string, number>();
   /** per-tab 在途请求表：`tabId -> Map<requestId, startedAt>`。 */
   #inFlight = new Map<string, Map<number, number>>();
   /** per-tab 最近一次主文档导航失败记录（用于诊断 `chrome-error://` 页）。 */
   #lastNavError = new Map<string, NavigationErrorRecord>();
+  #pendingConsole: PendingConsoleRow[] = [];
+  #pendingNetwork: PendingNetworkRow[] = [];
+  #flushTimer?: ReturnType<typeof setTimeout>;
+  #stmts?: {
+    insertConsole: StatementSync;
+    insertNetwork: StatementSync;
+    pruneConsole: StatementSync;
+    pruneNetwork: StatementSync;
+    selectConsole: StatementSync;
+    selectNetwork: StatementSync;
+    selectNetworkSince: StatementSync;
+  };
   #writes = 0;
   #writeMs = 0;
 
   constructor(db: DatabaseSync) {
     this.#db = db;
+  }
+
+  #prepared() {
+    if (!this.#stmts) {
+      this.#stmts = {
+        insertConsole: this.#db.prepare(
+          'INSERT INTO console_entries (env_id, tab_id, at, level, message, line, source) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ),
+        insertNetwork: this.#db.prepare(
+          'INSERT INTO network_entries (env_id, tab_id, at, method, url, status, resource_type, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ),
+        pruneConsole: this.#db.prepare(
+          `DELETE FROM console_entries WHERE tab_id = ? AND id NOT IN (
+             SELECT id FROM console_entries WHERE tab_id = ? ORDER BY id DESC LIMIT ?
+           )`,
+        ),
+        pruneNetwork: this.#db.prepare(
+          `DELETE FROM network_entries WHERE tab_id = ? AND id NOT IN (
+             SELECT id FROM network_entries WHERE tab_id = ? ORDER BY id DESC LIMIT ?
+           )`,
+        ),
+        selectConsole: this.#db.prepare(
+          `SELECT id, at, level, message, line, source, tab_id FROM console_entries
+           WHERE env_id = ? ORDER BY id DESC LIMIT ?`,
+        ),
+        selectNetwork: this.#db.prepare(
+          `SELECT id, at, method, url, status, resource_type, error, tab_id FROM network_entries
+           WHERE env_id = ? ORDER BY id DESC LIMIT ?`,
+        ),
+        selectNetworkSince: this.#db.prepare(
+          `SELECT id, at, method, url, status, resource_type, error, tab_id FROM network_entries
+           WHERE env_id = ? AND id > ? ORDER BY id ASC LIMIT ?`,
+        ),
+      };
+    }
+    return this.#stmts;
   }
 
   get writeStats(): { writes: number; ms: number } {
@@ -81,13 +160,70 @@ export class Telemetry {
     }
   }
 
+  /** 将缓冲队列中的遥测记录批量刷入同一 SQLite 事务。读/清理/退出前自动调用，确保读写一致性。 */
+  flush(): void {
+    if (this.#flushTimer) {
+      clearTimeout(this.#flushTimer);
+      this.#flushTimer = undefined;
+    }
+    if (this.#pendingConsole.length === 0 && this.#pendingNetwork.length === 0) return;
+    const consoleBatch = this.#pendingConsole;
+    const networkBatch = this.#pendingNetwork;
+    this.#pendingConsole = [];
+    this.#pendingNetwork = [];
+    const stmts = this.#prepared();
+    const consolePruneTabs = new Set<string>();
+    const networkPruneTabs = new Set<string>();
+
+    try {
+      this.#timed(() => {
+        tx(this.#db, () => {
+          for (const row of consoleBatch) {
+            stmts.insertConsole.run(row.envId, row.tabId, row.at, row.level, row.message, row.line, row.source);
+            const next = (this.#consoleCounts.get(row.tabId) ?? 0) + 1;
+            this.#consoleCounts.set(row.tabId, next);
+            if (next % PRUNE_EVERY === 0) consolePruneTabs.add(row.tabId);
+          }
+          for (const row of networkBatch) {
+            stmts.insertNetwork.run(
+              row.envId,
+              row.tabId,
+              row.at,
+              row.method,
+              row.url,
+              row.status,
+              row.resourceType,
+              row.error,
+            );
+            const next = (this.#networkCounts.get(row.tabId) ?? 0) + 1;
+            this.#networkCounts.set(row.tabId, next);
+            if (next % PRUNE_EVERY === 0) networkPruneTabs.add(row.tabId);
+          }
+          for (const tabId of consolePruneTabs) stmts.pruneConsole.run(tabId, tabId, LIMIT);
+          for (const tabId of networkPruneTabs) stmts.pruneNetwork.run(tabId, tabId, LIMIT);
+        });
+      });
+    } catch {
+      // 遥测永远不能影响页面本身
+    }
+  }
+
+  #scheduleFlush(): void {
+    if (this.#pendingConsole.length + this.#pendingNetwork.length >= FLUSH_BATCH_SIZE) {
+      this.flush();
+      return;
+    }
+    if (this.#flushTimer) return;
+    this.#flushTimer = setTimeout(() => {
+      this.#flushTimer = undefined;
+      this.flush();
+    }, FLUSH_INTERVAL_MS);
+    this.#flushTimer.unref?.();
+  }
+
   consoleEntries(envId: string): ConsoleEntry[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT id, at, level, message, line, source, tab_id FROM console_entries
-         WHERE env_id = ? ORDER BY id DESC LIMIT ?`,
-      )
-      .all(envId, LIMIT) as Array<Record<string, unknown>>;
+    this.flush();
+    const rows = this.#prepared().selectConsole.all(envId, LIMIT) as Array<Record<string, unknown>>;
     return rows
       .map((row) => ({
         id: Number(row.id),
@@ -102,12 +238,8 @@ export class Telemetry {
   }
 
   networkEntries(envId: string): NetworkEntry[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT id, at, method, url, status, resource_type, tab_id FROM network_entries
-         WHERE env_id = ? ORDER BY id DESC LIMIT ?`,
-      )
-      .all(envId, LIMIT) as Array<Record<string, unknown>>;
+    this.flush();
+    const rows = this.#prepared().selectNetwork.all(envId, LIMIT) as Array<Record<string, unknown>>;
     return rows
       .map((row) => ({
         id: Number(row.id),
@@ -117,18 +249,15 @@ export class Telemetry {
         resourceType: String(row.resource_type ?? ''),
         at: String(row.at),
         tabId: String(row.tab_id),
+        ...(row.error ? { error: String(row.error) } : {}),
       }))
       .reverse();
   }
 
   /** 按自增游标增量读取某环境在 `afterId` 之后的网络请求（彻底规避 300 条上限 slice 错位）。 */
   networkEntriesSince(envId: string, afterId: number, limit = LIMIT): NetworkEntry[] {
-    const rows = this.#db
-      .prepare(
-        `SELECT id, at, method, url, status, resource_type, tab_id FROM network_entries
-         WHERE env_id = ? AND id > ? ORDER BY id ASC LIMIT ?`,
-      )
-      .all(envId, afterId, limit) as Array<Record<string, unknown>>;
+    this.flush();
+    const rows = this.#prepared().selectNetworkSince.all(envId, afterId, limit) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: Number(row.id),
       method: String(row.method),
@@ -137,6 +266,7 @@ export class Telemetry {
       resourceType: String(row.resource_type ?? ''),
       at: String(row.at),
       tabId: String(row.tab_id),
+      ...(row.error ? { error: String(row.error) } : {}),
     }));
   }
 
@@ -163,12 +293,9 @@ export class Telemetry {
 
   /** 仅清理内存中的在途/tab 临时映射，保留数据库里的遥测历史供停机/休眠后排查。 */
   forgetEnv(envId: string): void {
+    this.flush();
     for (const tabId of this.#envTabs.get(envId) ?? []) {
-      this.#lastActivity.delete(tabId);
-      this.#inFlight.delete(tabId);
-      this.#lastNavError.delete(tabId);
-      this.#counts.delete(tabId);
-      this.#tabToEnv.delete(tabId);
+      this.detachTab(tabId);
     }
     this.#envTabs.delete(envId);
   }
@@ -176,6 +303,8 @@ export class Telemetry {
   /** 删除环境时彻底清空内存与 SQLite 遥测历史。 */
   clear(envId: string): void {
     this.forgetEnv(envId);
+    this.#pendingConsole = this.#pendingConsole.filter((row) => row.envId !== envId);
+    this.#pendingNetwork = this.#pendingNetwork.filter((row) => row.envId !== envId);
     try {
       this.#db.prepare('DELETE FROM console_entries WHERE env_id = ?').run(envId);
       this.#db.prepare('DELETE FROM network_entries WHERE env_id = ?').run(envId);
@@ -266,13 +395,22 @@ export class Telemetry {
   }
 
   attachTab(envId: string, tabId: string, webContents: WebContents): void {
+    const existing = this.#tabConsoleListeners.get(tabId);
+    if (existing) {
+      try {
+        existing.wc.off('console-message', existing.listener as never);
+      } catch {
+        // 已销毁
+      }
+      this.#tabConsoleListeners.delete(tabId);
+    }
     const tabs = this.#envTabs.get(envId) ?? new Set<string>();
     tabs.add(tabId);
     this.#envTabs.set(envId, tabs);
     this.#tabToEnv.set(tabId, envId);
     this.#webContentsToTab.set(webContents.id, tabId);
 
-    webContents.on('console-message', ((...args: unknown[]) => {
+    const onConsole = (...args: unknown[]) => {
       try {
         const first = args[0] as Record<string, unknown> | undefined;
         const event = first && typeof first === 'object' && 'message' in first ? first : undefined;
@@ -291,14 +429,26 @@ export class Telemetry {
       } catch {
         // 遥测永远不能影响页面本身
       }
-    }) as never);
+    };
+    this.#tabConsoleListeners.set(tabId, { wc: webContents, listener: onConsole });
+    webContents.on('console-message', onConsole as never);
   }
 
   detachTab(tabId: string): void {
+    const bound = this.#tabConsoleListeners.get(tabId);
+    if (bound) {
+      try {
+        bound.wc.off('console-message', bound.listener as never);
+      } catch {
+        // webContents 可能已销毁
+      }
+      this.#tabConsoleListeners.delete(tabId);
+    }
     this.#lastActivity.delete(tabId);
     this.#inFlight.delete(tabId);
     this.#lastNavError.delete(tabId);
-    this.#counts.delete(tabId);
+    this.#consoleCounts.delete(tabId);
+    this.#networkCounts.delete(tabId);
     this.#tabToEnv.delete(tabId);
     for (const tabs of this.#envTabs.values()) tabs.delete(tabId);
     for (const [id, mapped] of this.#webContentsToTab) {
@@ -318,38 +468,31 @@ export class Telemetry {
   }
 
   #writeConsole(envId: string, entry: ConsoleEntry): void {
-    this.#timed(() =>
-      this.#db
-        .prepare(
-          'INSERT INTO console_entries (env_id, tab_id, at, level, message, line, source) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        )
-        .run(envId, entry.tabId ?? '', entry.at, entry.level, entry.message, entry.line, entry.source),
-    );
-    this.#prune(entry.tabId ?? '', 'console_entries');
+    this.#pendingConsole.push({
+      envId,
+      tabId: entry.tabId ?? '',
+      at: entry.at,
+      level: entry.level,
+      message: entry.message.slice(0, MAX_CONSOLE_MESSAGE_LEN),
+      line: entry.line,
+      source: entry.source.slice(0, 256),
+    });
+    this.#scheduleFlush();
   }
 
   #writeNetwork(envId: string, entry: NetworkEntry): void {
-    this.#timed(() =>
-      this.#db
-        .prepare(
-          'INSERT INTO network_entries (env_id, tab_id, at, method, url, status, resource_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        )
-        .run(envId, entry.tabId ?? '', entry.at, entry.method, entry.url, entry.status, entry.resourceType),
-    );
-    this.#prune(entry.tabId ?? '', 'network_entries');
-  }
-
-  #prune(tabId: string, table: 'console_entries' | 'network_entries'): void {
-    const next = (this.#counts.get(tabId) ?? 0) + 1;
-    this.#counts.set(tabId, next);
-    if (next % PRUNE_EVERY !== 0) return;
-    this.#db
-      .prepare(
-        `DELETE FROM ${table} WHERE tab_id = ? AND id NOT IN (
-           SELECT id FROM ${table} WHERE tab_id = ? ORDER BY id DESC LIMIT ?
-         )`,
-      )
-      .run(tabId, tabId, LIMIT);
+    const sanitizedUrl = redactUrl(entry.url).slice(0, MAX_NETWORK_URL_LEN);
+    this.#pendingNetwork.push({
+      envId,
+      tabId: entry.tabId ?? '',
+      at: entry.at,
+      method: entry.method,
+      url: sanitizedUrl,
+      status: entry.status,
+      resourceType: entry.resourceType,
+      error: (entry.error ?? '').slice(0, 256),
+    });
+    this.#scheduleFlush();
   }
 }
 

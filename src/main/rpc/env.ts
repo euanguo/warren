@@ -136,10 +136,10 @@ export const envRpcEndpoints: RpcDomainTable = {
   'env.acquire': {
     kind: 'change',
     summary: '申请 Agent Space 控制权租约',
-    params: ['id', 'label?', 'space?'],
+    params: ['id', 'label?', 'space?', 'leaseId?'],
     gate: 'none',
     wake: true,
-    handler: (ctx) => ctx.deps.manager.acquire(ctx.str('id'), 'agent', ctx.optStr('label'), ctx.space),
+    handler: (ctx) => ctx.deps.manager.acquire(ctx.str('id'), 'agent', ctx.optStr('label'), ctx.space, ctx.leaseId),
   },
   'env.takeover': {
     kind: 'change',

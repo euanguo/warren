@@ -67,7 +67,10 @@ export class PluginInvoker {
     options: { environmentId?: string; input?: unknown; leaseId?: string; caller?: PluginRpcCaller },
   ): Promise<RunResult> {
     if (!this.#deps.getState().enabled.includes(id)) pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
-    await this.#deps.readPackage(id); // 顺带校验清单还在、没被改坏
+    const pkg = await this.#deps.readPackage(id); // 顺带校验清单还在、没被改坏
+    if (!pkg.contributes.commands.some((item) => item.name === command)) {
+      pluginError('PLUGIN_COMMAND_UNKNOWN', `${command} 不在清单声明的 commands 白名单里`);
+    }
     const active = await this.#ensureActive(id);
     if (!this.#deps.getState().enabled.includes(id)) pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     if (!active) {

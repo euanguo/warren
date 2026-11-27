@@ -292,8 +292,12 @@ export const browserRpcEndpoints: RpcDomainTable = {
     params: ['id', 'target', 'value', 'leaseId', 'submit?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) =>
-      ctx.controller().fill(asTargetInput(ctx.params.target), ctx.str('value'), asFillOptions(ctx.params)),
+    handler: (ctx) => {
+      if (typeof ctx.params.value !== 'string') {
+        throw Object.assign(new Error('missing string param: value'), { code: 'BAD_REQUEST' });
+      }
+      return ctx.controller().fill(asTargetInput(ctx.params.target), ctx.params.value, asFillOptions(ctx.params));
+    },
   },
   'browser.selectOption': {
     kind: 'change',
@@ -547,7 +551,8 @@ export const browserRpcEndpoints: RpcDomainTable = {
       const siteNotes = ctx.deps.store.matchSiteNotesForUrl?.(url) ?? [];
       const webmcp =
         ctx.params.compact && controller.page ? await listWebMcpTools(controller.page).catch(() => null) : null;
-      rememberSnapshot(`${id}:${ctx.space}`, { url, title, nodes });
+      const scopeKey = `${id}:${ctx.space}:${ctx.tab ?? 'active'}`;
+      rememberSnapshot(scopeKey, { url, title, nodes });
       if (ctx.params.compact) {
         return {
           url,
@@ -567,7 +572,7 @@ export const browserRpcEndpoints: RpcDomainTable = {
             urls: opts.urls,
             filter: opts.filter,
           }),
-          nodes,
+          ...(ctx.params.includeNodes === true ? { nodes } : {}),
         };
       }
       return { url, title, ...(siteNotes.length > 0 ? { siteNotes } : {}), nodes };
@@ -577,10 +582,13 @@ export const browserRpcEndpoints: RpcDomainTable = {
     kind: 'read',
     summary: '抽取页面干净正文、大纲、过滤行、结构化 JSON 与链接（支持 Shadow DOM 与 llms.txt）',
     params: ['id', 'selector?', 'data?', 'links?', 'scroll?', 'match?', 'outline?', 'filter?', 'llms?'],
-    gate: 'read',
+    gate: 'custom',
     wake: true,
     handler: (ctx) => {
-      const c = ctx.controller(ctx.str('id'));
+      const id = ctx.str('id');
+      // --scroll 会修改页面滚动位置，属于写副作用，必须持有有效 lease
+      if (ctx.params.scroll) ctx.assertWritable(id);
+      const c = ctx.controller(id);
       const siteNotes = ctx.deps.store.matchSiteNotesForUrl?.(c.currentUrl()) ?? [];
       return readPage(c, {
         selector: ctx.optStr('selector'),
@@ -639,7 +647,7 @@ export const browserRpcEndpoints: RpcDomainTable = {
         });
       }
       const id = ctx.str('id');
-      const scopeKey = `${id}:${ctx.space}`;
+      const scopeKey = `${id}:${ctx.space}:${ctx.tab ?? 'active'}`;
       const c = ctx.controller(id);
       const prev = getLastSnapshot(scopeKey) ?? { url: '', title: '', nodes: [] };
       const nodes = await c.snapshot({ interactiveOnly: Boolean(ctx.params.interactiveOnly) });

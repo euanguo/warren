@@ -47,6 +47,16 @@ app.setPath('sessionData', paths.app);
 app.setPath('logs', paths.logs);
 app.setPath('crashDumps', paths.crashDumps);
 
+// 单实例互斥锁（按 userData 目录隔离，隔离 WARREN_HOME 的冒烟/测试实例互不冲突）
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
+  });
+}
+
 const coreDir = paths.core;
 
 function skillSourceDir(): string {
@@ -489,20 +499,50 @@ app.on('activate', () => {
   showMainWindow();
 });
 
-app.on('before-quit', () => {
+let cleanedUp = false;
+let cleaningUp = false;
+
+async function gracefulShutdown(): Promise<void> {
   quitting = true;
   memoryMonitor?.stop();
   memoryMonitor = undefined;
   overlayHost?.destroy();
   popoverHost?.destroy();
-  void plugins?.dispose();
-  manager?.shutdown();
-  closeDatabases();
-  void rpc?.close();
   tray?.destroy();
   tray = undefined;
   if (suspensionBlocker !== undefined) {
     powerSaveBlocker.stop(suspensionBlocker);
     suspensionBlocker = undefined;
   }
+  try {
+    // 严格顺序：等待插件 dispose（停止托管 Whistle 等子进程）→ 关闭环境视图 → 关闭 RPC socket → 关库
+    await Promise.race([
+      (async () => {
+        await plugins?.dispose().catch(() => undefined);
+        manager?.shutdown();
+        await rpc?.close().catch(() => undefined);
+      })(),
+      new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+    ]);
+  } finally {
+    closeDatabases();
+  }
+}
+
+app.on('before-quit', (event) => {
+  if (cleanedUp) return;
+  event.preventDefault();
+  if (cleaningUp) return;
+  cleaningUp = true;
+  void gracefulShutdown().finally(() => {
+    cleanedUp = true;
+    app.exit(0);
+  });
 });
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    if (cleaningUp || cleanedUp) return;
+    app.quit();
+  });
+}

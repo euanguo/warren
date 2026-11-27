@@ -14,6 +14,34 @@ import { EventEmitter } from 'node:events';
 export interface WorkerProcessOptions {
   serviceName: string;
   env?: NodeJS.ProcessEnv;
+  /** 为 host 插件开启独立进程组（Unix），便于强杀时一并清理衍生子进程。 */
+  detached?: boolean;
+}
+
+const SANDBOX_ENV_ALLOWLIST = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'NODE_ENV',
+  'WARREN_PLUGIN_TIMEOUT_MS',
+]);
+
+export function buildSandboxEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string' && SANDBOX_ENV_ALLOWLIST.has(key)) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 export interface WorkerProcess {
@@ -119,11 +147,13 @@ class ElectronWorkerProcess extends EventEmitter implements WorkerProcess {
 
 class NodeWorkerProcess extends EventEmitter implements WorkerProcess {
   #child: ChildProcess;
+  #detached: boolean;
   #exited = false;
 
-  constructor(child: ChildProcess) {
+  constructor(child: ChildProcess, detached = false) {
     super();
     this.#child = child;
+    this.#detached = detached;
     child.on('message', (message) => {
       this.emit('message', decodeIpc(message));
     });
@@ -156,6 +186,15 @@ class NodeWorkerProcess extends EventEmitter implements WorkerProcess {
 
   kill(): boolean {
     if (this.#exited) return false;
+    const pid = this.#child.pid;
+    if (this.#detached && pid && process.platform !== 'win32') {
+      try {
+        process.kill(-pid, 'SIGKILL');
+        return true;
+      } catch {
+        // 进程组已不存在时退回直接杀子进程
+      }
+    }
     try {
       return this.#child.kill('SIGKILL');
     } catch {
@@ -186,10 +225,12 @@ export async function forkWorkerProcess(modulePath: string, options: WorkerProce
     return new ElectronWorkerProcess(child);
   }
 
+  const detached = Boolean(options.detached && process.platform !== 'win32');
   const child = forkNode(modulePath, [], {
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     execArgv: [],
+    detached,
     ...(cleanEnv ? { env: cleanEnv } : {}),
   });
-  return new NodeWorkerProcess(child);
+  return new NodeWorkerProcess(child, detached);
 }

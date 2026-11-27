@@ -328,7 +328,7 @@ describe('内存管理面板与快捷入口', () => {
     // 右键环境行应暴露「休眠（保留登录态）」与「清理 HTTP 缓存」
     fireEvent.contextMenu(screen.getByText('环境 alpha'));
     await waitFor(() => {
-      const items = popupMenu.mock.calls[0]?.[0] as Array<{ id?: string; label?: string }>;
+      const items = (popupMenu.mock.calls[0] as unknown[] | undefined)?.[0] as Array<{ id?: string; label?: string }>;
       expect(items.some((item) => item.id === 'hibernate' && item.label?.includes('休眠'))).toBe(true);
       expect(items.some((item) => item.id === 'clear-cache')).toBe(true);
       expect(onHibernate).toHaveBeenCalledWith('alpha');
@@ -375,6 +375,7 @@ describe('内存管理面板与快捷入口', () => {
         loading: false,
         audible: false,
         muted: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
       },
       {
         id: 't2',
@@ -384,6 +385,7 @@ describe('内存管理面板与快捷入口', () => {
         loading: false,
         audible: false,
         muted: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
       },
       {
         id: 't3',
@@ -394,6 +396,7 @@ describe('内存管理面板与快捷入口', () => {
         audible: false,
         muted: false,
         sleeping: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
       },
     ];
 
@@ -422,7 +425,10 @@ describe('内存管理面板与快捷入口', () => {
     const bgOnlineNode = document.querySelector('[data-tab-id="t2"]')!;
     fireEvent.contextMenu(bgOnlineNode);
     await waitFor(() => {
-      const items = popupMenu.mock.calls[0]?.[0] as Array<{ id?: string; enabled?: boolean }>;
+      const items = (popupMenu.mock.calls[0] as unknown[] | undefined)?.[0] as Array<{
+        id?: string;
+        enabled?: boolean;
+      }>;
       const sleepItem = items.find((item) => item.id === 'sleep');
       expect(sleepItem?.enabled).toBe(true);
       expect(onSleep).toHaveBeenCalledWith('t2');

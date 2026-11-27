@@ -485,8 +485,14 @@ export class EnvironmentManager {
 
   // ── 控制权与输入就绪 ───────────────────────────────────────────────
 
-  acquire(id: string, owner: 'agent' | 'human', label?: string, space: SpaceId = 'agent'): LeaseHandle {
-    return this.#leases.acquire(id, owner, label, space);
+  acquire(
+    id: string,
+    owner: 'agent' | 'human',
+    label?: string,
+    space: SpaceId = 'agent',
+    existingLeaseId?: string,
+  ): LeaseHandle {
+    return this.#leases.acquire(id, owner, label, space, existingLeaseId);
   }
   release(id: string, leaseId: string, actor: 'agent' | 'human' = 'agent'): void {
     this.#leases.release(id, leaseId, actor);

@@ -46,43 +46,54 @@ export async function readAxFrames(ctx: PageContext): Promise<AxFrame[]> {
   };
   walk(tree?.frameTree);
 
-  const out: AxFrame[] = [];
-  for (const meta of frameMetas) {
-    try {
-      const r = await ctx.send<{ nodes?: Array<Record<string, unknown>> }>('Accessibility.getFullAXTree', {
-        frameId: meta.frameId,
-      });
-      out.push({
-        frameId: meta.frameId,
-        loaderId: meta.loaderId,
-        url: meta.url,
-        name: meta.name,
-        nodes: r.nodes ?? [],
-      });
-    } catch {
-      // frame 可能在取的过程中销毁
-    }
-  }
-  // OOPIF：每个子会话自己就是一棵树，主会话的 frame tree 里根本没有它
-  for (const child of ctx.childSessions()) {
-    if (!child.frameId) continue;
-    try {
-      const [childTree, r] = await Promise.all([
-        ctx.sendOn<{ frameTree?: RawFrameTreeNode }>(child.sessionId, 'Page.getFrameTree').catch(() => null),
-        ctx.sendOn<{ nodes?: Array<Record<string, unknown>> }>(child.sessionId, 'Accessibility.getFullAXTree'),
-      ]);
-      out.push({
-        frameId: child.frameId,
-        sessionId: child.sessionId,
-        loaderId: childTree?.frameTree?.frame?.loaderId,
-        url: childTree?.frameTree?.frame?.url ?? child.url,
-        name: childTree?.frameTree?.frame?.name,
-        nodes: r.nodes ?? [],
-      });
-    } catch {
-      // 子 frame 可能在取的过程中销毁
-    }
-  }
+  // 并发拉取主会话各同源子 frame 与全部 OOPIF 子会话的 AX 树，显著降低多 iframe 页面延迟
+  const sameOriginResults = await Promise.all(
+    frameMetas.map(async (meta): Promise<AxFrame | null> => {
+      try {
+        const r = await ctx.send<{ nodes?: Array<Record<string, unknown>> }>('Accessibility.getFullAXTree', {
+          frameId: meta.frameId,
+        });
+        return {
+          frameId: meta.frameId,
+          loaderId: meta.loaderId,
+          url: meta.url,
+          name: meta.name,
+          nodes: r.nodes ?? [],
+        };
+      } catch {
+        // frame 可能在取的过程中销毁
+        return null;
+      }
+    }),
+  );
+  const oopifResults = await Promise.all(
+    ctx
+      .childSessions()
+      .filter((child) => Boolean(child.frameId))
+      .map(async (child): Promise<AxFrame | null> => {
+        try {
+          const [childTree, r] = await Promise.all([
+            ctx.sendOn<{ frameTree?: RawFrameTreeNode }>(child.sessionId, 'Page.getFrameTree').catch(() => null),
+            ctx.sendOn<{ nodes?: Array<Record<string, unknown>> }>(child.sessionId, 'Accessibility.getFullAXTree'),
+          ]);
+          return {
+            frameId: child.frameId!,
+            sessionId: child.sessionId,
+            loaderId: childTree?.frameTree?.frame?.loaderId,
+            url: childTree?.frameTree?.frame?.url ?? child.url,
+            name: childTree?.frameTree?.frame?.name,
+            nodes: r.nodes ?? [],
+          };
+        } catch {
+          // 子 frame 可能在取的过程中销毁
+          return null;
+        }
+      }),
+  );
+  const out: AxFrame[] = [
+    ...sameOriginResults.filter((f): f is AxFrame => f !== null),
+    ...oopifResults.filter((f): f is AxFrame => f !== null),
+  ];
   axCache.set(ctx.wc.id, { frames: out, at: Date.now() });
   return out;
 }

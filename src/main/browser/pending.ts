@@ -44,6 +44,9 @@ export class EnvPending {
 
   notePopup(record: PopupRecord): void {
     this.#popups.push(record);
+    while (this.#popups.length > this.#maxDownloads) {
+      this.#popups.shift();
+    }
   }
 
   noteDownload(record: DownloadRecord, handle: DownloadHandle): void {
@@ -52,6 +55,11 @@ export class EnvPending {
     while (this.#downloads.length > this.#maxDownloads) {
       const dropped = this.#downloads.shift()!;
       this.#byId.delete(dropped.downloadId);
+    }
+    while (this.#byId.size > this.#maxDownloads) {
+      const oldest = this.#byId.keys().next().value;
+      if (oldest === undefined) break;
+      this.#byId.delete(oldest);
     }
   }
 

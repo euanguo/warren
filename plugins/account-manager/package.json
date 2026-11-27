@@ -113,7 +113,7 @@
         },
         {
           "name": "export",
-          "summary": "导出全部账号（明文 JSON，仅供人手工备份）：必须 --input='{\"confirm\":\"plaintext\"}'"
+          "summary": "导出全部账号（仅限插件界面手工备份，Agent 通道不可调用）"
         }
       ],
       "surfaces": [

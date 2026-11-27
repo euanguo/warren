@@ -359,7 +359,9 @@ test('EnvLifecycle：惰性恢复非激活标签、LRU 优先休眠、Pin 保护
       },
       createSleeping(opts: { url: string; activate?: boolean; materializeIfActive?: boolean }) {
         if (opts.activate && opts.materializeIfActive !== false) {
-          return this.create({ url: opts.url, activate: true }).state;
+          return (
+            this as unknown as { create: (input: { url: string; activate?: boolean }) => { state: TabState } }
+          ).create({ url: opts.url, activate: true }).state;
         }
         const id = `${envId}-${space}-s${++seq}`;
         createdSleeping.push({ envId, space, url: opts.url, activate: opts.activate });
@@ -416,7 +418,7 @@ test('EnvLifecycle：惰性恢复非激活标签、LRU 优先休眠、Pin 保护
       saveTabs: (id, tabs) => {
         savedTabs.set(id, tabs);
       },
-      record: () => {},
+      record: (event) => event,
     },
     prepareSession: async () => ({ session: {} as Session, trustedCa: undefined }),
     prepareWakeSession: () => ({ session: {} as Session, trustedCa: undefined }),

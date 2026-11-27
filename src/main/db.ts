@@ -167,7 +167,8 @@ CREATE TABLE IF NOT EXISTS network_entries (
   method TEXT NOT NULL,
   url TEXT NOT NULL,
   status INTEGER NOT NULL,
-  resource_type TEXT NOT NULL DEFAULT ''
+  resource_type TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS network_entries_env ON network_entries (env_id, id);
 CREATE INDEX IF NOT EXISTS network_entries_tab ON network_entries (tab_id, id);
@@ -233,8 +234,11 @@ export function openDatabase(file: string): DatabaseSync {
 
 function create(file: string): DatabaseSync {
   const db = new DatabaseSync(file);
-  // WAL：读写不互斥；busy_timeout：别的进程（比如人工开的 sqlite3）持锁时等一会儿再报错
+  // WAL + NORMAL：并发读不互斥，同时避免每条遥测写入触发整盘 fsync
   db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA temp_store = MEMORY');
+  db.exec('PRAGMA cache_size = -16000');
   db.exec('PRAGMA busy_timeout = 5000');
   db.exec(SCHEMA);
   migrate(db);
@@ -251,6 +255,7 @@ const ADDED_COLUMNS: ReadonlyArray<readonly [table: string, column: string, type
   ['plugins', 'resolved', "TEXT NOT NULL DEFAULT ''"],
   ['plugins', 'skill_exposed', 'INTEGER NOT NULL DEFAULT 1'],
   ['env_tabs', 'space', "TEXT NOT NULL DEFAULT 'person'"],
+  ['network_entries', 'error', "TEXT NOT NULL DEFAULT ''"],
 ];
 
 /**

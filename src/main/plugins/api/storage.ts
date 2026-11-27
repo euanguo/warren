@@ -2,6 +2,7 @@
  * 插件存储与 Cookie 受控通道 / 设置 host API。
  */
 import { asCookieInputs, asSqlParams } from '../../browser/parse-params.ts';
+import { assertSafePluginSql } from '../storage.ts';
 import type { CapabilitySpec } from './types.ts';
 
 export const storageCapabilities: Record<string, CapabilitySpec> = {
@@ -72,20 +73,27 @@ export const storageCapabilities: Record<string, CapabilitySpec> = {
   'storage.sql.exec': {
     permission: 'storage.write',
     handler: ({ deps, text }, sql) => {
-      deps.storage.db().exec(text(sql));
+      const statement = text(sql);
+      assertSafePluginSql(statement);
+      deps.storage.db().exec(statement);
       return { ok: true };
     },
   },
   'storage.sql.run': {
     permission: 'storage.write',
     handler: ({ deps, text }, sql, params) => {
-      const statement = deps.storage.db().prepare(text(sql));
+      const query = text(sql);
+      assertSafePluginSql(query);
+      const statement = deps.storage.db().prepare(query);
       return statement.run(...asSqlParams(params));
     },
   },
   'storage.sql.query': {
+    permission: 'storage.write',
     handler: ({ deps, text }, sql, params) => {
-      const statement = deps.storage.db().prepare(text(sql));
+      const query = text(sql);
+      assertSafePluginSql(query, { readOnly: true });
+      const statement = deps.storage.db().prepare(query);
       return statement.all(...asSqlParams(params));
     },
   },

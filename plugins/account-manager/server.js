@@ -815,7 +815,7 @@ function deriveAllowedDomains(account) {
   return [...set];
 }
 
-function scoreAccountForTarget(account, targetMeta, environmentId, query) {
+function scoreAccountForTarget(account, targetMeta, environmentId, query, caller = 'agent') {
   let siteScore = 0;
   const reasons = [];
   const pushReason = (r) => {
@@ -883,7 +883,8 @@ function scoreAccountForTarget(account, targetMeta, environmentId, query) {
       account.name,
       account.url,
       ...account.urls,
-      account.username,
+      // Agent 通道不把明文 username 纳入匹配打分，防侧信道枚举用户名
+      ...(caller === 'ui' ? [account.username] : []),
       account.note,
       account.tags,
       ...account.displayAliases,
@@ -1051,6 +1052,16 @@ async function update(ctx, input) {
   const host = ctx.host;
   const id = idOf(input);
   await rowOf(host, id);
+  if (ctx.caller !== 'ui' && input && typeof input === 'object') {
+    for (const restricted of ['allowedHosts', 'url', 'urls']) {
+      if (input[restricted] !== undefined) {
+        throw accountError(
+          'ACCOUNT_DOMAIN_BINDING_UI_ONLY',
+          `agent 通道禁止修改域名绑定字段 ${restricted}，请在账号管理界面修改`,
+        );
+      }
+    }
+  }
   const sets = [];
   const params = [];
   for (const [key, max] of [
@@ -1201,6 +1212,9 @@ function requirePlaintextConfirm(input) {
 }
 
 async function exportAccounts(ctx, input) {
+  if (ctx.caller !== 'ui') {
+    throw accountError('ACCOUNT_EXPORT_UI_ONLY', 'export 只对插件界面开放（禁止 agent 通道导出明文凭据）');
+  }
   requirePlaintextConfirm(input);
   const includeDeleted = Boolean(input && input.includeDeleted === true);
   const where = includeDeleted ? '' : "WHERE deleted_at = ''";
@@ -1259,7 +1273,7 @@ async function matchAccounts(ctx, input) {
   const scored = [];
   for (const row of rows) {
     const account = toAccount(row);
-    const { score, reasons } = scoreAccountForTarget(account, targetMeta, environmentId, query);
+    const { score, reasons } = scoreAccountForTarget(account, targetMeta, environmentId, query, caller);
     if (score <= 0 && !includeUnmatched) continue;
     scored.push({
       account: toPublicAccount(host, row, caller),

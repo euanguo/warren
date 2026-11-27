@@ -58,35 +58,58 @@ const PATH_RULES = [
   },
   { match: /^src\/renderer\/lib\/address-input\.ts$/, unit: ['tests/address-input.test.ts'] },
   {
-    match: /^src\/shared\/popover-sizing\.ts$|^src\/main\/ui\/popover-/,
-    unit: ['tests/popover-layout.test.ts'],
+    match: /^src\/shared\/popover-sizing\.ts$|^src\/main\/ui\//,
+    unit: allUnitTests.filter((t) => /popover|devtools|layer|shell|shield/.test(t)),
     ui: ['tests/ui/shell-and-regressions.test.tsx'],
   },
   {
     match: /^src\/main\/browser\//,
     unit: allUnitTests.filter((t) =>
-      /browser|input|snapshot|refs|target|login|batch|ops|remedy|page-contract|exec/.test(t),
+      /browser|input|snapshot|refs|target|login|batch|ops|remedy|page-contract|exec|paths|pending|wave0/.test(t),
     ),
   },
   { match: /^src\/main\/net\//, unit: allUnitTests.filter((t) => /net-|trusted-ca/.test(t)) },
   {
-    match: /^src\/main\/plugins\/|^packages\/plugin-sdk\//,
-    unit: allUnitTests.filter((t) => /plugin|skill|account-manager/.test(t)),
+    match: /^src\/main\/(plugins\/|plugin-protocol\.ts|skills\/|agent-integration\.ts)|^packages\/plugin-sdk\//,
+    unit: allUnitTests.filter((t) => /plugin|skill|account-manager|wave0/.test(t)),
   },
-  { match: /^plugins\/account-manager\//, unit: ['tests/account-manager.test.ts'] },
-  { match: /^plugins\/whistle\//, unit: allUnitTests.filter((t) => /whistle/.test(t)) },
+  { match: /^plugins\/account-manager\//, unit: ['tests/account-manager.test.ts', 'tests/wave0-hardening.test.ts'] },
+  { match: /^plugins\/whistle\//, unit: allUnitTests.filter((t) => /whistle|wave0/.test(t)) },
   { match: /^src\/main\/vault\//, unit: ['tests/vault.test.ts', 'tests/approval.test.ts'] },
-  { match: /^src\/main\/(rpc|rpc-dispatch)\.ts$/, unit: ['tests/rpc-dispatch.test.ts', 'tests/rpc-gating.test.ts'] },
   {
-    match: /^src\/main\/(environments|tabs|store)\.ts$|^src\/main\/domain\//,
+    match: /^src\/main\/(rpc\.ts|rpc\/|rpc-dispatch\.ts)/,
+    unit: allUnitTests.filter((t) => /rpc|browser|env-|memory-management|wave0/.test(t)),
+  },
+  {
+    match: /^src\/main\/(environments\.ts|env\/|tabs\.ts|domain\/|memory-monitor\.ts|telemetry\.ts)/,
     unit: allUnitTests.filter((t) =>
-      /environment|env-|tabs|spaces|store|group|external-url|cookies|devtools|layer|paths|pending/.test(t),
+      /environment|env-|tabs|spaces|store|group|external-url|cookies|devtools|layer|paths|pending|memory-management|approval|wave0/.test(
+        t,
+      ),
     ),
   },
-  { match: /^bin\/warren\.mjs$/, unit: ['tests/cli-help.test.ts', 'tests/rpc-dispatch.test.ts'] },
   {
-    match: /^src\/shared\/(types|permissions)/,
-    unit: ['tests/rpc-gating.test.ts', 'tests/plugin-package-contract.test.ts'],
+    match: /^src\/main\/(db\.ts|store\.ts|store\/)/,
+    unit: allUnitTests.filter((t) => /store|memory-management|plugin-registry|group|wave0/.test(t)),
+  },
+  {
+    match:
+      /^src\/main\/(main\.ts|ipc-routes\.ts|paths\.ts|doctor\.ts|diagnostics\.ts|newtab\.ts)|^src\/preload\/|^forge\.config\.cjs$/,
+    unit: allUnitTests,
+    ui: allUiTests,
+  },
+  {
+    match: /^bin\//,
+    unit: [
+      'tests/cli-help.test.ts',
+      'tests/rpc-dispatch.test.ts',
+      'tests/memory-management.test.ts',
+      'tests/wave0-hardening.test.ts',
+    ],
+  },
+  {
+    match: /^src\/shared\//,
+    unit: allUnitTests,
     ui: allUiTests,
   },
 ];
@@ -108,18 +131,23 @@ if (forceAll) {
       uiSet.add(file);
       continue;
     }
-    const base = path.basename(file, path.extname(file));
-    for (const candidate of allUnitTests) {
-      if (candidate.includes(base)) unitSet.add(candidate);
-    }
+    let matchedRule = false;
     for (const rule of PATH_RULES) {
       if (rule.match.test(file)) {
+        matchedRule = true;
         for (const t of rule.unit ?? []) {
           if (allUnitTests.includes(t)) unitSet.add(t);
         }
         for (const t of rule.ui ?? []) {
           if (allUiTests.includes(t)) uiSet.add(t);
         }
+      }
+    }
+    // 仅在未命中明确路径规则时按文件名精确匹配，避免 store/memory.ts 误撞 memory-management.test.ts
+    if (!matchedRule) {
+      const base = path.basename(file, path.extname(file));
+      for (const candidate of allUnitTests) {
+        if (candidate === `tests/${base}.test.ts`) unitSet.add(candidate);
       }
     }
   }

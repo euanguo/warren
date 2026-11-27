@@ -289,7 +289,13 @@ export class LeaseCoordinator {
     this.#sharedShield?.showAction?.(action);
   }
 
-  acquire(id: string, owner: 'agent' | 'human', label?: string, space: SpaceId = 'agent'): LeaseHandle {
+  acquire(
+    id: string,
+    owner: 'agent' | 'human',
+    label?: string,
+    space: SpaceId = 'agent',
+    existingLeaseId?: string,
+  ): LeaseHandle {
     const env = this.#deps.getEnvironment(id);
     if (!env) throw Object.assign(new Error(`unknown environment ${id}`), { code: 'ENV_NOT_FOUND' });
     if (space !== 'agent') {
@@ -300,8 +306,16 @@ export class LeaseCoordinator {
     const ttl = this.#ttl();
     const current = this.#leases.get(id);
     if (current && current.expiresAt > now) {
-      // 同一 owner 再来一次 = 续租（CLI 的长脚本靠这条续命），leaseId 不变。
+      // 同一 owner 续租：agent 必须出示匹配 leaseId，防止多 Agent 互相拿到同一 leaseId 并提前误释放
       if (current.owner === owner) {
+        if (owner === 'agent' && existingLeaseId !== current.leaseId) {
+          throw Object.assign(
+            new Error(
+              `environment ${id} is currently held by another agent${current.label ? ` (${current.label})` : ''}`,
+            ),
+            { code: 'ENV_BUSY' },
+          );
+        }
         current.expiresAt = renewLease(env, current.leaseId, ttl, now).leaseExpiresAt ?? now + ttl;
         if (label) current.label = label;
         this.syncShield(id);

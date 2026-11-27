@@ -634,6 +634,7 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         maxDepth: typeof flags.depth === 'string' ? Number(flags.depth) : undefined,
         maxTokens: typeof flags['max-tokens'] === 'string' ? Number(flags['max-tokens']) : undefined,
         compact: Boolean(flags.interactive || flags.compact),
+        includeNodes: asJson ? true : undefined,
         urls: Boolean(flags.urls),
         boxes: Boolean(flags.boxes),
         includeCursor: flags.cursor ? true : undefined,
@@ -665,7 +666,7 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
           const collected = [];
           for (const u of extraUrls) {
             await call('browser.navigate', { id: environmentId, leaseId, url: u, ...commonTimeout });
-            collected.push(await call('browser.read', { id: environmentId, ...readOpts }));
+            collected.push(await call('browser.read', { id: environmentId, leaseId, ...readOpts }));
           }
           return collected;
         });
@@ -684,7 +685,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         }
         return 0;
       }
-      const res = await call('browser.read', { id: environmentId, ...readOpts });
+      const res = readOpts.scroll
+        ? await withLease(environmentId, flags, 'warren browser read --scroll', (leaseId) =>
+            call('browser.read', { id: environmentId, leaseId, ...readOpts }),
+          )
+        : await call('browser.read', { id: environmentId, ...readOpts });
       const textOut =
         res.siteNotes?.length && !asJson
           ? `# site-notes\n${res.siteNotes.map((n) => `- [${n.site}] ${n.content}`).join('\n')}\n\n${res.text}`

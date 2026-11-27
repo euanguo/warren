@@ -69,6 +69,14 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
       return fn(...(args as A));
     });
   };
+  const handleCoreShell = <A extends unknown[]>(channel: string, fn: (...args: A) => unknown) => {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (event.sender !== deps.getWindow()?.webContents && event.sender !== deps.getOverlayHost()?.webContents) {
+        throw new Error('unauthorized sender');
+      }
+      return fn(...(args as A));
+    });
+  };
   const handleShell = <A extends unknown[]>(channel: string, fn: (...args: A) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
       if (!isAuthorizedShellSender(event.sender, deps.getWindow(), deps.getOverlayHost(), deps.getPopoverHost())) {
@@ -79,11 +87,11 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   };
 
   handleShell('env:list', () => deps.getManager().list());
-  handleShell('env:create', (input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }) =>
+  handleCoreShell('env:create', (input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }) =>
     deps.getManager().create({ ...input, createdBy: 'human' }),
   );
   handleShell('env:start', (id: string) => deps.getManager().start(id));
-  handleShell('env:stop', (id: string) => deps.getManager().stop(id));
+  handleCoreShell('env:stop', (id: string) => deps.getManager().stop(id));
   handleShell('env:hibernate', (id: string) => ({ ok: deps.getManager().hibernate(id, 'manual') }));
   handleShell('env:hibernateBackground', () => {
     const hibernated = deps.getManager().hibernateBackground('manual-batch');
@@ -91,9 +99,9 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   });
   handleShell('env:wake', (id: string) => ({ ok: deps.getManager().wake(id) }));
   handleShell('env:clearCache', (id: string) => deps.getManager().clearCache(id));
-  handleShell('system:clearAllCaches', () => deps.getManager().clearAllCaches());
-  handleShell('env:remove', (id: string) => deps.getManager().remove(id));
-  handleShell(
+  handleCoreShell('system:clearAllCaches', () => deps.getManager().clearAllCaches());
+  handleCoreShell('env:remove', (id: string) => deps.getManager().remove(id));
+  handleCoreShell(
     'env:update',
     (
       id: string,
@@ -119,9 +127,9 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   handleShell('env:moveToGroup', (id: string, groupId?: string) => deps.getManager().moveToGroup(id, groupId));
 
   handleShell('group:list', () => deps.getManager().listGroups());
-  handleShell('group:create', (name: string) => deps.getManager().createGroup({ name }));
-  handleShell('group:rename', (id: string, name: string) => deps.getManager().renameGroup(id, name));
-  handleShell('group:remove', (id: string) => deps.getManager().removeGroup(id));
+  handleCoreShell('group:create', (name: string) => deps.getManager().createGroup({ name }));
+  handleCoreShell('group:rename', (id: string, name: string) => deps.getManager().renameGroup(id, name));
+  handleCoreShell('group:remove', (id: string) => deps.getManager().removeGroup(id));
   handleShell('group:collapse', (id: string, collapsed: boolean) => deps.getManager().setGroupCollapsed(id, collapsed));
   handleShell('env:select', (id: string) => deps.getManager().select(id));
   handleShell('env:selectSpace', (id: string, space: SpaceId) => deps.getManager().selectSpace(id, space));
@@ -217,8 +225,8 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   );
   handleShell('browser:downloads', (id?: string) => deps.getManager().downloads(id));
   handleShell('browser:revealDownload', (downloadId: string) => deps.getManager().revealDownload(downloadId));
-  handleShell('browser:printPage', (id: string, space: SpaceId) => deps.getManager().printPage(id, space));
-  handleShell('browser:savePage', (id: string, space: SpaceId) => deps.getManager().savePageAs(id, space));
+  handleCoreShell('browser:printPage', (id: string, space: SpaceId) => deps.getManager().printPage(id, space));
+  handleCoreShell('browser:savePage', (id: string, space: SpaceId) => deps.getManager().savePageAs(id, space));
   handleShell('browser:highlight', async (id: string, space: SpaceId, target?: string) => {
     await deps
       .getManager()

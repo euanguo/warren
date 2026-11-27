@@ -110,9 +110,12 @@ function sourceError(code: string, message: string): Error {
 }
 
 async function npmPack(spec: string, destination: string): Promise<{ archive: string; name: string; version: string }> {
+  if (spec.startsWith('-')) {
+    throw sourceError('PLUGIN_SOURCE_INVALID', `非法的 npm 安装源: ${spec}`);
+  }
   const output = await run(
     'npm',
-    ['pack', spec, '--json', '--pack-destination', destination, '--ignore-scripts'],
+    ['pack', '--json', '--pack-destination', destination, '--ignore-scripts', '--', spec],
     destination,
   );
   let parsed: unknown;
@@ -136,9 +139,15 @@ async function cloneGit(value: string, destination: string): Promise<{ dir: stri
   const repo = hashAt >= 0 ? value.slice(0, hashAt) : value;
   const ref = hashAt >= 0 ? value.slice(hashAt + 1) : '';
   if (!repo) throw sourceError('PLUGIN_SOURCE_INVALID', 'git: 后面需要仓库地址');
-  await run('git', ['clone', '--depth', '1', repo, destination]);
+  if (repo.startsWith('-') || /^ext::/i.test(repo)) {
+    throw sourceError('PLUGIN_SOURCE_INVALID', `非法的 git 仓库地址: ${repo}`);
+  }
+  if (ref && ref.startsWith('-')) {
+    throw sourceError('PLUGIN_SOURCE_INVALID', `非法的 git ref: ${ref}`);
+  }
+  await run('git', ['clone', '--depth', '1', '--', repo, destination]);
   if (ref) {
-    await run('git', ['fetch', '--depth', '1', 'origin', ref], destination);
+    await run('git', ['fetch', '--depth', '1', '--', 'origin', ref], destination);
     await run('git', ['checkout', '--detach', 'FETCH_HEAD'], destination);
   }
   const commit = (await run('git', ['rev-parse', 'HEAD'], destination)).trim();

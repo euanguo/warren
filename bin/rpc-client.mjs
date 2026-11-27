@@ -38,57 +38,72 @@ export function createRpcClient({
       }
       const socket = net.connect(info.socketPath);
       let buffer = '';
+      let settled = false;
       const id = String(++seq);
       const timeoutMs = computeRpcTimeoutMs(method, params, defaultTimeoutMs);
-      const timer = setTimeout(() => {
-        socket.destroy();
-        reject(Object.assign(new Error(`RPC 超时 ${timeoutMs}ms: ${method}`), { code: 'TIMEOUT' }));
-      }, timeoutMs);
-      const done = (fn) => (value) => {
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         fn(value);
       };
+      const timer = setTimeout(() => {
+        socket.destroy();
+        finish(reject, Object.assign(new Error(`RPC 超时 ${timeoutMs}ms: ${method}`), { code: 'TIMEOUT' }));
+      }, timeoutMs);
       socket.on('connect', () => socket.write(JSON.stringify({ id, token: info.token, method, params }) + '\n'));
-      socket.on(
-        'data',
-        done((chunk) => {
-          buffer += chunk.toString('utf8');
-          const index = buffer.indexOf('\n');
-          if (index < 0) return;
-          let message;
-          try {
-            message = JSON.parse(buffer.slice(0, index));
-          } catch {
-            socket.end();
-            reject(Object.assign(new Error('RPC 响应不是合法 JSON'), { code: 'BAD_RESPONSE' }));
-            return;
-          }
+      socket.on('data', (chunk) => {
+        if (settled) return;
+        buffer += chunk.toString('utf8');
+        const index = buffer.indexOf('\n');
+        if (index < 0) return;
+        let message;
+        try {
+          message = JSON.parse(buffer.slice(0, index));
+        } catch {
           socket.end();
-          if (message.ok) resolve(message.result);
-          else
-            reject(
-              Object.assign(new Error(message.error.message), {
-                code: message.error.code,
-                reason: message.error.reason,
-                expiredAt: message.error.expiredAt,
-                details: message.error.details,
-              }),
-            );
-        }),
-      );
-      socket.on('error', done(reject));
+          finish(reject, Object.assign(new Error('RPC 响应不是合法 JSON'), { code: 'BAD_RESPONSE' }));
+          return;
+        }
+        socket.end();
+        if (message.ok) finish(resolve, message.result);
+        else
+          finish(
+            reject,
+            Object.assign(new Error(message.error.message), {
+              code: message.error.code,
+              reason: message.error.reason,
+              expiredAt: message.error.expiredAt,
+              details: message.error.details,
+            }),
+          );
+      });
+      socket.on('error', (error) => finish(reject, error));
+      socket.on('close', () => {
+        if (!settled) {
+          finish(reject, Object.assign(new Error(`RPC 连接意外关闭: ${method}`), { code: 'CONNECTION_CLOSED' }));
+        }
+      });
     });
   }
 
-  function startLeaseRenewer(environmentId, expiresAt) {
+  function startLeaseRenewer(environmentId, leaseId, expiresAt) {
+    // 兼容旧双参数调用（environmentId, expiresAt）
+    let resolvedLeaseId = typeof leaseId === 'string' ? leaseId : undefined;
+    let resolvedExpiresAt = typeof leaseId === 'number' ? leaseId : expiresAt;
     let stopped = false;
     let timer;
     const schedule = (until) => {
-      const delay = Math.max(1000, Math.floor((until - Date.now()) / 2));
+      const target = typeof until === 'number' && Number.isFinite(until) ? until : Date.now() + 60_000;
+      const delay = Math.max(1000, Math.floor((target - Date.now()) / 2));
       timer = setTimeout(() => {
-        void call('env.acquire', { id: environmentId, label: 'warren renew' })
+        if (!resolvedLeaseId) {
+          stopped = true;
+          return;
+        }
+        void call('env.renew', { id: environmentId, leaseId: resolvedLeaseId })
           .then((lease) => {
-            if (!stopped) schedule(lease.leaseExpiresAt ?? Date.now() + 60_000);
+            if (!stopped) schedule(lease.expiresAt ?? lease.leaseExpiresAt ?? Date.now() + 60_000);
           })
           .catch((error) => {
             stopped = true;
@@ -101,7 +116,7 @@ export function createRpcClient({
       }, delay);
       timer.unref?.();
     };
-    schedule(expiresAt ?? Date.now() + 60_000);
+    schedule(resolvedExpiresAt);
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
@@ -117,7 +132,7 @@ export function createRpcClient({
     if (auto) {
       const lease = await call('env.acquire', { id: environmentId, label: effectiveLabel });
       leaseId = lease.leaseId;
-      stopRenewer = startLeaseRenewer(environmentId, lease.leaseExpiresAt);
+      stopRenewer = startLeaseRenewer(environmentId, leaseId, lease.expiresAt ?? lease.leaseExpiresAt);
     }
     try {
       return await fn(leaseId);

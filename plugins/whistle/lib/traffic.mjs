@@ -1,7 +1,8 @@
 /**
  * Whistle 抓包浏览、Composer 合成/重放、HAR/cURL 导出、排障链接与官方 Agent API。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { sha256 } from '../presets.mjs';
 import { agentApiFor, agentApiRequirements, isAgentApiVersion, resolveAgentMethod } from '../agent-api.mjs';
@@ -57,6 +58,109 @@ export function requestIdOf(req, res, body) {
   return null;
 }
 
+function redactTrafficUrl(rawUrl) {
+  const value = String(rawUrl ?? '');
+  if (!value) return '';
+  try {
+    const parsed = new URL(value);
+    let changed = false;
+    if (parsed.password) {
+      parsed.password = '[REDACTED]';
+      changed = true;
+    }
+    for (const [key] of [...parsed.searchParams]) {
+      if (isSensitiveJsonKey(key) || isSensitiveHeader(key)) {
+        parsed.searchParams.set(key, '[REDACTED]');
+        changed = true;
+      }
+    }
+    return changed ? parsed.toString() : value;
+  } catch {
+    return value;
+  }
+}
+
+function resolveRealExportPath(target) {
+  const suffixes = [];
+  let cursor = path.resolve(target);
+  while (true) {
+    try {
+      const real = realpathSync(cursor);
+      return suffixes.length > 0 ? path.join(real, ...suffixes.reverse()) : real;
+    } catch {
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return path.resolve(target);
+      suffixes.push(path.basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
+function isWithinDir(candidate, root) {
+  const clean = root.endsWith(path.sep) && root.length > 1 ? root.slice(0, -1) : root;
+  return candidate === clean || candidate.startsWith(clean + path.sep);
+}
+
+function guardExportDirectory(directory) {
+  if (!directory || !path.isAbsolute(directory)) {
+    fail('PATH_DENIED', `导出目录必须是绝对路径: ${directory}`);
+  }
+  const normalized = path.normalize(directory);
+  const resolved = resolveRealExportPath(normalized);
+  const candidates = resolved === normalized ? [normalized] : [normalized, resolved];
+  const home = os.homedir();
+  const warrenRoot = process.env.WARREN_HOME ? path.resolve(process.env.WARREN_HOME) : path.join(home, '.warren');
+  const blockedRoots = [
+    warrenRoot,
+    resolveRealExportPath(warrenRoot),
+    ...[
+      '.ssh',
+      '.aws',
+      '.gnupg',
+      '.kube',
+      '.docker',
+      '.npmrc',
+      '.netrc',
+      '.git-credentials',
+      'Library/Keychains',
+    ].flatMap((rel) => {
+      const raw = path.join(home, rel);
+      return [raw, resolveRealExportPath(raw)];
+    }),
+    ...(process.platform !== 'win32'
+      ? ['/etc', '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/System', '/private/etc', '/private/var/db']
+      : []),
+  ];
+  for (const candidate of candidates) {
+    for (const root of blockedRoots) {
+      if (isWithinDir(candidate, root)) {
+        fail('PATH_DENIED', `禁止导出到受保护目录: ${directory}`);
+      }
+    }
+  }
+  return normalized;
+}
+
+function redactAgentResult(value) {
+  if (Array.isArray(value)) return value.map(redactAgentResult);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'url' && typeof item === 'string') {
+      out[key] = redactTrafficUrl(item);
+    } else if (key === 'headers' && item && typeof item === 'object' && !Array.isArray(item)) {
+      out[key] = Object.fromEntries(
+        Object.entries(item).map(([hk, hv]) => [hk, isSensitiveHeader(hk) ? '[REDACTED]' : hv]),
+      );
+    } else if (isSensitiveJsonKey(key) || isSensitiveHeader(key)) {
+      out[key] = '[REDACTED]';
+    } else {
+      out[key] = redactAgentResult(item);
+    }
+  }
+  return out;
+}
+
 export function normalizeTrafficEntry(id, item, input = {}) {
   const raw = item && item.raw && typeof item.raw === 'object' ? item.raw : null;
   const req =
@@ -87,7 +191,7 @@ export function normalizeTrafficEntry(id, item, input = {}) {
     entryId: String(id),
     startTime: item && item.startTime != null ? item.startTime : null,
     endTime: item && item.endTime != null ? item.endTime : null,
-    url: item && item.url != null ? String(item.url) : '',
+    url: item && item.url != null ? (redact ? redactTrafficUrl(item.url) : String(item.url)) : '',
     method: req.method ?? null,
     status: res.statusCode != null ? Number(res.statusCode) : null,
     requestHeaders,
@@ -530,7 +634,7 @@ export async function liveAgentInstance(host, instance) {
   return requireLiveAgentInstance(instance, status, pid);
 }
 
-export async function agent(host, input) {
+export async function agent(host, input, ctx) {
   const registered = await requireInstance(host, input && input.storage);
   const instance = await liveAgentInstance(host, registered);
   const w2 = await resolveW2(host);
@@ -552,17 +656,19 @@ export async function agent(host, input) {
   }
   const result = await api[resolved.group][resolved.action](...args);
   const includeValues = input && input.includeValues === true;
+  const allowSensitive = ctx?.caller === 'ui' && input && input.includeSensitive === true;
+  const shaped =
+    !includeValues && Array.isArray(result)
+      ? result.map((item) =>
+          resolved.group === 'rules' && item && typeof item === 'object' ? { ...item, value: '' } : item,
+        )
+      : result;
   return {
     storage: instance.storage,
     port: instance.port,
     method: resolved.canonical,
     requestedMethod: method,
-    result:
-      !includeValues && Array.isArray(result)
-        ? result.map((item) =>
-            resolved.group === 'rules' && item && typeof item === 'object' ? { ...item, value: '' } : item,
-          )
-        : result,
+    result: allowSensitive ? shaped : redactAgentResult(shaped),
   };
 }
 
@@ -586,8 +692,7 @@ export async function exportData(host, input) {
   if (!(await statusOf(instance.port))) fail('WHISTLE_INSTANCE_DOWN', `实例 ${instance.storage} 没在跑`);
   const type = String((input && (input.type || input.format)) || 'rules');
   const filename = String((input && input.filename) || '').trim();
-  const directory = String((input && input.directory) || '').trim();
-  if (!directory) fail('BAD_REQUEST', 'export 需要 directory');
+  const directory = guardExportDirectory(String((input && input.directory) || '').trim());
   mkdirSync(directory, { recursive: true });
   let pathname;
   let body = '';

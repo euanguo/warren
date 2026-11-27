@@ -107,7 +107,8 @@ export async function waitForSelector(
       } else if (state === 'detached' || state === 'hidden') {
         return {};
       }
-    } catch {
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'TARGET_AMBIGUOUS') throw error;
       if (state === 'detached' || state === 'hidden') return {};
     }
     if (Date.now() > deadline) {

@@ -230,9 +230,12 @@ test('LeaseCoordinator：acquire / renew / release / takeover 完整流转与 bu
     label: 'cli',
   });
 
-  // 同 owner 再 acquire = 续租，leaseId 不变且不重复发 acquired 事件
+  // 另一 agent 未出示匹配 leaseId 时拒绝抢占（防止多 Agent 共享同一 leaseId）
   now += 5_000;
-  const renewedSame = coordinator.acquire('alpha', 'agent', 'cli', 'agent');
+  assert.throws(() => coordinator.acquire('alpha', 'agent', 'other-cli', 'agent'), { code: 'ENV_BUSY' });
+
+  // 持有者出示匹配 leaseId 再 acquire = 续租，leaseId 不变且不重复发 acquired 事件
+  const renewedSame = coordinator.acquire('alpha', 'agent', 'cli', 'agent', first.leaseId);
   assert.equal(renewedSame.leaseId, first.leaseId);
   assert.equal(renewedSame.expiresAt, 45_000);
   assert.equal(busEvents.length, 1);

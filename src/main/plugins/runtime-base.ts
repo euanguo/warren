@@ -7,7 +7,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { PluginRpcCaller } from '../../shared/types.ts';
-import { forkWorkerProcess, type WorkerProcess } from './worker-process.ts';
+import { buildSandboxEnv, forkWorkerProcess, type WorkerProcess } from './worker-process.ts';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -137,8 +137,10 @@ const send = process.parentPort
 const onMessage = (handler) => {
   if (process.parentPort) {
     process.parentPort.on('message', (event) => handler(event?.data));
+    process.parentPort.on('close', () => process.exit(0));
   } else {
     process.on('message', (message) => handler(decodeIpc(message)));
+    process.on('disconnect', () => process.exit(0));
   }
 };
 
@@ -328,9 +330,8 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
   #onHostCall: (path: string, args: unknown[], context: PluginInvocationContext) => Promise<unknown>;
   #onCrash?: (info: PluginCrashInfo) => void;
   #child?: WorkerProcess;
-  #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+  #pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   #invocations = new Map<string | number, PluginInvocationContext>();
-  #seq = 0;
   #readyResolve?: () => void;
   #readyReject?: (error: Error) => void;
   #started = false;
@@ -412,6 +413,8 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
 
     const child = await forkWorkerProcess(bootstrap, {
       serviceName: `warren-plugin-${this.#pluginId}`,
+      env: this.kind === 'sandbox' ? buildSandboxEnv(process.env) : undefined,
+      detached: this.kind === 'host',
     });
     this.#child = child;
     child.stdout?.on('data', (chunk: Buffer) => this.#log('info', chunk.toString().trimEnd()));
@@ -429,7 +432,8 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
       this.#readyResolve = resolve;
       this.#readyReject = reject;
     });
-    this.#invocations.set('activate', { pluginId: this.#pluginId, caller: 'ui' });
+    // activate 属于系统冷启动阶段，禁止持有 ui 特权（防插件在启动期调用仅限界面的通道）
+    this.#invocations.set('activate', { pluginId: this.#pluginId, caller: 'agent' });
     child.postMessage({ t: 'init', ...initPayload, ctx: this.#context() });
 
     const ms = callTimeoutMs();
@@ -540,7 +544,7 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
       return;
     }
     if (type === 'result') {
-      const id = Number(message.id);
+      const id = String(message.id);
       const waiting = this.#pending.get(id);
       if (!waiting) return;
       this.#pending.delete(id);
@@ -556,8 +560,8 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     if (type === 'host-call') {
       const id = Number(message.id);
       const rawParent = message.parent;
-      const parent = typeof rawParent === 'number' || typeof rawParent === 'string' ? rawParent : Number.NaN;
-      const context = this.#invocations.get(parent) ?? { pluginId: this.#pluginId };
+      const parent = typeof rawParent === 'number' || typeof rawParent === 'string' ? rawParent : '';
+      const context = this.#invocations.get(parent) ?? { pluginId: this.#pluginId, caller: 'agent' as const };
       try {
         const callPath = String(message.path);
         const args = (message.args as unknown[]) ?? [];
@@ -587,7 +591,7 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
         }),
       );
     }
-    const id = ++this.#seq;
+    const id = crypto.randomUUID();
     const ms = callTimeoutMs();
     return new Promise((resolve, reject) => {
       let settled = false;

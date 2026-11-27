@@ -287,6 +287,8 @@ export class PluginInstaller {
       const backupRoot = path.join(this.#deps.root, '.backup');
       const backup = path.join(backupRoot, `${id}-${Date.now()}`);
       const existed = Boolean(await stat(target).catch(() => null));
+      const previousRuntime = existed ? (await this.readPackage(id).catch(() => null))?.runtime : undefined;
+      const runtimeEscalated = previousRuntime === 'sandbox' && pkg.runtime === 'host';
 
       await this.#deps.disable(id).catch(() => undefined);
       await mkdir(backupRoot, { recursive: true });
@@ -299,7 +301,8 @@ export class PluginInstaller {
         state.granted[id] = pkg.permissions.filter(
           (permission) => tierOf(permission) === 'granted' || previousGranted.includes(permission),
         );
-        const keepEnabled = options.keepEnabled && previousEnabled;
+        // 安全边界：更新时若从 sandbox 提权为 host（全权进程），强制降级为停用状态，等待人工确认后手动启用
+        const keepEnabled = options.keepEnabled && previousEnabled && !runtimeEscalated;
         state.enabled = state.enabled.filter((entry) => entry !== id);
         if (keepEnabled) state.enabled.push(id);
         state.installs[id] = {
@@ -340,6 +343,15 @@ export class PluginInstaller {
             createdAt: new Date().toISOString(),
           });
         }
+        if (runtimeEscalated) {
+          this.#deps.store.record({
+            id: crypto.randomUUID(),
+            type: 'plugin.runtime.escalated',
+            actor: 'system',
+            message: `[${id}] 更新后 runtime 从 sandbox 变为 host（全权 Node 进程），已自动停用，请人工核验后重新启用`,
+            createdAt: new Date().toISOString(),
+          });
+        }
         return this.one(id);
       } catch (error) {
         await rm(target, { recursive: true, force: true });
@@ -371,6 +383,7 @@ export class PluginInstaller {
       // pkg 坏了也要能卸载
     }
     await rm(this.dirFor(id), { recursive: true, force: true });
+    await rm(path.join(path.dirname(this.#deps.root), 'plugin-data', id), { recursive: true, force: true });
     // 库里的行也要带走：卸载 = 删数据（kv / 设置 / 日志），不然重装会带着上一份状态复活
     try {
       this.#deps.db.prepare('DELETE FROM plugin_values WHERE plugin_id = ?').run(id);

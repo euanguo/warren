@@ -30,6 +30,7 @@ export interface ActivePlugin {
   storage: PluginStorage;
   settings: PluginSettings;
   handlers: Record<string, HostHandler>;
+  permissions: ReadonlySet<Permission>;
   startedAt: number;
   disposed: boolean;
 }
@@ -83,6 +84,7 @@ export class PluginLifecycle {
   #hostBootstrapPath: string;
   #sandboxBootstrapPath: string;
   #active = new Map<string, ActivePlugin>();
+  #declaredPermissions = new Map<string, ReadonlySet<Permission>>();
   #status = new Map<string, { status: PluginStatus; detail?: string }>();
   #crashed = new Map<string, CrashRecord>();
   #crashHistory = new Map<string, { count: number; lastAt: number }>();
@@ -468,9 +470,11 @@ export class PluginLifecycle {
         });
       }
 
-      const storage = new PluginStorage({ dir, pluginId: id, db: this.#deps.db });
+      const dataDir = path.join(path.dirname(this.#deps.root), 'plugin-data', id);
+      const storage = new PluginStorage({ dir, dataDir, pluginId: id, db: this.#deps.db });
       storageToClose = storage;
       await storage.load();
+      this.#declaredPermissions.set(id, new Set(pkg.permissions));
       const settings = await this.#deps.settingsFor(id, pkg);
       assertAlive();
 
@@ -550,6 +554,7 @@ export class PluginLifecycle {
         storage,
         settings,
         handlers,
+        permissions: new Set(pkg.permissions),
         startedAt: Date.now(),
         disposed: false,
       };
@@ -682,9 +687,12 @@ export class PluginLifecycle {
 
   /**
    * 这个能力此刻算不算已授予。
-   * 审批策略是 `auto` 时，`confirm` 层当场放行 —— 不落库，切回 `ask` 立刻恢复拦截。
+   * 必须先校验插件 manifest 已声明该权限且不在 denied 层，防止 `pluginPolicy='auto'` 越权放行未声明权限。
    */
   hasPermission(id: string, permission: Permission): boolean {
+    if (tierOf(permission) === 'denied') return false;
+    const declared = this.#active.get(id)?.permissions ?? this.#declaredPermissions.get(id);
+    if (declared && !declared.has(permission)) return false;
     if ((this.#deps.getState().granted[id] ?? []).includes(permission)) return true;
     return pluginAutoApproves(this.#deps.store.appSettings()) && tierOf(permission) === 'confirm';
   }

@@ -4,6 +4,8 @@
  * `page.cdp` 选的是发送会话，不缩小作用域（Ego clearing-state 同款警告）——
  * 所以整 profile 级的方法一律禁掉，只给单 origin 版。
  */
+import { realpathSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { warrenHome } from '../paths.ts';
 
@@ -16,6 +18,10 @@ const DENIED_METHODS = new Set([
   'Network.clearBrowserCache',
   'Storage.clearCookies', // 无 scope 版会清整 profile；单 origin 版走 clearDataForOrigin
   'Storage.clearDataForOrigin', // 必须走 RPC（带 origin 校验），不许 raw cdp
+  'DOM.setFileInputFiles', // 绕过路径护栏读任意本地文件，必须走 browser.setInputFiles
+  'Page.setDownloadBehavior', // 绕过下载路径护栏改写下载目录
+  'Page.addScriptToEvaluateOnNewDocument', // 持久注入任意脚本到后续导航文档
+  'Runtime.addBinding', // 暴露主世界全局回调桥
 ]);
 
 export function checkCdpAllowed(method: string): void {
@@ -40,6 +46,28 @@ export function checkCdpAllowed(method: string): void {
   // Network.* / Storage.* 不在 ALLOWED 里，上面的域检查已拦；这里兜底防以后放宽域时漏网
 }
 
+/** 对尚不存在的目标路径，沿最近已存在的父目录做 realpath 解析，彻底阻断符号链接逃逸。 */
+function resolveRealPathBestEffort(target: string): string {
+  const suffixes: string[] = [];
+  let cursor = path.resolve(target);
+  while (true) {
+    try {
+      const real = realpathSync(cursor);
+      return suffixes.length > 0 ? path.join(real, ...suffixes.reverse()) : real;
+    } catch {
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return path.resolve(target);
+      suffixes.push(path.basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const cleanRoot = root.endsWith(path.sep) && root.length > 1 ? root.slice(0, -1) : root;
+  return candidate === cleanRoot || candidate.startsWith(cleanRoot + path.sep);
+}
+
 /** 写下载/上传目标路径的护栏。返回净化后的绝对路径。 */
 export function guardSavePath(input: string): string {
   if (typeof input !== 'string' || !input) {
@@ -49,20 +77,63 @@ export function guardSavePath(input: string): string {
     throw Object.assign(new Error(`PATH_DENIED 须绝对路径: ${input}`), { code: 'PATH_DENIED' });
   }
   const normalized = path.normalize(input);
-  // 数据根（默认 ~/.warren，WARREN_HOME 可覆盖）：整个根都护住，不只是根目录本身
+  const resolvedReal = resolveRealPathBestEffort(normalized);
+  const candidates = resolvedReal === normalized ? [normalized] : [normalized, resolvedReal];
+
+  // 数据根（默认 ~/.warren，WARREN_HOME 可覆盖）：整个根与符号链接真实根都护住
   const dataRoot = warrenHome();
-  if (normalized === dataRoot || normalized.startsWith(dataRoot + path.sep)) {
-    throw Object.assign(new Error(`PATH_DENIED 禁止写入 ${dataRoot} 数据目录`), {
-      code: 'PATH_DENIED',
-    });
+  const realDataRoot = resolveRealPathBestEffort(dataRoot);
+  for (const candidate of candidates) {
+    if (isWithinRoot(candidate, dataRoot) || isWithinRoot(candidate, realDataRoot)) {
+      throw Object.assign(new Error(`PATH_DENIED 禁止读写 ${dataRoot} 数据目录`), {
+        code: 'PATH_DENIED',
+      });
+    }
   }
-  const SYS_DIRS = ['/etc/', '/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/System/', '/private/etc/'];
-  if (process.platform !== 'win32') {
-    for (const d of SYS_DIRS) {
-      if (normalized === d.slice(0, -1) || normalized.startsWith(d)) {
-        throw Object.assign(new Error(`PATH_DENIED 禁止写入系统目录: ${input}`), {
+
+  // 用户主目录下的高敏凭据/密钥目录
+  const home = os.homedir();
+  const sensitiveHomeRel = [
+    '.ssh',
+    '.aws',
+    '.gnupg',
+    '.kube',
+    '.docker',
+    '.npmrc',
+    '.netrc',
+    '.git-credentials',
+    'Library/Keychains',
+  ];
+  for (const rel of sensitiveHomeRel) {
+    const rawRoot = path.join(home, rel);
+    const realRoot = resolveRealPathBestEffort(rawRoot);
+    for (const candidate of candidates) {
+      if (isWithinRoot(candidate, rawRoot) || isWithinRoot(candidate, realRoot)) {
+        throw Object.assign(new Error(`PATH_DENIED 禁止访问敏感凭据路径: ${input}`), {
           code: 'PATH_DENIED',
         });
+      }
+    }
+  }
+
+  const SYS_DIRS = [
+    '/etc/',
+    '/bin/',
+    '/sbin/',
+    '/usr/bin/',
+    '/usr/sbin/',
+    '/System/',
+    '/private/etc/',
+    '/private/var/db/',
+  ];
+  if (process.platform !== 'win32') {
+    for (const d of SYS_DIRS) {
+      for (const candidate of candidates) {
+        if (isWithinRoot(candidate, d)) {
+          throw Object.assign(new Error(`PATH_DENIED 禁止读写系统目录: ${input}`), {
+            code: 'PATH_DENIED',
+          });
+        }
       }
     }
   }

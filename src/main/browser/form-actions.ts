@@ -15,7 +15,7 @@ import { dispatchMouseClick, emitVisualAction, tname } from './actions.ts';
 import { ACTIVE_READBACK_JS, FILL_ASSIGN_JS, FILL_PREPARE_JS, RESOLVE_FILL_CONTROL_FN } from './dom-scripts.ts';
 import { richErr } from './errors.ts';
 import { isMac, keyEvents } from './input.ts';
-import { boxCenter, boxRect } from './locator.ts';
+import { boxCenter, boxRect, frameOffsetFor } from './locator.ts';
 import { heldModifiers } from './mouse-state.ts';
 import { assertNoDialog, evalOnNode, nodeIdFor, resolveTarget, scrollIntoView } from './page-helpers.ts';
 import { checkInputFiles } from './policy.ts';
@@ -392,7 +392,8 @@ export async function selectOption(
             data: { availableOptions: ariaOutcome.available },
           });
         }
-        await dispatchMouseClick(ctx, { x: ariaOutcome.x, y: ariaOutcome.y });
+        const offset = sessionId ? await frameOffsetFor(ctx, sessionId) : { x: 0, y: 0 };
+        await dispatchMouseClick(ctx, { x: ariaOutcome.x + offset.x, y: ariaOutcome.y + offset.y });
         return { selected: [ariaOutcome.selected], kind: 'aria', ...ctx.pending.receiptSince(since) };
       }
 

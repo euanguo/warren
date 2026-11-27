@@ -13,7 +13,6 @@ import { dispatchRpc, findRpcMethods, RPC_REGISTRY, type DispatchDeps } from '..
 const READ_ONLY = new Set([
   'tab.list',
   'browser.snapshot',
-  'browser.read',
   'browser.get',
   'browser.is',
   'browser.diff',
@@ -130,4 +129,9 @@ test('运行时阻断：所有声明 write/input/dialog 门禁的 browser/net �
     await assert.rejects(() => dispatchRpc(deps, method, { id: 'env1', tabId: 1 }), /lease required/);
     assert.equal(touchedController(), false, `${method} 不得在校验 lease 前获取 controller`);
   }
+
+  // browser.read 仅在 scroll=true 时改变页面滚动状态，必须拦截无 lease 调用
+  const { deps: readDeps, touchedController: readTouched } = unleasedDeps();
+  await assert.rejects(() => dispatchRpc(readDeps, 'browser.read', { id: 'env1', scroll: true }), /lease required/);
+  assert.equal(readTouched(), false, 'browser.read(scroll=true) 不得在校验 lease 前获取 controller');
 });

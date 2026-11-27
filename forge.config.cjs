@@ -66,19 +66,15 @@ module.exports = {
         renderer: [{ name: 'main_window', config: 'vite.renderer.config.mjs' }],
       },
     },
-    {
-      name: '@electron-forge/plugin-fuses',
-      config: {
-        version: FuseVersion.V1,
-        [FusesPlugin]: {
-          [FuseV1Options.RunAsNode]: false,
-          [FuseV1Options.EnableCookieEncryption]: true,
-          [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
-          [FuseV1Options.EnableNodeCliInspectArguments]: false,
-          [FuseV1Options.OnlyLoadAppFromAsar]: true,
-          [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
-        },
-      },
-    },
+    new FusesPlugin({
+      version: FuseVersion.V1,
+      [FuseV1Options.RunAsNode]: false,
+      [FuseV1Options.EnableCookieEncryption]: true,
+      [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+      [FuseV1Options.EnableNodeCliInspectArguments]: false,
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+      [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
+    }),
   ],
 };

@@ -55,7 +55,7 @@ import {
   toCurl,
   traffic,
 } from './lib/traffic.mjs';
-import { readFrames, readRule, rulesView, statusOf } from './lib/w2-client.mjs';
+import { readFrames, readRule, resolveW2, rulesView, runW2, statusOf, whistleEnv } from './lib/w2-client.mjs';
 import { fail } from './lib/shared.mjs';
 
 const withFallbackEnv = (ctx, input) => ({
@@ -63,12 +63,39 @@ const withFallbackEnv = (ctx, input) => ({
   environmentId: (input && input.environmentId) || ctx.environmentId,
 });
 
+/** 仅 UI 通道允许关闭流量脱敏；Agent 通道强制脱敏以守住凭据与 Cookie 边界。 */
+const sanitizeTrafficInput = (ctx, input) => {
+  if (ctx?.caller === 'ui') return input;
+  if (!input || typeof input !== 'object') return input;
+  if (!input.includeSensitive) return input;
+  return { ...input, includeSensitive: false };
+};
+
+const managedStorages = new Set();
+let activeHost = null;
+
 const COMMANDS = {
   list: (host) => listInstances(host),
-  fork: (host, input) => forkInstance(host, input),
-  start: (host, input) => startInstance(host, input),
-  stop: (host, input) => stopInstance(host, input),
-  remove: (host, input) => removeInstance(host, input),
+  fork: async (host, input) => {
+    const res = await forkInstance(host, input);
+    if (res?.created?.storage) managedStorages.add(res.created.storage);
+    return res;
+  },
+  start: async (host, input) => {
+    const res = await startInstance(host, input);
+    if (res?.started?.storage && !res.started.alreadyRunning) managedStorages.add(res.started.storage);
+    return res;
+  },
+  stop: async (host, input) => {
+    const res = await stopInstance(host, input);
+    if (input?.storage) managedStorages.delete(String(input.storage).trim());
+    return res;
+  },
+  remove: async (host, input) => {
+    const res = await removeInstance(host, input);
+    if (input?.storage) managedStorages.delete(String(input.storage).trim());
+    return res;
+  },
   bind: (host, input, ctx) =>
     bindEnvironment(host, { ...input, environmentId: input?.environmentId ?? ctx.environmentId }),
   unbind: (host, input, ctx) => unbindEnvironment(host, { environmentId: ctx.environmentId, ...input }),
@@ -105,13 +132,13 @@ const COMMANDS = {
   injectFault: (host, input) => injectFault(host, input),
   mapLocal: (host, input) => mapLocal(host, input),
   clearIntents: (host, input) => clearIntents(host, input),
-  traffic: (host, input) => traffic(host, input),
+  traffic: (host, input, ctx) => traffic(host, sanitizeTrafficInput(ctx, input)),
   compose: (host, input) => compose(host, input),
-  replay: (host, input) => replay(host, input),
-  toCurl: (host, input) => toCurl(host, input),
+  replay: (host, input, ctx) => replay(host, sanitizeTrafficInput(ctx, input)),
+  toCurl: (host, input, ctx) => toCurl(host, sanitizeTrafficInput(ctx, input)),
   captureLink: (host, input, ctx) => captureLink(host, withFallbackEnv(ctx, input)),
   doctor: (host, input) => doctor(host, input),
-  agent: (host, input) => agent(host, input),
+  agent: (host, input, ctx) => agent(host, sanitizeTrafficInput(ctx, input), ctx),
   agentStatus: (host, input) => agentStatus(host, input),
   frames: async (host, input) => {
     const instance = await requireInstance(host, input && input.storage);
@@ -122,14 +149,15 @@ const COMMANDS = {
       ...(await readFrames(instance.port, input)),
     };
   },
-  export: (host, input) => exportData(host, input),
+  export: (host, input, ctx) => exportData(host, sanitizeTrafficInput(ctx, input)),
 };
 
 let reconcileController = null;
 
-/** @type {Record<string, any> & { activate: (ctx: any) => Promise<void>; dispose: () => Promise<void>; rpc: Record<string, any> }} */
+/** @type {Record<string, any> & { activate: (ctx: any) => Promise<void>; dispose: (ctx?: any) => Promise<void>; rpc: Record<string, any> }} */
 const plugin = {
   async activate(ctx) {
+    activeHost = ctx.host;
     await ensurePresetSchema(ctx.host);
     const instances = await readInstances(ctx.host);
     // 端口探活与多选规则补开下沉为后台异步对账，不阻塞 activate() 就绪与首次 RPC
@@ -141,9 +169,22 @@ const plugin = {
     }).catch(() => undefined);
     await ctx.host.log.info(`whistle 插件已就绪，登记了 ${instances.length} 个实例`);
   },
-  async dispose() {
+  async dispose(ctx) {
     reconcileController?.abort();
     reconcileController = null;
+    const host = ctx?.host ?? activeHost;
+    if (host && managedStorages.size > 0) {
+      const storages = [...managedStorages];
+      managedStorages.clear();
+      try {
+        const w2 = await resolveW2(host);
+        const env = await whistleEnv(host);
+        await Promise.allSettled(storages.map((storage) => runW2(w2, ['stop', '-S', storage], env, 2500)));
+      } catch {
+        // 退出清理尽力而为，不阻塞进程退出
+      }
+    }
+    activeHost = null;
   },
   rpc: {},
 };

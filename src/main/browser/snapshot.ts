@@ -89,9 +89,9 @@ async function augmentFrameWithDom(
   if (!contextId) return nodes;
 
   try {
-    const raw = await ctx.sendOn<{ result?: { value?: DomAugmentResult } }>(sessionId, 'Runtime.evaluate', {
+    const raw = await ctx.sendOn<{ result?: { objectId?: string } }>(sessionId, 'Runtime.evaluate', {
       contextId,
-      returnByValue: true,
+      returnByValue: false,
       expression: `(() => {
         const opts = ${JSON.stringify({ urls: Boolean(options.urls), includeCursor: Boolean(options.includeCursor), boxes: Boolean(options.boxes) })};
         const tagGetter = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName')?.get;
@@ -203,13 +203,47 @@ async function augmentFrameWithDom(
         };
 
         walk(document, false);
-        window.__warrenAugment = collected;
-        return { passwordIndices, hiddenGhostIndices, urls, extras, boxes };
+        return {
+          elements: collected,
+          meta: JSON.stringify({ passwordIndices, hiddenGhostIndices, urls, extras, boxes }),
+        };
       })()`,
     });
 
-    const data = raw?.result?.value;
-    if (!data) return nodes;
+    const bundleObjectId = raw?.result?.objectId;
+    if (!bundleObjectId) return nodes;
+
+    let data: DomAugmentResult | null = null;
+    let elementsObjectId: string | undefined;
+    try {
+      const bundleProps = await ctx
+        .sendOn<{ result?: Array<{ name: string; value?: { value?: unknown; objectId?: string } }> }>(
+          sessionId,
+          'Runtime.getProperties',
+          { objectId: bundleObjectId, ownProperties: true },
+        )
+        .catch(() => null);
+      for (const prop of bundleProps?.result ?? []) {
+        if (prop.name === 'meta' && typeof prop.value?.value === 'string') {
+          try {
+            data = JSON.parse(prop.value.value) as DomAugmentResult;
+          } catch {
+            data = null;
+          }
+        } else if (prop.name === 'elements' && prop.value?.objectId) {
+          elementsObjectId = prop.value.objectId;
+        }
+      }
+    } finally {
+      await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: bundleObjectId }).catch(() => {});
+    }
+
+    if (!data) {
+      if (elementsObjectId) {
+        await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: elementsObjectId }).catch(() => {});
+      }
+      return nodes;
+    }
 
     const indexToBackend = new Map<number, number>();
     const neededIndices = new Set<number>([
@@ -218,34 +252,56 @@ async function augmentFrameWithDom(
       ...Object.keys(data.urls).map(Number),
       ...data.extras.map((e) => e.idx),
     ]);
-    for (const idx of neededIndices) {
-      const obj = await ctx
-        .sendOn<{ result?: { objectId?: string } }>(sessionId, 'Runtime.evaluate', {
-          contextId,
-          expression: `window.__warrenAugment[${idx}]`,
-          returnByValue: false,
-        })
-        .catch(() => null);
-      const objectId = obj?.result?.objectId;
-      if (!objectId) continue;
+
+    if (elementsObjectId) {
+      const elementEntries: Array<{ idx: number; objectId: string; needed: boolean }> = [];
       try {
-        const desc = await ctx
-          .sendOn<{ node?: { backendNodeId?: number } }>(sessionId, 'DOM.describeNode', { objectId })
+        const elProps = await ctx
+          .sendOn<{ result?: Array<{ name: string; value?: { objectId?: string } }> }>(
+            sessionId,
+            'Runtime.getProperties',
+            { objectId: elementsObjectId, ownProperties: true },
+          )
           .catch(() => null);
-        if (typeof desc?.node?.backendNodeId === 'number') {
-          indexToBackend.set(idx, desc.node.backendNodeId);
+        for (const prop of elProps?.result ?? []) {
+          if (!/^\d+$/.test(prop.name)) continue;
+          const objectId = prop.value?.objectId;
+          if (!objectId) continue;
+          const idx = Number(prop.name);
+          elementEntries.push({ idx, objectId, needed: neededIndices.has(idx) });
         }
       } finally {
-        await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId }).catch(() => {});
+        await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: elementsObjectId }).catch(() => {});
       }
+
+      // 有界并发（16）批量解析 backendNodeId 并释放远程句柄，彻底消除 N+1 串行 CDP 往返
+      const CONCURRENCY = 16;
+      let cursor = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, Math.max(1, elementEntries.length)) }, async () => {
+          while (true) {
+            const pos = cursor;
+            cursor += 1;
+            if (pos >= elementEntries.length) break;
+            const entry = elementEntries[pos]!;
+            try {
+              if (entry.needed) {
+                const desc = await ctx
+                  .sendOn<{ node?: { backendNodeId?: number } }>(sessionId, 'DOM.describeNode', {
+                    objectId: entry.objectId,
+                  })
+                  .catch(() => null);
+                if (typeof desc?.node?.backendNodeId === 'number') {
+                  indexToBackend.set(entry.idx, desc.node.backendNodeId);
+                }
+              }
+            } finally {
+              await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: entry.objectId }).catch(() => {});
+            }
+          }
+        }),
+      );
     }
-    await ctx
-      .sendOn(sessionId, 'Runtime.evaluate', {
-        contextId,
-        expression: 'delete window.__warrenAugment',
-        returnByValue: true,
-      })
-      .catch(() => {});
 
     const passwordIds = new Set<number>();
     for (const idx of data.passwordIndices) {
@@ -421,21 +477,30 @@ export async function snapshot(
     out = out.filter((n) => roles.has(n.role.toLowerCase()));
   }
 
-  // 若显式要求 boxes，补齐尚未带 box 的可交互节点坐标
+  // 若显式要求 boxes，有界并发补齐尚未带 box 的可交互节点坐标
   if (options.boxes) {
-    for (const n of out) {
-      if (n.box || !n.backendNodeId || !isActionableRole(n.role)) continue;
-      const sessionId = sessionOfAxNode(n) ?? frames.find((f) => f.frameId === n.frameId)?.sessionId;
-      const rect = await boxRect(ctx, n.backendNodeId, sessionId).catch(() => null);
-      if (rect) {
-        n.box = {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-        };
-      }
-    }
+    const needBox = out.filter((n) => !n.box && n.backendNodeId && isActionableRole(n.role));
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(16, Math.max(1, needBox.length)) }, async () => {
+        while (true) {
+          const pos = cursor;
+          cursor += 1;
+          if (pos >= needBox.length) break;
+          const n = needBox[pos]!;
+          const sessionId = sessionOfAxNode(n) ?? frames.find((f) => f.frameId === n.frameId)?.sessionId;
+          const rect = await boxRect(ctx, n.backendNodeId!, sessionId).catch(() => null);
+          if (rect) {
+            n.box = {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            };
+          }
+        }
+      }),
+    );
   }
 
   for (const n of out) {

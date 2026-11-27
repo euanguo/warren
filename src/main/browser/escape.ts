@@ -160,7 +160,8 @@ export async function cdp(ctx: PageContext, method: string, params: Record<strin
     ctx.record('browser.cdpBlocked', `${method} 被拒`);
     throw e;
   }
-  return ctx.send(method, params);
+  const result = await ctx.send(method, params);
+  return redactSecrets(result).value;
 }
 
 export async function clearDataForOrigin(

@@ -119,7 +119,7 @@ export class BrowserController {
       if (!isMainFrame) return;
       clearChildSessions(wc);
       clearPendingRelease(wc);
-      invalidateAxCache(wc.id);
+      this.#resetForNewDocument();
       this.#activeFrameId = undefined;
     }) as never);
   }
@@ -531,28 +531,36 @@ export class BrowserController {
 
   // ── 动作 / 弹窗下载 / 逃生舱 ───────────────────────────────────────
 
+  async #mutating<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } finally {
+      invalidateAxCache(this.#wc.id);
+    }
+  }
+
   click(target: TargetInput, opts: ClickOptions = {}) {
-    return click(this.page, target, opts);
+    return this.#mutating(() => click(this.page, target, opts));
   }
 
   dblclick(target: TargetInput, opts: ClickOptions = {}) {
-    return dblclick(this.page, target, opts);
+    return this.#mutating(() => dblclick(this.page, target, opts));
   }
 
   hover(target: TargetInput, opts: ClickOptions = {}) {
-    return hover(this.page, target, opts);
+    return this.#mutating(() => hover(this.page, target, opts));
   }
 
   drag(source: TargetInput, target: TargetInput, opts: DragOptions = {}) {
-    return drag(this.page, source, target, opts);
+    return this.#mutating(() => drag(this.page, source, target, opts));
   }
 
   dropFiles(target: TargetInput, paths: string | string[], opts: { timeoutMs?: number } = {}) {
-    return dropFiles(this.page, target, paths, opts);
+    return this.#mutating(() => dropFiles(this.page, target, paths, opts));
   }
 
   fill(target: TargetInput, value: string, opts: FillOptions = {}) {
-    return fill(this.page, target, value, opts);
+    return this.#mutating(() => fill(this.page, target, value, opts));
   }
 
   selectOption(
@@ -560,15 +568,15 @@ export class BrowserController {
     value: SelectValue,
     opts: { timeoutMs?: number; by?: 'auto' | 'value' | 'label' | 'index' } = {},
   ) {
-    return selectOption(this.page, target, value, opts);
+    return this.#mutating(() => selectOption(this.page, target, value, opts));
   }
 
   check(target: TargetInput, opts: { timeoutMs?: number } = {}) {
-    return setChecked(this.page, target, true, opts);
+    return this.#mutating(() => setChecked(this.page, target, true, opts));
   }
 
   uncheck(target: TargetInput, opts: { timeoutMs?: number } = {}) {
-    return setChecked(this.page, target, false, opts);
+    return this.#mutating(() => setChecked(this.page, target, false, opts));
   }
 
   async scrollIntoView(target: TargetInput): Promise<{ ok: true }> {
@@ -578,23 +586,23 @@ export class BrowserController {
   }
 
   focus(target: TargetInput, opts: { timeoutMs?: number } = {}) {
-    return focus(this.page, target, opts);
+    return this.#mutating(() => focus(this.page, target, opts));
   }
 
   press(selOrChord: string | TargetInput, chordOrOpts?: string | PressOptions, maybeOpts?: PressOptions) {
-    return press(this.page, selOrChord, chordOrOpts, maybeOpts);
+    return this.#mutating(() => press(this.page, selOrChord, chordOrOpts, maybeOpts));
   }
 
   setInputFiles(target: TargetInput, paths: string | string[]) {
-    return setInputFiles(this.page, target, paths);
+    return this.#mutating(() => setInputFiles(this.page, target, paths));
   }
 
   acceptDialog(promptText?: string) {
-    return acceptDialog(this.page, promptText);
+    return this.#mutating(() => acceptDialog(this.page, promptText));
   }
 
   dismissDialog() {
-    return dismissDialog(this.page);
+    return this.#mutating(() => dismissDialog(this.page));
   }
 
   downloadSaveAs(downloadId: string, dest: string) {

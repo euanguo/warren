@@ -58,6 +58,7 @@ export interface ChildSession {
 interface WcState {
   count: number;
   wired: boolean;
+  attachPromise?: Promise<void>;
   /** 当前**未处理**的 dialog（只有 accept/dismiss/导航才清）——`DIALOG_OPEN` 守卫看这个。 */
   dialog?: DialogInfo;
   /** dialog 是否还没被 `events()` / `waitForEvent` 读走（读走只清这个标记）。 */
@@ -87,14 +88,17 @@ function stateFor(wc: WebContents): WcState {
   return s;
 }
 
-/** controller 长期持有：构造/首次使用时拿。 */
+/** controller 长期持有：构造/首次使用时拿（并发调用共享同一 attachPromise，幂等不竞态）。 */
 export async function attachSession(wc: WebContents): Promise<void> {
   const s = stateFor(wc);
   if (s.count > 0) {
     s.count += 1;
+    if (s.attachPromise) await s.attachPromise;
     return;
   }
-  wc.debugger.attach('1.3');
+  if (!wc.debugger.isAttached()) {
+    wc.debugger.attach('1.3');
+  }
   s.count = 1;
   if (!s.wired) {
     s.wired = true;
@@ -102,19 +106,22 @@ export async function attachSession(wc: WebContents): Promise<void> {
       const cur = states.get(wc);
       if (!cur) return;
       cur.count = 0;
+      cur.attachPromise = undefined;
       cur.children.clear();
       cur.dialog = undefined;
       cur.dialogQueued = false;
     });
     // 每个 webContents 只接一次 message（controller 换代不重复接）
     wc.debugger.on('message', (_event, method, params, sessionId) => {
-      // 子会话的 attach / detach：跨源 iframe 进来和走了
+      // 子会话的 attach / detach：仅收纳跨源 iframe，过滤 worker / service_worker
       if (method === 'Target.attachedToTarget') {
         const p = (params ?? {}) as {
           sessionId?: string;
           targetInfo?: { targetId?: string; type?: string; url?: string };
         };
         if (!p.sessionId || !p.targetInfo?.targetId) return;
+        const targetType = p.targetInfo.type ?? 'iframe';
+        if (targetType !== 'iframe' && targetType !== 'page') return;
         s.children.set(p.sessionId, {
           sessionId: p.sessionId,
           targetId: p.targetInfo.targetId,
@@ -174,21 +181,24 @@ export async function attachSession(wc: WebContents): Promise<void> {
       }
     });
   }
-  try {
-    await wc.debugger.sendCommand('Page.enable');
-  } catch {
-    // 页面正在销毁：attach 留着，调用方会收到目标错误
-  }
-  try {
-    // 跨源 iframe 一 attach 上来就上报（flatten:true → 用 sessionId 定向，不再套一层会话）
-    await wc.debugger.sendCommand('Target.setAutoAttach', {
-      autoAttach: true,
-      waitForDebuggerOnStart: false,
-      flatten: true,
-    });
-  } catch {
-    // 老版本 / 已销毁：没有 OOPIF 支持也不该影响主会话
-  }
+  s.attachPromise = (async () => {
+    try {
+      await wc.debugger.sendCommand('Page.enable');
+    } catch {
+      // 页面正在销毁：attach 留着，调用方会收到目标错误
+    }
+    try {
+      // 跨源 iframe 一 attach 上来就上报（flatten:true → 用 sessionId 定向，不再套一层会话）
+      await wc.debugger.sendCommand('Target.setAutoAttach', {
+        autoAttach: true,
+        waitForDebuggerOnStart: false,
+        flatten: true,
+      });
+    } catch {
+      // 老版本 / 已销毁：没有 OOPIF 支持也不该影响主会话
+    }
+  })();
+  await s.attachPromise;
 }
 
 /** 子会话 attach 之后问出它自己的根 frame id（attach 事件里没有这个信息）。 */
@@ -220,6 +230,27 @@ export function clearChildSessions(wc: WebContents): void {
   states.get(wc)?.children.clear();
 }
 
+const DEFAULT_CDP_SEND_TIMEOUT_MS = 45_000;
+
+function withCdpTimeout<T>(promise: Promise<T>, method: string, timeoutMs = DEFAULT_CDP_SEND_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(Object.assign(new Error(`CDP 命令 ${method} 超时（>${timeoutMs}ms）`), { code: 'TIMEOUT' }));
+    }, timeoutMs);
+    timer.unref?.();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** 在指定会话里发命令；`sessionId` 为空就是主会话。 */
 export function sendOn<T = unknown>(
   wc: WebContents,
@@ -228,7 +259,7 @@ export function sendOn<T = unknown>(
   params: Record<string, unknown> = {},
 ): Promise<T> {
   // 空串会被 Electron 直接拒（Empty session id is not allowed），当主会话处理
-  return wc.debugger.sendCommand(method, params, sessionId || undefined) as Promise<T>;
+  return withCdpTimeout(wc.debugger.sendCommand(method, params, sessionId || undefined) as Promise<T>, method);
 }
 
 /** controller 销毁时放。 */
@@ -290,5 +321,5 @@ export function markDialogHandled(wc: WebContents): void {
 
 /** 发 CDP 命令。调用方须已 attachSession（controller 构造时拿）。 */
 export function send<T = unknown>(wc: WebContents, method: string, params: Record<string, unknown> = {}): Promise<T> {
-  return wc.debugger.sendCommand(method, params) as Promise<T>;
+  return withCdpTimeout(wc.debugger.sendCommand(method, params) as Promise<T>, method);
 }
