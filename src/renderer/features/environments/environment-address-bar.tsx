@@ -461,7 +461,7 @@ export function EnvironmentAddressBar({
   return (
     <div
       data-slot="address-bar"
-      className="flex h-[var(--shell-address-row-height)] min-w-0 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-canvas px-2"
+      className="flex h-[var(--shell-address-row-height)] min-w-0 shrink-0 items-center gap-1 overflow-hidden bg-canvas px-2"
     >
       <ActionTooltip label={title('后退')} shortcut="⌘[" side="top">
         <IconButton

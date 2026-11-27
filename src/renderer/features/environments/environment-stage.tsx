@@ -786,7 +786,12 @@ export function EnvironmentStage({
       )}
 
       <div ref={stageContainerRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-canvas">
-        <div className={cn('h-full min-h-0 min-w-0 flex-1 p-1.5', inspectorOpen && inspectorMaximized && 'hidden')}>
+        <div
+          className={cn(
+            'h-full min-h-0 min-w-0 flex-1 px-1.5 pt-0 pb-1.5',
+            inspectorOpen && inspectorMaximized && 'hidden',
+          )}
+        >
           <div
             ref={stageRef}
             data-slot="stage-placeholder"

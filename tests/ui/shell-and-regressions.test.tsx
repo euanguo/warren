@@ -250,7 +250,7 @@ describe('图三：壳层扁平层次（bg-canvas / bg-sidebar / bg-control）�
 
     const addressBar = document.querySelector<HTMLElement>('[data-slot="address-bar"]');
     expect(addressBar?.className).toContain('bg-canvas');
-    expect(addressBar?.className).toContain('border-b');
+    expect(addressBar?.className).not.toContain('border-b');
 
     const sidebarHeader = document.querySelector<HTMLElement>('[data-slot="sidebar-header"]');
     expect(sidebarHeader?.className).toContain('h-[var(--shell-address-row-height)]');
