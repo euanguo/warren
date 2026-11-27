@@ -54,13 +54,17 @@ Most browser-automation setups split into two extremes: headless scripts you can
 
 When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield`) highlights active operations around the viewport perimeter and guides an interpolated virtual cursor onto target elements—keeping the center 100% transparent until you click **Take Over**.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
-  <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI Input Shield Active State" width="100%" />
-</picture>
-
-<br />
+<table>
+  <tr>
+    <td width="100%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
+        <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI Input Shield Active State" width="100%" />
+      </picture>
+    </td>
+  </tr>
+</table>
 
 <table>
   <tr>
@@ -216,7 +220,7 @@ flowchart TB
   end
 
   CLI -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
-  UI <-->|"Typed contextBridge IPC<br/>src/preload/preload.ts"| Core
+  UI <-->|"contextBridge IPC<br/>src/preload/preload.ts"| Core
   RPC --> Core
 
   subgraph Core["Electron Main Process (Core)"]
@@ -227,7 +231,7 @@ flowchart TB
     Plugins["PluginHost (v4)<br/>sandbox (node:vm) · host (ESM)"]
   end
 
-  Core --> Layers["WindowLayerManager · 5-Layer Z-Order Stack<br/>below → page → devtools → shield → overlay"]
+  Core --> Layers["WindowLayerManager<br/>5-Layer Z-Order Stack<br/>below → page → devtools → shield → overlay"]
 ```
 
 ### Core Architectural Decisions

@@ -54,13 +54,17 @@
 
 当 Agent 持有 lease 操作 `Agent Space` 时，原生 `shield` 视窗层（`InputShield`）在四周呈现高对比光学边框与顶部扫光，并通过阻尼虚拟光标与外扩目标锚框直观标示当前动作，同时确保网页内容 100% 无遮挡可见。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
-  <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI 输入护盾激活态" width="100%" />
-</picture>
-
-<br />
+<table>
+  <tr>
+    <td width="100%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
+        <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI 输入护盾激活态" width="100%" />
+      </picture>
+    </td>
+  </tr>
+</table>
 
 <table>
   <tr>
@@ -216,7 +220,7 @@ flowchart TB
   end
 
   CLI -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
-  UI <-->|"类型安全 contextBridge<br/>src/preload/preload.ts"| Core
+  UI <-->|"contextBridge IPC<br/>src/preload/preload.ts"| Core
   RPC --> Core
 
   subgraph Core["Electron 主进程（Core）"]
@@ -227,7 +231,7 @@ flowchart TB
     Plugins["PluginHost (v4)<br/>sandbox (node:vm) · host (ESM)"]
   end
 
-  Core --> Layers["WindowLayerManager · 5 层固定 Z-Order 栈<br/>below → page → devtools → shield → overlay"]
+  Core --> Layers["WindowLayerManager<br/>5 层固定 Z-Order 视图栈<br/>below → page → devtools → shield → overlay"]
 ```
 
 ### 关键架构设计
