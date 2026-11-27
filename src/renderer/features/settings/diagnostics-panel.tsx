@@ -9,24 +9,12 @@ import type { SystemDiagnosticCheck, SystemDiagnosticsReport } from '@shared/typ
 
 function checkBadge(status: SystemDiagnosticCheck['status']) {
   if (status === 'ok') {
-    return (
-      <Badge variant="outline" className="border-[var(--success)]/50 text-[var(--success)]">
-        正常
-      </Badge>
-    );
+    return <Badge variant="success">正常</Badge>;
   }
   if (status === 'warn') {
-    return (
-      <Badge variant="outline" className="border-[var(--warning)]/50 text-[var(--warning)]">
-        提示
-      </Badge>
-    );
+    return <Badge variant="warning">提示</Badge>;
   }
-  return (
-    <Badge variant="outline" className="border-destructive/50 text-destructive">
-      异常
-    </Badge>
-  );
+  return <Badge variant="destructive">异常</Badge>;
 }
 
 /** 设置里的「诊断与关于」页：全局自检、导出脱敏报告与运行时版本信息。 */

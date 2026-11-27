@@ -122,7 +122,7 @@ function SettingField({
       )}
 
       {!setting.options && (
-        <Button size="sm" variant="ghost" disabled={busy || (!draft && isSecret)} onClick={() => void save()}>
+        <Button variant="ghost" disabled={busy || (!draft && isSecret)} onClick={() => void save()}>
           保存
         </Button>
       )}

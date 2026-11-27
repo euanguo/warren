@@ -103,7 +103,7 @@ function DialogFooter({
       data-slot="dialog-footer"
       className={cn(
         "mt-4 flex flex-col-reverse gap-2 border-t border-border pt-3.5 sm:flex-row sm:justify-end",
-        "[&_[data-slot=button]]:h-[var(--control-height)] [&_[data-slot=button]]:min-h-[var(--control-height)] [&_[data-slot=button]]:rounded-[var(--control-radius)] [&_[data-slot=button]]:px-[var(--control-pad-x)]",
+        "[&_[data-slot=button]]:h-[var(--control-height)] [&_[data-slot=button]]:rounded-[var(--control-radius)] [&_[data-slot=button]]:px-[var(--control-pad-x)]",
         className,
       )}
       {...props}

@@ -92,14 +92,13 @@ export function PluginsPanel({
           }}
         />
         <Button
-          size="sm"
           variant="outline"
           disabled={!source.trim()}
           onClick={() => void act(() => window.envApi.pluginInstall(source.trim()), '安装插件失败')}
         >
           <Icon name="Package" /> 从源安装
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => void act(() => window.envApi.pluginInstall(), '安装插件失败')}>
+        <Button variant="ghost" onClick={() => void act(() => window.envApi.pluginInstall(), '安装插件失败')}>
           选目录…
         </Button>
       </div>
@@ -118,6 +117,7 @@ export function PluginsPanel({
           ))}
         </div>
         <Input
+          size="sm"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="筛选已装插件…"

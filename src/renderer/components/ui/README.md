@@ -33,9 +33,11 @@
 
 | 原语 | 文件 | 职责 |
 | ---- | ---- | ---- |
-| `Button` / `IconButton` | `button.tsx` | 7 变体（含 `destructive-ghost`）、`0ms` 悬停、`scale(0.97)` 按压 |
-| `Switch` | `switch.tsx` | 阻尼弹簧（`k=520, d=32`）+ 速度形变 + 指针拖拽 |
-| `Tabs` | `tabs.tsx` | 水平默认态带 `250ms` 滑动胶囊指示条，垂直态自动平铺高亮 |
+| `Button` / `IconButton` | `button.tsx` | 7 变体全状态对齐 OpenBot（含 `destructive-ghost` 默认克制悬停显红、`icon-md: 32px` 与表单同高） |
+| `Switch` / `Checkbox` | `switch.tsx` / `checkbox.tsx` | 阻尼弹簧 Switch（`36×20` / `24×14`）与 `16px / 4px` 圆角 Checkbox |
+| `Tabs` | `tabs.tsx` | 3 变体严格隔离：`default`（`250ms` 滑动胶囊）、`pill`（独立 `8px` 圆角胶囊，用于检视器与设置侧栏）、`line`（纯下划线无盒底） |
+| `ListRow` | `list-row.tsx` | 左右对称 `8px` 留白、`24×24`（`icon-sm`）克制透明行内动作键、暗色无框 / 浅色纯白零阴影选中态 |
+| `SettingsSection` / `ItemGroup` | `item-group.tsx` | `12px` 圆角 `bg-surface` 分组卡 + `16px` 缩进发丝分隔线，内部承载 OpenBot `SettingsPictureChoice` 图文单选 |
 | `TabShape` | `tab-shape.tsx` | 顶栏凹角无界标签滑块（前进边 0ms、尾随边 70ms 延迟） |
 | `PanelResizer` | `panel-resizer.tsx` | 16px 隐形热区 + 1px 渐隐发丝线 + 双击复位 + 迟滞吸附紧凑态 |
 | `SettingsSection` / `ItemGroup` / `Item` | `item-group.tsx` | `14px` 圆角分组列表与 `1px` 发丝分隔线 |

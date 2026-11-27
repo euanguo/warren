@@ -41,7 +41,7 @@ function DropdownMenuContent({
           data-slot="dropdown-menu-content"
           className={cn(
             elevatedMenuSurfaceClass,
-            "z-50 flex max-h-(--available-height) w-(--anchor-width) min-w-44 origin-(--transform-origin) flex-col gap-0.5 overflow-x-hidden overflow-y-auto rounded-[var(--radius-menu)] p-1 text-menu-foreground outline-none",
+            "z-50 flex max-h-(--available-height) w-(--anchor-width) min-w-48 origin-(--transform-origin) flex-col overflow-x-hidden overflow-y-auto rounded-[var(--radius-menu)] p-1.5 text-menu-foreground outline-none",
             "warren-menu-enter data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}
@@ -90,10 +90,10 @@ function DropdownMenuItem({
       data-variant={variant}
       className={cn(
         menuItemInteractiveClass,
-        "relative flex min-h-[30px] cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[13px] leading-[18px] select-none data-inset:pl-7",
+        "relative flex min-h-8 cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[13px] leading-[18px] select-none data-inset:pl-7",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         variant === "destructive" &&
-          "text-danger-text hover:bg-danger-soft hover:text-danger-text focus:bg-danger-soft focus:text-danger-text focus-visible:bg-danger-soft focus-visible:text-danger-text data-highlighted:bg-danger-soft data-highlighted:text-danger-text data-[highlighted]:bg-danger-soft data-[highlighted]:text-danger-text",
+          "text-danger-text [&_svg]:text-danger-text hover:bg-danger-soft hover:text-danger-text hover:[&_svg]:text-danger-text focus:bg-danger-soft focus:text-danger-text focus-visible:bg-danger-soft focus-visible:text-danger-text data-highlighted:bg-danger-soft data-highlighted:text-danger-text data-highlighted:[&_svg]:text-danger-text data-[highlighted]:bg-danger-soft data-[highlighted]:text-danger-text",
         className,
       )}
       {...props}
@@ -219,7 +219,7 @@ function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.
   return (
     <MenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("mx-1 my-1 h-px bg-[var(--menu-border,var(--border))]", className)}
+      className={cn("-mx-1.5 my-1.5 h-px bg-border", className)}
       {...props}
     />
   );

@@ -16,11 +16,11 @@ function Checkbox({ className, ...props }: CheckboxProps) {
       data-slot="checkbox"
       className={cn(
         controlFocusClass,
-        "peer relative flex size-3.5 shrink-0 items-center justify-center rounded-[var(--control-radius-icon)] border border-input bg-transparent shadow-none transition-colors outline-none",
-        "focus-visible:border-focus focus-visible:ring-0 focus-visible:ring-transparent",
-        "data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground",
-        "aria-invalid:border-destructive aria-invalid:ring-0",
-        "disabled:cursor-not-allowed disabled:opacity-40",
+        "peer relative flex size-4 shrink-0 items-center justify-center rounded-[var(--radius-xs)] border border-border-strong bg-control shadow-none transition-none outline-none",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
+        "data-checked:border-accent-seed data-checked:bg-accent-seed data-checked:text-on-accent",
+        "aria-invalid:border-danger aria-invalid:ring-0",
+        "disabled:cursor-not-allowed disabled:opacity-[0.42]",
         "after:absolute after:-inset-x-3 after:-inset-y-2",
         className,
       )}
@@ -28,7 +28,7 @@ function Checkbox({ className, ...props }: CheckboxProps) {
     >
       <CheckboxPrimitive.Indicator
         data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none [&>svg]:size-3"
+        className="grid place-content-center text-current transition-none [&>svg]:size-3 [&>svg]:stroke-[2.5]"
       >
         <Icon name="Check" />
       </CheckboxPrimitive.Indicator>

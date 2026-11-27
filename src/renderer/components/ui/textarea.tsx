@@ -11,10 +11,9 @@ function Textarea({ className, ...props }: TextareaProps) {
       className={cn(
         controlFieldClass,
         controlFocusClass,
-        // field height is min only for multi-line
-        "flex min-h-16 h-auto w-full field-sizing-content transition-colors",
+        "flex min-h-[76px] h-auto w-full field-sizing-content px-3 py-2 transition-none",
         "focus-visible:bg-input-fill",
-        "disabled:bg-input-fill/50",
+        "disabled:opacity-[0.42]",
         className,
       )}
       {...props}

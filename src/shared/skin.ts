@@ -363,15 +363,23 @@ export function deriveSkinCssVars(palette: SkinColorPalette, scheme: SkinScheme)
   const textSecondary = mix(palette.text, palette.textMuted, isLight ? 30 : 25);
   const textDim = mix(palette.textMuted, palette.canvas, isLight ? 24 : 32);
 
-  const borderSubtle = clear(palette.border, isLight ? 42 : 36);
-  const borderStrong = clear(palette.border, isLight ? 64 : 56);
-  const borderHeavy = clear(palette.border, isLight ? 85 : 80);
-  const dialogRing = clear(palette.border, isLight ? 76 : 75);
+  const borderSubtle = clear(palette.border, isLight ? 42 : 24);
+  const borderStrong = clear(palette.border, isLight ? 60 : 38);
+  const borderHeavy = clear(palette.border, isLight ? 80 : 62);
+  const dialogRing = clear(palette.border, isLight ? 70 : 65);
+  const menuEdge = clear(palette.text, 11);
+  const menuHighlight = clear(palette.text, 5);
 
   const hoverWash = clear(palette.text, isLight ? 5 : 6);
-  const selectedWash = clear(palette.text, isLight ? 8.5 : 10);
-  const activeWash = clear(palette.text, isLight ? 12 : 14);
-  const fogWash = clear(palette.text, isLight ? 4 : 4.5);
+  // OpenBot 光学对齐：暗色选中行直接复用 surface（无多余外框）；浅色在浅灰画布上抬升为纯白 + 极轻发丝边（零阴影）
+  const selectedBg = surface;
+  const selectedBorder = isLight ? borderSubtle : 'transparent';
+  // 检视器 / 面板胶囊标签选中态：暗色对齐 OpenBot side-panel-tab（controlActive），浅色保持纯白不发灰
+  const tabSelectedBg = isLight ? surface : controlActive;
+  // 菜单 / Popover 内部悬停高亮（OpenBot --ui-menu-item-hover: text 6%），浅色纯白底上不会撞色
+  const highlightBg = clear(palette.text, 6);
+  const activeWash = clear(palette.text, isLight ? 8.5 : 12);
+  const fogWash = clear(palette.text, isLight ? 3.5 : 4.5);
 
   const accentHover = isLight ? mix(palette.accent, '#000000', 14) : mix(palette.accent, '#ffffff', 14);
   const accentText = isLight ? mix(palette.accent, '#000000', 16) : mix(palette.accent, '#ffffff', 24);
@@ -380,8 +388,9 @@ export function deriveSkinCssVars(palette: SkinColorPalette, scheme: SkinScheme)
   const successText = isLight ? mix(palette.success, '#000000', 22) : palette.success;
   const warningText = isLight ? mix(palette.warning, '#000000', 30) : palette.warning;
 
-  const tooltipBg = isLight ? mix(palette.text, '#000000', 4) : mix(surface, palette.text, 6);
-  const tooltipFg = isLight ? '#ffffff' : palette.text;
+  // OpenBot Tooltip 与 ActionMenu 共享实色 bg-sheet 表面与正文对比色
+  const tooltipBg = sheetBg;
+  const tooltipFg = palette.text;
 
   return {
     // ── 核心皮肤种子 ──
@@ -417,7 +426,9 @@ export function deriveSkinCssVars(palette: SkinColorPalette, scheme: SkinScheme)
     '--border-heavy': borderHeavy,
     '--border-grouped': palette.border,
     '--border-focus': palette.textMuted,
-    '--menu-border': borderStrong,
+    '--menu-border': menuEdge,
+    '--menu-edge': menuEdge,
+    '--menu-highlight': menuHighlight,
     '--divider': borderSubtle,
     '--focus': palette.textMuted,
     '--ring': palette.textMuted,
@@ -457,6 +468,7 @@ export function deriveSkinCssVars(palette: SkinColorPalette, scheme: SkinScheme)
     '--danger-text': dangerText,
     '--danger-soft': clear(palette.danger, isLight ? 12 : 16),
     '--danger-soft-hover': clear(palette.danger, isLight ? 20 : 26),
+    '--danger-focus': clear(palette.danger, isLight ? 36 : 40),
     '--danger-border': clear(palette.danger, 45),
     '--destructive': dangerText,
     '--info': accentText,
@@ -472,9 +484,9 @@ export function deriveSkinCssVars(palette: SkinColorPalette, scheme: SkinScheme)
     '--surface-recessed': isLight ? mix(palette.canvas, palette.frame, 50) : palette.frame,
     '--card': surface,
     '--card-foreground': palette.text,
-    '--popover': surface,
+    '--popover': sheetBg,
     '--popover-foreground': palette.text,
-    '--menu': surface,
+    '--menu': sheetBg,
     '--menu-foreground': palette.text,
     '--tooltip': tooltipBg,
     '--tooltip-foreground': tooltipFg,
@@ -483,10 +495,13 @@ export function deriveSkinCssVars(palette: SkinColorPalette, scheme: SkinScheme)
     '--chrome-field-fill': surface,
     '--surface-hover': hoverWash,
     '--surface-active': activeWash,
-    '--surface-selected': selectedWash,
-    '--surface-selected-solid': controlActive,
+    '--surface-selected': selectedBg,
+    '--surface-selected-border': selectedBorder,
+    '--surface-selected-solid': selectedBg,
+    '--surface-tab-selected': tabSelectedBg,
+    '--surface-highlight': highlightBg,
     '--surface-fog': fogWash,
-    '--overlay': isLight ? 'rgba(20, 20, 20, 0.16)' : 'rgba(0, 0, 0, 0.44)',
+    '--overlay': isLight ? 'rgba(20, 20, 20, 0.14)' : 'rgba(0, 0, 0, 0.36)',
 
     // ── Sidebar 兼容映射 ──
     '--sidebar': palette.sidebar,

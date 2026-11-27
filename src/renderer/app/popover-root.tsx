@@ -78,11 +78,11 @@ export function AddressSuggestView({ props }: { props: PopoverPropsMap['address-
       onMouseLeave={() => setHoverOverride(null)}
       className={cn(
         elevatedMenuSurfaceClass,
-        'flex h-full w-full flex-col overflow-y-auto rounded-[var(--radius-menu)] p-1 select-none',
+        'flex h-full w-full flex-col overflow-y-auto rounded-[var(--radius-menu)] p-1.5 select-none',
       )}
     >
-      <div ref={contentRef} data-slot="address-suggest-content" className="flex flex-col gap-0.5">
-        <MenuLabel className="py-1 text-xs">{query ? '历史联想' : '最近访问（所有环境）'}</MenuLabel>
+      <div ref={contentRef} data-slot="address-suggest-content" className="flex flex-col">
+        <MenuLabel className="px-2.5 py-1.5 text-xs">{query ? '历史联想' : '最近访问（所有环境）'}</MenuLabel>
         {entries.map((entry, index) => {
           const isActive = index === activeIndex;
           return (
@@ -106,8 +106,8 @@ export function AddressSuggestView({ props }: { props: PopoverPropsMap['address-
               }}
               className={cn(
                 menuItemInteractiveClass,
-                'flex w-full cursor-pointer items-center gap-2 px-[var(--control-pad-x-compact)] py-[var(--control-pad-y-compact)] text-left',
-                isActive && 'bg-surface-selected text-foreground opacity-100',
+                'flex min-h-8 w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left',
+                isActive && 'bg-surface-highlight text-foreground opacity-100',
               )}
             >
               <Icon name="Globe" className="shrink-0 text-muted-foreground" />

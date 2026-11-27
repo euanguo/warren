@@ -18,7 +18,8 @@ import type { Environment, InstalledPlugin } from '@shared/types';
 
 export type { SettingsSection };
 
-const SECTION_TRIGGER_CLASS = 'h-auto! flex-none justify-start gap-2 px-2.5 py-1.5 text-left';
+const SECTION_TRIGGER_CLASS =
+  'min-h-8 h-auto! flex-none justify-start gap-2 px-3 py-1.5 text-left text-[13px] data-active:bg-surface-selected! data-active:hover:bg-surface-selected! dark:data-active:bg-control-hover! dark:data-active:hover:bg-control-hover! [&>svg]:text-muted-foreground hover:[&>svg]:text-foreground data-active:[&>svg]:text-foreground';
 
 interface SectionRenderContext {
   onChanged: () => void;
@@ -201,32 +202,34 @@ export function SettingsPage({
         onValueChange={(value) => onSectionChange(value as SettingsSection)}
         className="min-h-0 flex-1 gap-0"
       >
-        <div className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar">
-          <div className="p-2.5 pb-1.5">
+        <div className="flex w-[220px] shrink-0 flex-col border-r border-border bg-sidebar">
+          <div className="px-3 pt-3 pb-2">
             <div className="relative">
               <Icon
                 name="Search"
-                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground"
               />
               <Input
                 ref={searchRef}
+                size="md"
                 value={settingsQuery}
                 onChange={(event) => setSettingsQuery(event.target.value)}
                 placeholder="搜索设置…"
                 aria-label="搜索设置"
-                className="pr-7 pl-8 text-xs"
+                className="rounded-full border-0 bg-control pr-7 pl-8 text-xs hover:bg-control-active focus-visible:bg-control-active focus-visible:[box-shadow:inset_0_0_0_1px_var(--border-grouped)]"
               />
               {settingsQuery && (
                 <IconButton
                   variant="ghost"
+                  size="icon-xs"
                   aria-label="清空搜索"
                   onClick={() => {
                     setSettingsQuery('');
                     searchRef.current?.focus();
                   }}
-                  className="absolute top-1/2 right-1 -translate-y-1/2"
+                  className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full"
                 >
-                  <Icon name="X" className="size-3.5" />
+                  <Icon name="X" className="size-3" />
                 </IconButton>
               )}
             </div>
@@ -234,13 +237,16 @@ export function SettingsPage({
               <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">匹配 {filteredSections.length} 项</p>
             )}
           </div>
-          <TabsList className="h-auto! w-full flex-1 flex-col items-stretch justify-start gap-3 overflow-y-auto rounded-none border-0 bg-transparent p-3">
+          <TabsList
+            variant="pill"
+            className="h-auto! w-full flex-1 flex-col items-stretch justify-start gap-4 overflow-y-auto bg-transparent px-3 pt-1 pb-3"
+          >
             {GROUP_ORDER.map((groupName) => {
               const items = filteredSections.filter((item) => item.group === groupName);
               if (items.length === 0) return null;
               return (
-                <div key={groupName} className="flex flex-col gap-0.5">
-                  <span className="px-2.5 pb-1 text-[length:var(--font-size-micro)] font-medium tracking-wider text-muted-foreground">
+                <div key={groupName} className="flex flex-col gap-1">
+                  <span className="px-3 pb-0.5 text-[length:var(--font-size-micro)] font-medium tracking-wider text-muted-foreground">
                     {groupName}
                   </span>
                   {items.map((item) => (
@@ -262,7 +268,7 @@ export function SettingsPage({
               );
             })}
             {filteredSections.length === 0 && (
-              <p className="px-2.5 py-4 text-xs text-muted-foreground">没有匹配的设置分区</p>
+              <p className="px-3 py-4 text-xs text-muted-foreground">没有匹配的设置分区</p>
             )}
           </TabsList>
         </div>

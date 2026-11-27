@@ -58,6 +58,10 @@ describe('OpenBot 设计体系迁移与可配置配色皮肤回归测试', () =>
       expect(document.querySelector(`[data-slot="skin-option-${skin.id}"]`)).not.toBeNull();
     }
 
+    const neutralBtn = document.querySelector<HTMLButtonElement>('[data-slot="skin-option-neutral"]')!;
+    expect(neutralBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(neutralBtn.querySelector('[data-slot="choice-radio"][data-checked="true"]')).not.toBeNull();
+
     const paperBtn = document.querySelector<HTMLButtonElement>('[data-slot="skin-option-paper"]')!;
     fireEvent.click(paperBtn);
 
@@ -196,6 +200,8 @@ describe('OpenBot 设计体系迁移与可配置配色皮肤回归测试', () =>
 
     const tabsList = document.querySelector<HTMLElement>('[data-slot="tabs-list"]');
     expect(tabsList?.className).toContain('warren-fade-x');
+    expect(tabsList?.dataset.variant).toBe('pill');
+    expect(tabsList?.className).not.toContain('data-[variant=pill]:p-0');
 
     fireEvent.click(document.querySelector('[data-slot="inspector-maximize-toggle"]')!);
     expect(onToggleMaximize).toHaveBeenCalledTimes(1);

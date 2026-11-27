@@ -157,51 +157,55 @@ export function EventsInspectorPanel({
 }) {
   return (
     <>
-      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2.5 py-1.5">
-        {(
-          [
-            ['all', '全部'],
-            ['agent', 'Agent'],
-            ['human', '人工'],
-            ['system', '系统'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => onActorFilterChange(value)}
-            className={cn(
-              'rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[length:var(--font-size-micro)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-focus',
-              actorFilter === value
-                ? 'bg-surface-selected font-medium text-foreground'
-                : 'text-subtle-foreground hover:bg-surface-hover hover:text-foreground',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-        {onToggleOnlyCurrentEnv && (
-          <button
-            type="button"
-            aria-pressed={onlyCurrentEnv}
-            onClick={onToggleOnlyCurrentEnv}
-            className={cn(
-              'rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[length:var(--font-size-micro)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-focus',
-              onlyCurrentEnv
-                ? 'border-[var(--theme-accent)]/60 bg-surface-selected font-medium text-foreground'
-                : 'border-border/70 text-subtle-foreground hover:bg-surface-hover hover:text-foreground',
-            )}
-          >
-            仅当前环境
-          </button>
-        )}
+      <div className="flex shrink-0 flex-col gap-1.5 border-b border-border/60 px-2.5 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <div className="flex flex-wrap items-center gap-1">
+            {(
+              [
+                ['all', '全部'],
+                ['agent', 'Agent'],
+                ['human', '人工'],
+                ['system', '系统'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onActorFilterChange(value)}
+                className={cn(
+                  'rounded-[var(--radius-sm)] border px-2 py-0.5 text-[length:var(--font-size-micro)] transition-none outline-none focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
+                  actorFilter === value
+                    ? 'border-surface-selected-border bg-surface-tab-selected font-medium text-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-control-hover hover:text-foreground',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {onToggleOnlyCurrentEnv && (
+            <button
+              type="button"
+              aria-pressed={onlyCurrentEnv}
+              onClick={onToggleOnlyCurrentEnv}
+              className={cn(
+                'rounded-[var(--radius-sm)] border px-2 py-0.5 text-[length:var(--font-size-micro)] transition-none outline-none focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
+                onlyCurrentEnv
+                  ? 'border-surface-selected-border bg-surface-tab-selected font-medium text-foreground'
+                  : 'border-border text-muted-foreground hover:bg-control-hover hover:text-foreground',
+              )}
+            >
+              仅当前环境
+            </button>
+          )}
+        </div>
         <input
           type="text"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="筛选…"
+          placeholder="筛选事件…"
           aria-label="筛选事件"
-          className="ml-auto h-6 w-24 min-w-0 rounded-[var(--radius-sm)] border border-border bg-[var(--input-fill)] px-2 text-[length:var(--font-size-micro)] text-foreground outline-none placeholder:text-subtle-foreground focus:border-focus"
+          className="h-6 w-full rounded-[var(--radius-sm)] border border-border-strong bg-control px-2 text-[length:var(--font-size-micro)] text-foreground outline-none placeholder:text-subtle-foreground focus:border-focus"
         />
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -220,8 +224,8 @@ export function EventsInspectorPanel({
                 onClick={() => onToggleExpand(event.id)}
                 title={expanded ? '点击收起' : `${event.message}（点击展开全文）`}
                 className={cn(
-                  'flex w-full items-start gap-2 rounded-[var(--radius-sm)] px-1.5 py-0.5 text-left transition-colors outline-none hover:bg-surface-hover focus-visible:ring-1 focus-visible:ring-focus',
-                  expanded && 'bg-surface-selected/70',
+                  'flex w-full items-start gap-2 rounded-[var(--radius-sm)] border border-transparent px-1.5 py-0.5 text-left transition-none outline-none hover:bg-surface-hover focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
+                  expanded && 'border-surface-selected-border bg-surface-selected hover:bg-surface-selected',
                 )}
               >
                 <span className="shrink-0 font-mono text-[length:var(--font-size-micro)] text-muted-foreground tabular-nums">

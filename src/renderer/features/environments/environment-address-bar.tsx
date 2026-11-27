@@ -502,8 +502,8 @@ export function EnvironmentAddressBar({
         <div ref={boxRef} className="group/omnibox relative w-full max-w-[820px] min-w-0">
           <div
             className={cn(
-              'flex h-[var(--control-height-icon)] min-w-0 items-center gap-2 rounded-[var(--control-radius)] border border-border-strong bg-control px-2.5 transition-none',
-              'focus-within:border-focus focus-within:[box-shadow:0_0_0_1px_var(--border-focus)]',
+              'flex h-[var(--control-size-md)] min-w-0 items-center gap-2 rounded-[var(--radius-lg)] border-0 bg-control px-2.5 transition-none',
+              'focus-within:bg-control-active focus-within:[box-shadow:inset_0_0_0_1px_var(--border-grouped)]',
               !inputEditable && 'opacity-70',
             )}
           >

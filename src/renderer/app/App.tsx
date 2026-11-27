@@ -303,7 +303,7 @@ export function App() {
     ...(settings.compactTopbar
       ? {
           '--shell-top-row-height': '34px',
-          '--shell-address-row-height': '34px',
+          '--shell-address-row-height': '38px',
         }
       : {}),
   } as CSSProperties;

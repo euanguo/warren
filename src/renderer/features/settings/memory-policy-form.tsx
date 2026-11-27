@@ -104,25 +104,40 @@ export function MemoryPolicyForm({ settings, onSave }: Props) {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div role="radiogroup" aria-label="自动内存治理策略" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {POLICY_PRESETS.map((preset) => {
           const active = matchesPreset(settings, preset);
           return (
             <button
               key={preset.id}
               type="button"
+              aria-pressed={active}
               data-slot="memory-preset"
               data-preset={preset.id}
               data-active={active ? 'true' : 'false'}
               onClick={() => void onSave(preset.patch, `已切换到「${preset.label}」策略`)}
               className={cn(
-                'flex flex-col gap-1 rounded-[var(--radius-md)] border px-3 py-2.5 text-left transition-colors',
-                active
-                  ? 'border-[var(--theme-accent)] bg-surface-selected'
-                  : 'border-border bg-canvas hover:bg-surface-hover',
+                'group/choice flex cursor-pointer flex-col gap-1.5 rounded-[var(--radius-md)] border border-transparent bg-canvas px-3 py-2.5 text-left transition-none outline-none active:scale-[0.99]',
+                'hover:bg-surface-hover focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
+                active && '[box-shadow:inset_0_0_0_1px_var(--border-focus)]',
               )}
             >
-              <span className="text-xs font-medium">{preset.label}</span>
+              <div className="flex w-full items-center justify-between gap-2">
+                <span className="text-xs font-medium text-foreground">{preset.label}</span>
+                {active ? (
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-accent-seed text-on-accent"
+                  >
+                    <Icon name="Check" className="size-2.5 stroke-[2.75]" />
+                  </span>
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex size-4 shrink-0 rounded-full border-[1.5px] border-muted-foreground/45 transition-colors group-hover/choice:border-foreground/55"
+                  />
+                )}
+              </div>
               <span className="text-[11px] leading-snug text-muted-foreground">{preset.description}</span>
             </button>
           );

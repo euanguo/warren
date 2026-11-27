@@ -193,7 +193,7 @@ export function EnvironmentSidebar({
     >
       <SidebarHeader
         className={cn(
-          'flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center border-b border-border py-0',
+          'flex h-[var(--shell-address-row-height)] shrink-0 flex-row items-center py-0',
           compact ? 'justify-center px-2' : 'px-2',
         )}
       >
@@ -202,8 +202,10 @@ export function EnvironmentSidebar({
             <ActionTooltip label="展开并搜索环境" side="right">
               <IconButton
                 variant="ghost"
+                size="icon-md"
                 data-slot="sidebar-compact-search"
                 aria-label="展开并搜索环境"
+                className="rounded-full bg-control text-muted-foreground hover:bg-control-active hover:text-foreground"
                 onClick={onExpandFromCompact ?? onToggleCompact}
               >
                 <Icon name="Search" />
@@ -215,22 +217,23 @@ export function EnvironmentSidebar({
             <div className="relative min-w-0 flex-1">
               <Icon
                 name="Search"
-                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground"
               />
               <SidebarInput
                 ref={searchInputRef}
+                size="md"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索环境…"
                 aria-label="搜索环境"
-                className="h-[var(--control-height-icon)] rounded-[var(--control-radius)] border-border-strong bg-control pr-6 pl-7 text-xs shadow-none focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]"
+                className="h-[var(--control-size-md)] rounded-full border-0 bg-control pr-7 pl-8 text-[13px] shadow-none hover:bg-control-active focus-visible:bg-control-active focus-visible:[box-shadow:inset_0_0_0_1px_var(--border-grouped)]"
               />
               {query && (
                 <button
                   type="button"
                   aria-label="清空环境搜索"
                   onClick={() => setQuery('')}
-                  className="absolute top-1/2 right-1.5 flex size-4 -translate-y-1/2 items-center justify-center rounded-[var(--radius-xs)] text-muted-foreground transition-none hover:bg-surface-hover hover:text-foreground"
+                  className="absolute top-1/2 right-2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-none hover:bg-surface-hover hover:text-foreground"
                 >
                   <Icon name="X" className="size-3" />
                 </button>
@@ -238,12 +241,14 @@ export function EnvironmentSidebar({
             </div>
             <ActionTooltip label="新建环境" side="bottom">
               <IconButton
-                variant="outline"
+                variant="default"
+                size="icon-md"
                 data-slot="sidebar-create-env"
                 aria-label="新建环境"
+                className="rounded-full"
                 onClick={() => void window.envApi.openOverlay({ kind: 'create-env' })}
               >
-                <Icon name="Plus" />
+                <Icon name="Plus" className="size-4" />
               </IconButton>
             </ActionTooltip>
           </div>
@@ -342,9 +347,9 @@ export function EnvironmentSidebar({
         })}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-border">
+      <SidebarFooter className={cn('border-t border-border', compact ? 'px-2 py-1.5' : 'px-2 py-1.5')}>
         {compact ? (
-          <div className="flex flex-col items-center gap-1 py-1.5">
+          <div className="flex flex-col items-center gap-1">
             <ActionTooltip label="新建环境" side="right">
               <IconButton
                 variant="ghost"
@@ -383,13 +388,13 @@ export function EnvironmentSidebar({
             ) : null}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5 pl-1 text-xs text-muted-foreground">
             <span className="min-w-0 truncate tabular-nums">
               {!ready && environments.length === 0
                 ? '正在加载环境…'
                 : `${runningCount} 运行 / ${environments.length} 环境`}
             </span>
-            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            <div className="ml-auto flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 data-slot="sidebar-memory-capsule"
@@ -398,7 +403,7 @@ export function EnvironmentSidebar({
                 onClick={openMemoryQuickPopover}
                 className={cn(
                   listItemInteractiveClass,
-                  'inline-flex h-6 items-center gap-1.5 border border-border-strong bg-control px-2 font-mono text-[11px] tabular-nums text-muted-foreground hover:text-foreground',
+                  'inline-flex h-[var(--control-height-icon)] items-center gap-1.5 border border-border bg-control px-2 font-mono text-[11px] tabular-nums text-muted-foreground hover:bg-control-hover hover:text-foreground',
                 )}
               >
                 <StatusDot tone={memoryTone} />

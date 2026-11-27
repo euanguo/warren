@@ -109,9 +109,9 @@ describe('图一：Tooltip 浅色/深色对比度与 reduced-transparency 契约
 
   it('theme-tokens.css 在浅色、深色与 reduced-transparency 下保持 tooltip 前景/背景成对定义', () => {
     const css = readFileSync(path.join(ROOT, 'src/renderer/theme/theme-tokens.css'), 'utf8');
-    expect(css).toMatch(/--tooltip:\s*#1c1c1e;/);
-    expect(css).toMatch(/--tooltip-foreground:\s*#ffffff;/);
-    expect(css).toMatch(/--tooltip:\s*#2c2c2e;/);
+    expect(css).toMatch(/--tooltip:\s*var\(--bg-sheet\);/);
+    expect(css).toMatch(/--tooltip-foreground:\s*var\(--foreground\);/);
+    expect(css).toMatch(/--menu-edge:/);
     expect(css).toMatch(/prefers-reduced-transparency:\s*reduce[\s\S]*--blur-tooltip:\s*0px;/);
   });
 });
@@ -253,10 +253,17 @@ describe('图三：壳层扁平层次（bg-canvas / bg-sidebar / bg-control）�
     expect(addressBar?.className).toContain('border-b');
 
     const sidebarHeader = document.querySelector<HTMLElement>('[data-slot="sidebar-header"]');
-    expect(sidebarHeader?.className).toContain('border-b');
+    expect(sidebarHeader?.className).toContain('h-[var(--shell-address-row-height)]');
+    expect(sidebarHeader?.className).not.toContain('border-b');
 
     const sidebarInput = document.querySelector<HTMLElement>('[data-slot="sidebar-input"]');
     expect(sidebarInput?.className).toContain('bg-control');
+    expect(sidebarInput?.className).toContain('h-[var(--control-size-md)]');
+    expect(sidebarInput?.className).toContain('rounded-full');
+
+    const createBtn = document.querySelector<HTMLElement>('[data-slot="sidebar-create-env"]');
+    expect(createBtn?.className).toContain('size-[var(--control-size-md)]');
+    expect(createBtn?.className).toContain('rounded-full');
 
     const handle = document.querySelector<HTMLElement>('[data-slot="resizable-handle"]');
     expect(handle?.className).toContain('after:bg-transparent');
@@ -349,7 +356,7 @@ describe('图四：地址栏联想浮层动态高度与鼠标悬停选中', () =
     fireEvent.mouseMove(options[2]);
     expect(options[2].getAttribute('aria-selected')).toBe('true');
     expect(options[2].hasAttribute('data-highlighted')).toBe(true);
-    expect(options[2].className).toContain('bg-surface-selected');
+    expect(options[2].className).toContain('bg-surface-highlight');
     expect(mocks.dispatchPopoverAction).toHaveBeenCalledWith({
       id: 'address-suggest',
       action: 'hover',

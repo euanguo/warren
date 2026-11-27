@@ -3,8 +3,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * OpenBot 分组设置块与列表项原语（SettingsSection / ItemGroup / Item）。
- * 14px 标准圆角分组容器 + 1px 发丝行分隔线 + 零阴影。
+ * OpenBot 分组设置块与列表项原语（对齐 `settings-modal.css` `.settings-modal-card`）。
+ * 12px 圆角分组容器 + 左右缩进 16px 发丝行分隔线 + 零阴影（暗色无外硬框，浅色极淡 1px 边）。
  */
 function SettingsSection({
   title,
@@ -20,7 +20,7 @@ function SettingsSection({
   className?: string;
 }) {
   return (
-    <section data-slot="settings-section" className={cn("flex flex-col gap-2.5", className)}>
+    <section data-slot="settings-section" className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-end justify-between gap-3 px-0.5">
         <div className="min-w-0 flex-1">
           <h3 className="text-[13px] font-medium leading-[18px] text-foreground">{title}</h3>
@@ -38,7 +38,8 @@ function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="item-group"
       className={cn(
-        "flex flex-col divide-y divide-border overflow-hidden rounded-[var(--radius-card)] border border-border bg-grouped shadow-none",
+        "flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-border bg-grouped shadow-none dark:border-transparent",
+        "[&>*:not(:first-child)]:relative [&>*:not(:first-child)]:before:pointer-events-none [&>*:not(:first-child)]:before:absolute [&>*:not(:first-child)]:before:inset-x-4 [&>*:not(:first-child)]:before:top-0 [&>*:not(:first-child)]:before:h-px [&>*:not(:first-child)]:before:bg-border",
         className,
       )}
       {...props}
@@ -51,9 +52,9 @@ const itemVariants = cva(
   {
     variants: {
       size: {
-        compact: "px-3 py-2",
-        default: "px-3.5 py-3",
-        spacious: "px-4 py-3.5",
+        compact: "min-h-[52px] px-4 py-2.5",
+        default: "min-h-[60px] px-4 py-3",
+        spacious: "min-h-[68px] px-4 py-3.5",
       },
       interactive: {
         false: "",

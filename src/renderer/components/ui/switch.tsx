@@ -43,7 +43,7 @@ function Switch({
   const draggingRef = useRef<boolean>(false);
   const suppressClickRef = useRef<boolean>(false);
 
-  const travelPx = size === "sm" ? 12 : 16;
+  const travelPx = size === "sm" ? 10 : 16;
 
   const paintThumb = (pos: number, velocity: number) => {
     const thumb = thumbRef.current;
@@ -211,13 +211,15 @@ function Switch({
       onClick={handleClick}
       className={cn(
         controlFocusClass,
-        "peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent p-[2px] shadow-none transition-colors duration-150 outline-none select-none",
+        "peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 shadow-none transition-none outline-none select-none",
         "after:absolute after:-inset-x-3 after:-inset-y-2",
-        "data-[size=default]:h-[var(--switch-height)] data-[size=default]:w-[var(--switch-width)]",
-        "data-[size=sm]:h-[var(--switch-sm-height)] data-[size=sm]:w-[var(--switch-sm-width)]",
-        "data-checked:bg-accent-seed data-unchecked:bg-control-active",
-        "aria-invalid:border-danger-border",
-        "data-disabled:cursor-not-allowed data-disabled:opacity-40",
+        "data-[size=default]:h-[var(--switch-height)] data-[size=default]:w-[var(--switch-width)] data-[size=default]:p-[2px]",
+        "data-[size=sm]:h-[var(--switch-sm-height)] data-[size=sm]:w-[var(--switch-sm-width)] data-[size=sm]:p-px",
+        "data-unchecked:bg-control-active dark:data-unchecked:bg-control data-unchecked:[box-shadow:inset_0_0_0_1px_var(--border-strong)]",
+        "data-checked:bg-accent-seed",
+        "focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]",
+        "aria-invalid:[box-shadow:0_0_0_3px_var(--danger-focus)]",
+        "data-disabled:cursor-not-allowed data-disabled:opacity-50",
         className,
       )}
       {...props}

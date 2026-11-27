@@ -45,11 +45,21 @@ Warren 将视觉系统严格拆分为「**基础结构层（Foundation）**」�
 
 ### 视觉与交互不变量
 
-- **零伪立体噪音**：卡片零阴影，浅色菜单/弹窗零重阴影；输入框与切换轨道零内凹阴影；按钮与标签芯片零微凸投影。
-- **0ms 悬停响应**：列表项、菜单项、按钮、标签悬停瞬时切换，不产生粘滞拖尾；按压反馈使用 `active:scale-[0.97]`。
-- **1px 中性焦点环**：`focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]`，绝不使用粗蓝光晕。
-- **破坏性操作恒定红字**：`variant="destructive"` / `"destructive-ghost"` 无论默认或悬停始终保持 `text-danger-text` + `bg-danger-soft`。
-- **实色浮层分型**：Tooltip（高对比实色 + `1px` 边）、Menu / Popover（`14px` 实色卡片 + 零玻璃模糊）、Dialog / AlertDialog（`20px` 实色 `--bg-sheet` + `1px --dialog-ring` + 轻微 `4px` 背景遮罩模糊）。
+- **严格零伪立体噪音**：卡片零阴影，浅色菜单/弹窗/选中项严格零阴影（对齐 OpenBot `tokens-light.css`），纯靠 `1px` 发丝边界定型；暗色菜单与弹窗保持克制阴影与 `1px --menu-highlight` 顶边微光。
+- **0ms 悬停响应**：列表项、菜单项、按钮、标签悬停瞬时切换，不产生粘滞拖尾；按钮按压 `active:scale-[0.97]`，列表行按压 `active:scale-[0.99]`。
+- **单 1px 中性焦点**：输入框/选择框 `focus-visible:border-focus`（单层不叠加），无框按钮/列表/标签用 `focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]`。
+- **破坏性操作克制显色**：`variant="destructive"` 恒定柔红底红字；`variant="destructive-ghost"` 与行内次级启停按钮默认静息低噪、悬停才亮语义柔底（对齐 OpenBot `primitives.css`）。
+- **实色浮层同源**：Tooltip 与 DropdownMenu / ContextMenu 共享 `--bg-sheet`（暗 `#141414` / 浅 `#ffffff`）+ `1px --menu-edge`，菜单内边距 `6px` + 同心 `10px` 菜单项 + `32px` 行高 + 图标默认 muted 悬停提亮。
+
+### 交互态、等高标尺与 OpenBot 规范对照
+
+| 场景 | Dark（暗色） | Light（浅色） | 统一契约 |
+| ---- | ------------ | ------------- | -------- |
+| **副顶栏等高标尺** | `44px` 副顶栏，内含 `32px` 药丸无框搜索框 + `32px` 圆形主动作 `+` 按钮 + `32px` 无框地址胶囊 | 同左 | 侧栏头部无多余横切线，左右搜索与地址栏同轴对齐 |
+| **侧栏列表行选中** (`--surface-selected`) | OpenBot 原版 `bg-surface` (`#212121`)，**零边框零阴影** | **纯白抬升** `bg-surface` (`#ffffff`) + `1px` 极淡发丝边（**零阴影**） | 选中态悬停锁色不发脏，按压 `scale(0.99)` |
+| **检视器 Pill 标签选中** (`--surface-tab-selected`) | OpenBot `.side-panel-tab` 原版 `bg-control-active` (`#2a2a2a`)，无框 | 纯白 `#ffffff` + `1px` 极淡发丝边，零阴影 | `TabsList` 严格隔离 `default` / `pill` / `line` 三变体 |
+| **白底菜单 / Popover 悬停高亮** (`--surface-highlight`) | `text 6%` | `text 6%` | 对齐 OpenBot `--ui-menu-item-hover`，浅色菜单绝不白撞白 |
+| **设置分组卡与主题单选** (`ItemGroup` + `SettingsPictureChoice`) | `12px` 圆角 `bg-surface` 无外硬框 + `16px` 缩进发丝分隔线 | `12px` 圆角纯白 + `1px` 极淡边 + `16px` 缩进发丝分隔线 | 外观模式与配色皮肤内置于分组卡，采用「圆角缩略图 + 居中标题 + `20px` 强调色圆形 Radio 勾 / 空心未选圆环」 |
 
 ---
 

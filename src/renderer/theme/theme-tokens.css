@@ -52,7 +52,10 @@
   --color-danger-text: var(--danger-text);
   --color-danger-soft: var(--danger-soft);
   --color-danger-soft-hover: var(--danger-soft-hover);
+  --color-danger-focus: var(--danger-focus);
   --color-danger-border: var(--danger-border);
+  --color-menu-edge: var(--menu-edge);
+  --color-menu-highlight: var(--menu-highlight);
 
   /* ── Warren 既有与插件兼容语义色映射 ── */
   --color-sidebar-ring: var(--sidebar-ring);
@@ -98,7 +101,10 @@
   --color-surface-hover: var(--surface-hover);
   --color-surface-active: var(--surface-active);
   --color-surface-selected: var(--surface-selected);
+  --color-surface-selected-border: var(--surface-selected-border);
   --color-surface-selected-solid: var(--surface-selected-solid);
+  --color-surface-tab-selected: var(--surface-tab-selected);
+  --color-surface-highlight: var(--surface-highlight);
   --color-surface-fog: var(--surface-fog);
   --color-divider: var(--divider);
   --color-surface-recessed: var(--surface-recessed);
@@ -121,17 +127,17 @@
   --radius-4xl: 30px;
   --radius-pill: 999px;
 
-  /* ── 锁定基础间距阶梯 ── */
+  /* ── 锁定基础间距阶梯（严格对齐 OpenBot tokens.css 4px 网格） ── */
   --space-0-5: 2px;
   --space-1: 4px;
   --space-1-5: 6px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 12px;
-  --space-6: 16px;
-  --space-7: 20px;
-  --space-8: 24px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
 
   /* ── 锁定图标尺寸阶梯 ── */
   --size-icon-xs: 12px;
@@ -168,15 +174,15 @@
   --control-radius-icon: var(--radius-md);
   --control-radius-field: var(--radius-md);
 
-  /* Switch 几何（锁定） */
+  /* Switch 几何（严格对齐 OpenBot tokens.css） */
   --switch-width: 36px;
   --switch-height: 20px;
   --switch-thumb: 16px;
   --switch-inset: 2px;
-  --switch-sm-width: 28px;
-  --switch-sm-height: 16px;
+  --switch-sm-width: 24px;
+  --switch-sm-height: 14px;
   --switch-sm-thumb: 12px;
-  --switch-sm-inset: 2px;
+  --switch-sm-inset: 1px;
 
   /* 兼容既有大小别名 */
   --size-control-xs: var(--control-size-2xs);
@@ -256,13 +262,13 @@
   --radius-scale: 1;
   --radius: var(--radius-md);
   --radius-menu: var(--radius-card);
-  --radius-menu-item: var(--radius-md);
+  --radius-menu-item: 10px;
   --radius-dialog: var(--radius-xl);
   --radius-control: var(--radius-md);
   --radius-composer: var(--radius-xl);
   --shell-title-bar-height: 38px;
   --shell-top-row-height: 38px;
-  --shell-address-row-height: 38px;
+  --shell-address-row-height: 44px;
   --shell-frame-lip: 4px;
   --shell-card-radius: var(--radius-card);
   --shell-stage-radius: 8px;
@@ -271,18 +277,18 @@
   --padding-row-x: var(--control-pad-x-compact);
   --padding-row-y: var(--control-pad-y-compact);
 
-  /* ── 锁定阴影策略（浅色克制透明阴影，卡片永远无阴影） ── */
+  /* ── 锁定阴影策略（严格对齐 OpenBot tokens-light.css：浅色全透明零阴影，纯靠 1px 发丝边界定型） ── */
   --highlight-top: 0 0 0 transparent;
   --shadow-recessed: 0 0 0 transparent;
   --shadow-chip: 0 0 0 transparent;
   --shadow-raised: 0 0 0 transparent;
   --shadow-card: 0 0 0 transparent;
-  --shadow-menu: 0 4px 16px rgba(20, 20, 20, 0.06);
-  --shadow-dialog: 0 12px 32px rgba(20, 20, 20, 0.08);
+  --shadow-menu: 0 0 0 transparent;
+  --shadow-dialog: 0 0 0 transparent;
   --elevation-stroke: 0 0 0 1px var(--border-strong);
   --elevation-stage: 0 0 0 1px var(--border);
-  --elevation-popover: 0 0 0 1px var(--border-strong), var(--shadow-menu);
-  --elevation-dialog: 0 0 0 1px var(--dialog-ring), var(--shadow-dialog);
+  --elevation-popover: 0 0 0 1px var(--menu-edge);
+  --elevation-dialog: 0 0 0 1px var(--dialog-ring);
   --elevation-sidebar: 0 0 0 transparent;
   --blur-menu: 0px;
   --blur-dialog: 4px;
@@ -317,9 +323,11 @@
   --border-light: rgba(20, 20, 20, 0.045);
   --border-strong: rgba(20, 20, 20, 0.11);
   --border-heavy: rgba(20, 20, 20, 0.15);
-  --border-grouped: #d4d4d8;
+  --border-grouped: #e3e3e6;
   --border-focus: #6b6b70;
   --menu-border: rgba(20, 20, 20, 0.11);
+  --menu-edge: rgba(20, 20, 20, 0.11);
+  --menu-highlight: rgba(20, 20, 20, 0.05);
   --divider: rgba(20, 20, 20, 0.07);
   --focus: var(--border-focus);
   --ring: var(--border-focus);
@@ -356,6 +364,7 @@
   --danger-text: #c0141d;
   --danger-soft: rgba(232, 34, 45, 0.12);
   --danger-soft-hover: rgba(232, 34, 45, 0.2);
+  --danger-focus: rgba(232, 34, 45, 0.36);
   --danger-border: rgba(232, 34, 45, 0.45);
   --destructive: #c0141d;
   --info: #0064c8;
@@ -370,21 +379,24 @@
   --surface-recessed: var(--bg-sheet-inset);
   --card: var(--bg-surface);
   --card-foreground: var(--foreground);
-  --popover: var(--bg-surface);
+  --popover: var(--bg-sheet);
   --popover-foreground: var(--foreground);
-  --menu: var(--bg-surface);
+  --menu: var(--bg-sheet);
   --menu-foreground: var(--foreground);
-  --tooltip: #1c1c1e;
-  --tooltip-foreground: #ffffff;
+  --tooltip: var(--bg-sheet);
+  --tooltip-foreground: var(--foreground);
   --input: var(--border-strong);
   --input-fill: var(--bg-control);
   --chrome-field-fill: var(--bg-control);
   --surface-hover: rgba(20, 20, 20, 0.05);
-  --surface-active: rgba(20, 20, 20, 0.12);
-  --surface-selected: rgba(20, 20, 20, 0.085);
-  --surface-selected-solid: #e8e8eb;
-  --surface-fog: rgba(20, 20, 20, 0.04);
-  --overlay: rgba(20, 20, 20, 0.16);
+  --surface-active: rgba(20, 20, 20, 0.085);
+  --surface-selected: #ffffff;
+  --surface-selected-border: rgba(20, 20, 20, 0.07);
+  --surface-selected-solid: #ffffff;
+  --surface-tab-selected: #ffffff;
+  --surface-highlight: rgba(20, 20, 20, 0.06);
+  --surface-fog: rgba(20, 20, 20, 0.035);
+  --overlay: rgba(20, 20, 20, 0.14);
 
   --sidebar: var(--bg-sidebar);
   --sidebar-foreground: var(--foreground);
@@ -409,9 +421,9 @@
  * ============================================================================ */
 :root.dark,
 :root[data-theme='dark'] {
-  --shadow-menu: 0 10px 28px rgba(0, 0, 0, 0.45);
-  --shadow-dialog: 0 16px 40px rgba(0, 0, 0, 0.48);
-  --elevation-popover: 0 0 0 1px var(--border-strong), inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-menu);
+  --shadow-menu: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -2px rgba(0, 0, 0, 0.45);
+  --shadow-dialog: 0 12px 32px rgba(0, 0, 0, 0.48);
+  --elevation-popover: inset 0 1px 0 var(--menu-highlight), 0 0 0 1px var(--menu-edge), var(--shadow-menu);
   --elevation-dialog: 0 0 0 1px var(--dialog-ring), var(--shadow-dialog);
 
   --theme-surface: #1a1a1a;
@@ -438,14 +450,16 @@
   --dialog-ring: rgba(255, 255, 255, 0.1);
   --hover: rgba(255, 255, 255, 0.06);
 
-  --border: rgba(255, 255, 255, 0.055);
-  --border-light: rgba(255, 255, 255, 0.035);
-  --border-strong: rgba(255, 255, 255, 0.085);
-  --border-heavy: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.04);
+  --border-light: rgba(255, 255, 255, 0.025);
+  --border-strong: rgba(255, 255, 255, 0.065);
+  --border-heavy: rgba(255, 255, 255, 0.11);
   --border-grouped: #333335;
   --border-focus: #979797;
-  --menu-border: rgba(255, 255, 255, 0.09);
-  --divider: rgba(255, 255, 255, 0.055);
+  --menu-border: rgba(255, 255, 255, 0.11);
+  --menu-edge: rgba(255, 255, 255, 0.11);
+  --menu-highlight: rgba(255, 255, 255, 0.05);
+  --divider: rgba(255, 255, 255, 0.04);
   --focus: var(--border-focus);
   --ring: var(--border-focus);
 
@@ -480,7 +494,8 @@
   --danger-hover: #fd5d67;
   --danger-text: #ff6069;
   --danger-soft: rgba(253, 47, 59, 0.16);
-  --danger-soft-hover: rgba(253, 47, 59, 0.26);
+  --danger-soft-hover: rgba(253, 47, 59, 0.28);
+  --danger-focus: rgba(253, 47, 59, 0.4);
   --danger-border: rgba(253, 47, 59, 0.5);
   --destructive: #ff6069;
   --info: #42a0ff;
@@ -495,21 +510,24 @@
   --surface-recessed: var(--bg-frame);
   --card: var(--bg-surface);
   --card-foreground: var(--foreground);
-  --popover: var(--bg-surface);
+  --popover: var(--bg-sheet);
   --popover-foreground: var(--foreground);
-  --menu: var(--bg-surface);
+  --menu: var(--bg-sheet);
   --menu-foreground: var(--foreground);
-  --tooltip: #2c2c2e;
-  --tooltip-foreground: #ffffff;
+  --tooltip: var(--bg-sheet);
+  --tooltip-foreground: var(--foreground);
   --input: var(--border-strong);
   --input-fill: var(--bg-control);
   --chrome-field-fill: var(--bg-control);
   --surface-hover: rgba(255, 255, 255, 0.06);
-  --surface-active: rgba(255, 255, 255, 0.14);
-  --surface-selected: rgba(255, 255, 255, 0.1);
-  --surface-selected-solid: #2a2a2a;
+  --surface-active: rgba(255, 255, 255, 0.12);
+  --surface-selected: #212121;
+  --surface-selected-border: transparent;
+  --surface-selected-solid: #212121;
+  --surface-tab-selected: #2a2a2a;
+  --surface-highlight: rgba(255, 255, 255, 0.06);
   --surface-fog: rgba(255, 255, 255, 0.045);
-  --overlay: rgba(0, 0, 0, 0.44);
+  --overlay: rgba(0, 0, 0, 0.36);
 
   --sidebar: var(--bg-sidebar);
   --sidebar-foreground: var(--foreground);

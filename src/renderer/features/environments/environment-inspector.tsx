@@ -190,9 +190,9 @@ export function EnvironmentInspector({
         <div className="relative min-w-0 flex-1 overflow-hidden">
           <TabsList
             ref={tabsListRef}
-            variant="line"
+            variant="pill"
             onScroll={syncTabFade}
-            className="warren-fade-x scroll-fade-x h-[var(--control-height-icon)] w-full min-w-0 justify-start gap-0 overflow-x-auto border-b-0 px-0.5"
+            className="warren-fade-x scroll-fade-x h-[var(--control-height-icon)] w-full min-w-0 justify-start gap-1 overflow-x-auto px-0.5"
           >
             {builtinTabItems.map((item, idx) => {
               const isSelected = activeTab === item.id;
@@ -203,14 +203,11 @@ export function EnvironmentInspector({
                   value={item.id}
                   disabled={item.disabled}
                   className={cn(
-                    'relative h-[26px] shrink-0 flex-none rounded-[var(--radius-sm)] border-b-0 px-2 text-[12px] font-medium',
-                    isSelected
-                      ? 'bg-control-active text-foreground'
-                      : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+                    'relative h-[var(--control-height-icon)] shrink-0 flex-none px-2 text-[12px] font-medium',
                     !isSelected &&
                       !nextIsSelected &&
                       idx < allTabIds.length - 1 &&
-                      'after:pointer-events-none after:absolute after:top-1/2 after:right-0 after:h-3 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
+                      'after:pointer-events-none after:absolute after:top-1/2 after:-right-[3px] after:h-4 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
                   )}
                 >
                   {item.label}
@@ -229,14 +226,11 @@ export function EnvironmentInspector({
                   value={value}
                   disabled={!running}
                   className={cn(
-                    'relative h-[26px] shrink-0 flex-none gap-1 rounded-[var(--radius-sm)] border-b-0 px-2 text-[12px] font-medium',
-                    isSelected
-                      ? 'bg-control-active text-foreground'
-                      : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+                    'relative h-[var(--control-height-icon)] shrink-0 flex-none gap-1 px-2 text-[12px] font-medium',
                     !isSelected &&
                       !nextIsSelected &&
                       globalIdx < allTabIds.length - 1 &&
-                      'after:pointer-events-none after:absolute after:top-1/2 after:right-0 after:h-3 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
+                      'after:pointer-events-none after:absolute after:top-1/2 after:-right-[3px] after:h-4 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
                   )}
                 >
                   <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} className="size-3" />

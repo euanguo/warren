@@ -216,7 +216,7 @@ export function AppTitlebar({
           aria-label="全局视图"
           data-slot="global-nav"
           className={cn(
-            'absolute left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-tabs-bar p-0.5',
+            'absolute left-1/2 flex -translate-x-1/2 items-center gap-[3px] rounded-[var(--control-radius)] border border-border bg-tabs-bar p-[3px]',
             NO_DRAG_CLASS,
           )}
         >

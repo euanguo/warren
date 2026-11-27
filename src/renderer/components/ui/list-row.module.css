@@ -11,7 +11,7 @@
   align-items: center;
   gap: var(--space-1);
   min-height: var(--size-row);
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--control-radius);
   background: transparent;
   overflow: hidden;
@@ -23,16 +23,19 @@
 .row:focus-within,
 .row:has([data-popup-open]),
 .row[data-active] {
-  --avatar-outline: color-mix(in srgb, var(--bg-sidebar), var(--foreground) 6%);
+  --avatar-outline: color-mix(in srgb, var(--bg-sidebar), var(--foreground) 5%);
   background: var(--surface-hover);
 }
 
 .row:active {
-  background: var(--surface-active);
+  transform: scale(0.99);
 }
 
-.row[data-selected] {
-  --avatar-outline: color-mix(in srgb, var(--bg-sidebar), var(--foreground) 10%);
+.row[data-selected],
+.row[data-selected]:hover,
+.row[data-selected]:focus-within {
+  --avatar-outline: var(--surface-selected);
+  border-color: var(--surface-selected-border);
   background: var(--surface-selected);
 }
 
@@ -47,7 +50,7 @@
   background: transparent;
   color: inherit;
   text-align: left;
-  padding: 0 var(--control-pad-x-compact);
+  padding: 0 var(--space-1) 0 var(--control-pad-x-compact);
   font-size: var(--font-size-caption);
   cursor: pointer;
 }
@@ -117,7 +120,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: var(--space-1);
-  padding-right: var(--space-1);
+  padding-right: var(--control-pad-x-compact);
 }
 
 .actions {
@@ -125,7 +128,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: var(--space-1);
-  padding-right: var(--space-1);
+  padding-right: var(--control-pad-x-compact);
   opacity: 0;
   pointer-events: none;
   transition: opacity 100ms ease;
@@ -169,20 +172,23 @@
 }
 
 .actionButton[data-tone="success"] {
+  color: var(--muted-foreground);
+}
+
+.actionButton[data-tone="success"]:hover,
+.actionButton[data-tone="success"]:focus-visible {
   color: var(--success-text);
+  background: var(--success-soft) !important;
 }
 
 .actionButton[data-tone="destructive"] {
+  color: var(--muted-foreground);
+}
+
+.actionButton[data-tone="destructive"]:hover,
+.actionButton[data-tone="destructive"]:focus-visible {
   color: var(--danger-text);
-}
-
-.actionButton[data-tone] {
-  background: color-mix(in srgb, currentColor 12%, transparent) !important;
-}
-
-.actionButton[data-tone]:hover,
-.actionButton[data-tone]:focus-visible {
-  background: color-mix(in srgb, currentColor 22%, transparent) !important;
+  background: var(--danger-soft) !important;
 }
 
 .nested {

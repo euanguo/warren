@@ -112,19 +112,13 @@ export function SidebarEnvRow({
             }}
             onContextMenu={(event) => onContextMenu(event, env)}
             className={cn(
-              'relative flex size-10 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] transition-transform duration-100 outline-none active:scale-[0.96]',
+              'relative flex size-10 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] border border-transparent transition-transform duration-100 outline-none active:scale-[0.96]',
               'focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
               selected
-                ? '[--avatar-outline:color-mix(in_srgb,var(--bg-sidebar),var(--foreground)_10%)] bg-surface-selected'
-                : '[--avatar-outline:var(--bg-sidebar)] hover:[--avatar-outline:color-mix(in_srgb,var(--bg-sidebar),var(--foreground)_6%)] hover:bg-surface-hover',
+                ? '[--avatar-outline:var(--surface-selected)] border-surface-selected-border bg-surface-selected'
+                : '[--avatar-outline:var(--bg-sidebar)] hover:[--avatar-outline:color-mix(in_srgb,var(--bg-sidebar),var(--foreground)_5%)] hover:bg-surface-hover',
             )}
           >
-            {selected && (
-              <span
-                aria-hidden="true"
-                className="absolute top-2.5 bottom-2.5 left-0 w-[2.5px] rounded-r-full bg-accent-seed"
-              />
-            )}
             <EnvIdentityAvatar
               envId={env.id}
               name={env.name}
@@ -140,7 +134,7 @@ export function SidebarEnvRow({
   }
 
   return (
-    <li className="relative" data-env-id={env.id}>
+    <li className="group/env-row relative" data-env-id={env.id}>
       <ListRow
         selected={selected}
         className="py-1.5"
@@ -221,28 +215,32 @@ export function SidebarEnvRow({
         </ListRowMain>
         <ListRowActions alwaysVisible>
           {env.status === 'starting' ? (
-            <ListRowActionButton disabled title="启动中…" aria-label="启动中">
-              <Spinner className="size-3" />
+            <ListRowActionButton size="icon-sm" disabled title="启动中…" aria-label="启动中">
+              <Spinner className="size-3.5" />
             </ListRowActionButton>
           ) : env.status === 'running' ? (
             <ListRowActionButton
+              size="icon-sm"
               tone="destructive"
               title="停止环境"
               aria-label="停止"
-              className="opacity-75 hover:opacity-100"
+              className="opacity-75 group-hover/env-row:opacity-100"
               onClick={() => onStop(env.id)}
             >
-              <Icon name="Stop" />
+              <Icon name="Stop" className="size-3.5" />
             </ListRowActionButton>
           ) : (
             <ListRowActionButton
+              size="icon-sm"
               tone="success"
               title={env.status === 'dormant' ? '唤醒环境（保留登录态）' : '启动环境'}
               aria-label={env.status === 'dormant' ? '唤醒' : '启动'}
-              className="opacity-75 hover:opacity-100"
+              className={cn(
+                selected ? 'opacity-75 group-hover/env-row:opacity-100' : 'opacity-45 group-hover/env-row:opacity-100',
+              )}
               onClick={() => onStart(env.id)}
             >
-              <Icon name="Play" />
+              <Icon name="Play" className="size-3.5" />
             </ListRowActionButton>
           )}
         </ListRowActions>

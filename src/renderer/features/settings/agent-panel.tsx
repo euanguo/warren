@@ -113,14 +113,7 @@ export function AgentPanel() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium">{skill.label}</span>
                   {skill.installed && (
-                    <Badge
-                      variant="outline"
-                      className={
-                        skill.upToDate === false
-                          ? 'border-[var(--warning)]/50 text-[var(--warning)]'
-                          : 'border-[var(--success)]/50 text-[var(--success)]'
-                      }
-                    >
+                    <Badge variant={skill.upToDate === false ? 'warning' : 'success'}>
                       {skill.upToDate === false ? '待同步' : '已同步'}
                     </Badge>
                   )}

@@ -503,7 +503,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
                     menuItemInteractiveClass,
                     'flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-left',
                     idx === clampedIndex
-                      ? 'bg-surface-selected opacity-100 hover:bg-surface-selected'
+                      ? 'bg-surface-highlight opacity-100 hover:bg-surface-highlight'
                       : 'hover:bg-transparent',
                   )}
                 >

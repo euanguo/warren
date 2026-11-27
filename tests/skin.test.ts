@@ -72,12 +72,29 @@ test('deriveSkinCssVars 只输出颜色类 CSS 变量，绝不覆盖圆角/字�
         assert.ok(
           !/^--(radius|font|text-size|leading|space|control-|duration|ease|layer|shell-|sidebar-width|switch-)/i.test(
             name,
-          ),
-          `皮肤不允许覆盖基础结构 Token: ${name}`,
+          ) && !/shadow/i.test(name),
+          `皮肤不允许覆盖基础结构或阴影 Token: ${name}`,
         );
       }
     }
   }
+});
+
+test('浅色/暗色选中态对齐 OpenBot 光学规范，且与菜单高亮解耦', () => {
+  const lightPalette = resolveSkinPalette('neutral', 'light');
+  const lightVars = deriveSkinCssVars(lightPalette, 'light');
+  assert.equal(lightVars['--surface-selected'], lightPalette.surface);
+  assert.equal(lightVars['--surface-tab-selected'], lightPalette.surface);
+  assert.notEqual(lightVars['--surface-highlight'], lightPalette.surface);
+  assert.notEqual(lightVars['--surface-selected-border'], 'transparent');
+  assert.ok(lightVars['--menu-edge']);
+  assert.ok(lightVars['--menu-highlight']);
+
+  const darkPalette = resolveSkinPalette('neutral', 'dark');
+  const darkVars = deriveSkinCssVars(darkPalette, 'dark');
+  assert.equal(darkVars['--surface-selected'], darkPalette.surface);
+  assert.equal(darkVars['--surface-selected-border'], 'transparent');
+  assert.notEqual(darkVars['--surface-tab-selected'], darkPalette.canvas);
 });
 
 test('toAppSettings 规范化 skin 与 skinOverrides，非法值安全退回默认皮肤', () => {

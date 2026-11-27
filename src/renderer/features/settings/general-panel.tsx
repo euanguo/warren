@@ -16,7 +16,6 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useResolvedTheme } from '@/lib/theme';
-import { cn } from '@/lib/utils';
 import { pluginActions, usePluginState } from '@/state/plugin-store';
 import {
   BUILTIN_SKINS,
@@ -80,10 +79,10 @@ function ThemePreviewThumb({
     return (
       <span
         aria-hidden
-        className="mb-2 flex h-14 w-full overflow-hidden rounded-[var(--radius-sm)] border border-border-strong"
+        className="flex aspect-[1.65] w-full overflow-hidden rounded-[var(--radius-lg)] border border-border-grouped bg-sheet transition-transform duration-120 ease-out group-active/choice:scale-[0.97]"
       >
         <MiniSkinCanvas palette={darkPalette} />
-        <span className="w-px shrink-0 bg-border-strong" />
+        <span className="w-px shrink-0 bg-border-grouped" />
         <MiniSkinCanvas palette={lightPalette} />
       </span>
     );
@@ -92,10 +91,30 @@ function ThemePreviewThumb({
   return (
     <span
       aria-hidden
-      className="mb-2 flex h-14 w-full overflow-hidden rounded-[var(--radius-sm)] border border-border-strong"
+      className="flex aspect-[1.65] w-full overflow-hidden rounded-[var(--radius-lg)] border border-border-grouped bg-sheet transition-transform duration-120 ease-out group-active/choice:scale-[0.97]"
     >
       <MiniSkinCanvas palette={palette} />
     </span>
+  );
+}
+
+/** OpenBot 原版 `SettingsPictureChoice` 圆形单选指示器（20px：选中为强调色实心圆勾，未选为空心圆环）。 */
+function ChoiceRadioDot({ checked }: { checked: boolean }) {
+  return checked ? (
+    <span
+      data-slot="choice-radio"
+      data-checked="true"
+      aria-hidden="true"
+      className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-seed text-on-accent"
+    >
+      <Icon name="Check" className="size-3 stroke-[2.75]" />
+    </span>
+  ) : (
+    <span
+      data-slot="choice-radio"
+      aria-hidden="true"
+      className="inline-flex size-5 shrink-0 rounded-full border-[1.5px] border-muted-foreground/45 transition-colors group-hover/choice:border-foreground/55"
+    />
   );
 }
 
@@ -190,32 +209,28 @@ export function GeneralPanel() {
   return (
     <div className="flex flex-col gap-6">
       <SettingsSection title="外观模式" description="深浅模式将在主工作台、浮层对话框与悬浮窗卡片间实时同步。">
-        <div className="grid grid-cols-3 gap-2.5">
-          {THEME_OPTIONS.map((option) => {
-            const active = (settings.theme ?? 'dark') === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                data-slot={`theme-option-${option.value}`}
-                aria-pressed={active}
-                disabled={savingKey === 'theme'}
-                onClick={(event) => void patch('theme', { theme: option.value }, event)}
-                className={cn(
-                  'flex flex-col items-start gap-0.5 rounded-[var(--radius-card)] border px-3 py-2.5 text-left transition-none outline-none active:scale-[0.99]',
-                  'focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
-                  active
-                    ? 'border-accent-seed bg-grouped text-foreground'
-                    : 'border-border bg-grouped/60 text-foreground hover:bg-surface-hover',
-                )}
-              >
-                <ThemePreviewThumb mode={option.value} darkPalette={darkPalette} lightPalette={lightPalette} />
-                <span className="text-[13px] font-medium">{option.label}</span>
-                <span className="text-[11px] text-muted-foreground">{option.hint}</span>
-              </button>
-            );
-          })}
-        </div>
+        <ItemGroup>
+          <div role="radiogroup" aria-label="外观模式" className="grid grid-cols-3 gap-4 px-4 pt-4 pb-3.5">
+            {THEME_OPTIONS.map((option) => {
+              const active = (settings.theme ?? 'dark') === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={active}
+                  data-slot={`theme-option-${option.value}`}
+                  disabled={savingKey === 'theme'}
+                  onClick={(event) => void patch('theme', { theme: option.value }, event)}
+                  className="group/choice flex cursor-pointer flex-col items-center gap-2 rounded-[var(--radius-md)] outline-none focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-[0.42]"
+                >
+                  <ThemePreviewThumb mode={option.value} darkPalette={darkPalette} lightPalette={lightPalette} />
+                  <span className="text-[13px] leading-[18px] font-medium text-foreground">{option.label}</span>
+                  <ChoiceRadioDot checked={active} />
+                </button>
+              );
+            })}
+          </div>
+        </ItemGroup>
       </SettingsSection>
 
       <SettingsSection
@@ -234,49 +249,75 @@ export function GeneralPanel() {
           ) : null
         }
       >
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" data-slot="skin-picker">
-          {BUILTIN_SKINS.map((skin) => {
-            const active = activeSkinId === skin.id;
-            const preview = skin[resolvedScheme];
-            return (
-              <button
-                key={skin.id}
-                type="button"
-                data-slot={`skin-option-${skin.id}`}
-                aria-pressed={active}
-                disabled={savingKey === 'skin'}
-                onClick={(event) => void patch('skin', { skin: skin.id, skinOverrides: {} }, event)}
-                className={cn(
-                  'flex flex-col items-start gap-2 rounded-[var(--radius-card)] border p-3 text-left transition-none outline-none active:scale-[0.98]',
-                  'focus-visible:border-focus focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)]',
-                  active
-                    ? 'border-accent-seed bg-grouped text-foreground'
-                    : 'border-border bg-grouped/60 text-foreground hover:bg-surface-hover',
-                )}
-              >
-                <div className="flex w-full items-center gap-1" aria-hidden>
-                  {[preview.frame, preview.canvas, preview.surface, preview.accent, preview.text].map((hex, i) => (
+        <ItemGroup>
+          <div
+            role="radiogroup"
+            aria-label="配色皮肤"
+            data-slot="skin-picker"
+            className="grid grid-cols-2 gap-3.5 px-4 pt-4 pb-3.5 sm:grid-cols-4"
+          >
+            {BUILTIN_SKINS.map((skin) => {
+              const active = activeSkinId === skin.id;
+              const preview = skin[resolvedScheme];
+              return (
+                <button
+                  key={skin.id}
+                  type="button"
+                  aria-pressed={active}
+                  title={skin.description}
+                  data-slot={`skin-option-${skin.id}`}
+                  disabled={savingKey === 'skin'}
+                  onClick={(event) => void patch('skin', { skin: skin.id, skinOverrides: {} }, event)}
+                  className="group/choice flex cursor-pointer flex-col items-center gap-2 rounded-[var(--radius-md)] outline-none focus-visible:[box-shadow:0_0_0_1px_var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-[0.42]"
+                >
+                  <span
+                    aria-hidden
+                    className="flex aspect-[1.65] w-full flex-col justify-between overflow-hidden rounded-[var(--radius-md)] border border-border-grouped p-1.5 transition-transform duration-120 ease-out group-active/choice:scale-[0.97]"
+                    style={{ backgroundColor: preview.frame }}
+                  >
                     <span
-                      key={i}
-                      className="h-4 flex-1 rounded-[4px] border border-border-strong"
-                      style={{ backgroundColor: hex }}
-                    />
-                  ))}
-                </div>
-                <div className="flex w-full items-center justify-between gap-1">
-                  <span className="text-[13px] font-medium">{skin.name}</span>
-                  {active && <Icon name="Check" className="size-3.5 shrink-0 text-accent-text" />}
-                </div>
-                <span className="line-clamp-2 text-[11px] leading-[15px] text-muted-foreground">
-                  {skin.description}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                      className="flex flex-1 gap-1 overflow-hidden rounded-[4px] border p-1"
+                      style={{ backgroundColor: preview.canvas, borderColor: `${preview.border}66` }}
+                    >
+                      <span
+                        className="flex w-4 flex-col gap-1 rounded-[2px] p-0.5"
+                        style={{ backgroundColor: preview.sidebar }}
+                      >
+                        <span
+                          className="block h-1 w-full rounded-full"
+                          style={{ backgroundColor: preview.textMuted, opacity: 0.65 }}
+                        />
+                        <span
+                          className="block h-1 w-2/3 rounded-full"
+                          style={{ backgroundColor: preview.textMuted, opacity: 0.35 }}
+                        />
+                      </span>
+                      <span className="flex flex-1 flex-col gap-1">
+                        <span className="h-1.5 w-6 rounded-full" style={{ backgroundColor: preview.accent }} />
+                        <span
+                          className="flex-1 rounded-[3px] border"
+                          style={{ backgroundColor: preview.surface, borderColor: `${preview.border}55` }}
+                        />
+                      </span>
+                    </span>
+                    <span className="mt-1 flex w-full items-center gap-1">
+                      {[preview.frame, preview.canvas, preview.surface, preview.accent, preview.text].map((hex, i) => (
+                        <span
+                          key={i}
+                          className="h-2 flex-1 rounded-[2px] border border-border-strong"
+                          style={{ backgroundColor: hex }}
+                        />
+                      ))}
+                    </span>
+                  </span>
+                  <span className="text-[13px] leading-[18px] font-medium text-foreground">{skin.name}</span>
+                  <ChoiceRadioDot checked={active} />
+                </button>
+              );
+            })}
+          </div>
 
-        <Collapsible open={customizerOpen} onOpenChange={setCustomizerOpen}>
-          <ItemGroup>
+          <Collapsible open={customizerOpen} onOpenChange={setCustomizerOpen}>
             <Item size="compact">
               <ItemContent>
                 <ItemTitle>
@@ -344,8 +385,8 @@ export function GeneralPanel() {
                 </div>
               </div>
             </CollapsibleContent>
-          </ItemGroup>
-        </Collapsible>
+          </Collapsible>
+        </ItemGroup>
       </SettingsSection>
 
       <SettingsSection title="工作台密度与视图">

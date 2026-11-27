@@ -55,7 +55,7 @@ export function EnvironmentSpaceSwitcher({ spaces, activeSpaceId, leaseLabel, on
     <div
       ref={containerRef}
       data-slot="space-switcher"
-      className="relative flex shrink-0 items-center gap-0.5 rounded-[var(--control-radius)] border border-border bg-tabs-bar p-0.5"
+      className="relative flex shrink-0 items-center gap-[3px] rounded-[var(--control-radius)] border border-border bg-tabs-bar p-[3px]"
     >
       <span ref={thumbRef} aria-hidden data-slot="space-switcher-thumb" className="warren-sliding-pill opacity-0" />
       {spaces.map((space) => {

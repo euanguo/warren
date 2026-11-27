@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
-import { controlFocusClass } from "@/theme/surface";
+import { controlRingFocusClass } from "@/theme/surface";
 
 function Tabs({ className, orientation = "horizontal", ...props }: TabsPrimitive.Root.Props) {
   return (
@@ -16,12 +16,13 @@ function Tabs({ className, orientation = "horizontal", ...props }: TabsPrimitive
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list relative inline-flex w-fit items-center justify-center rounded-[var(--control-radius)] p-[2px] text-muted-foreground group-data-horizontal/tabs:h-[var(--control-height)] group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none data-[variant=line]:p-0",
+  "group/tabs-list relative inline-flex w-fit items-center justify-center rounded-[var(--control-radius)] text-muted-foreground group-data-horizontal/tabs:h-[var(--control-height)] group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col",
   {
     variants: {
       variant: {
-        default: "bg-tabs-bar border border-border",
-        line: "gap-1 bg-transparent border-b border-border",
+        default: "gap-[3px] p-[3px] bg-tabs-bar [box-shadow:inset_0_0_0_1px_var(--border)]",
+        pill: "gap-1 rounded-none border-0 bg-transparent p-0",
+        line: "gap-1 rounded-none border-b border-border bg-transparent p-0",
       },
     },
     defaultVariants: { variant: "default" },
@@ -124,11 +125,12 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        controlFocusClass,
-        "relative z-[1] inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[calc(var(--control-radius)-2px)] border border-transparent px-2.5 py-0.5 text-[12px] font-medium whitespace-nowrap text-muted-foreground shadow-none transition-none select-none",
+        controlRingFocusClass,
+        "relative z-[1] inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-transparent px-2.5 py-0.5 text-[12px] font-medium whitespace-nowrap text-muted-foreground shadow-none transition-none select-none",
         "hover:text-foreground",
-        "disabled:pointer-events-none disabled:opacity-40",
-        "data-active:text-foreground group-data-vertical/tabs:data-active:bg-surface-selected",
+        "disabled:pointer-events-none disabled:opacity-[0.42]",
+        "data-active:text-foreground",
+        "group-data-[variant=pill]/tabs-list:rounded-[var(--control-radius)] group-data-[variant=pill]/tabs-list:text-text-secondary group-data-[variant=pill]/tabs-list:hover:bg-control-hover group-data-[variant=pill]/tabs-list:hover:text-foreground group-data-[variant=pill]/tabs-list:data-active:border-surface-selected-border group-data-[variant=pill]/tabs-list:data-active:bg-surface-tab-selected group-data-[variant=pill]/tabs-list:data-active:text-foreground group-data-[variant=pill]/tabs-list:data-active:hover:bg-surface-tab-selected",
         "group-data-[variant=line]/tabs-list:rounded-none group-data-[variant=line]/tabs-list:border-b-2 group-data-[variant=line]/tabs-list:border-b-transparent group-data-[variant=line]/tabs-list:data-active:border-b-foreground",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,

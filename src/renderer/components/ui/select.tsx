@@ -48,8 +48,8 @@ function SelectTrigger({
       className={cn(
         controlFocusClass,
         size === "sm" ? controlFieldCompactClass : controlFieldClass,
-        "flex w-full min-w-0 items-center justify-between gap-1.5 py-0 pr-2 whitespace-nowrap transition-colors select-none",
-        "focus-visible:bg-input-fill",
+        "flex w-full min-w-0 items-center justify-between gap-1.5 bg-transparent py-0 pr-2 whitespace-nowrap transition-none select-none",
+        "hover:bg-surface-hover data-popup-open:bg-surface-hover data-popup-open:border-border-strong",
         "data-placeholder:text-subtle-foreground",
         "*:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -131,7 +131,7 @@ function SelectContent({
           data-align-trigger={alignItemWithTrigger || undefined}
           className={cn(
             elevatedMenuSurfaceClass,
-            "relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-[var(--radius-menu)] p-1 text-menu-foreground",
+            "relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-[var(--radius-md)] p-1 text-menu-foreground",
             "warren-menu-enter data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className,
           )}
@@ -167,7 +167,8 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
       data-slot="select-item"
       className={cn(
         menuItemInteractiveClass,
-        "relative flex min-h-[30px] w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[13px] leading-[18px] select-none",
+        "relative flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pr-8 pl-2 text-[13px] leading-[18px] select-none",
+        "data-selected:bg-transparent data-selected:data-highlighted:bg-surface-highlight",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
