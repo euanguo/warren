@@ -20,6 +20,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm ci --omit=dev --ignore-scripts
+        working-directory: plugins/whistle
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
@@ -41,6 +43,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm ci --omit=dev --ignore-scripts
+        working-directory: plugins/whistle
 
       - name: 起 fixture（8899）
         run: |

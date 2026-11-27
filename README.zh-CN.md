@@ -1,8 +1,6 @@
 <div align="center">
 
-<a href="./README.zh-CN.md">
-  <img src="./assets/icon.png" alt="Warren" width="112" />
-</a>
+<img src="./assets/icon.png" alt="Warren" width="108" />
 
 # Warren
 
@@ -13,12 +11,12 @@
 [English](./README.md) · **简体中文** · [快速开始](#快速开始) · [界面实机预览](#界面实机预览) · [CLI 与 Agent 工作流](#cli-与-agent-工作流) · [系统架构](#系统架构) · [插件体系](#插件体系v4) · [文档导航](./docs/README.md)
 
 <p>
-  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/Electron-45.5-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron 45.5" />
-  <img src="https://img.shields.io/badge/Node.js-24%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 24+" />
-  <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7.0" />
-  <img src="https://img.shields.io/badge/Platform-macOS-181b21?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-5b8cff?style=flat-square" alt="License: MIT" /></a>
+  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" height="20" /></a>
+  <img src="./assets/badges/electron.svg" alt="Electron 45.5" height="20" />
+  <img src="./assets/badges/node.svg" alt="Node.js 24+" height="20" />
+  <img src="./assets/badges/typescript.svg" alt="TypeScript 7.0" height="20" />
+  <a href="#快速开始"><img src="./assets/badges/platform.svg" alt="Platform: macOS" height="20" /></a>
+  <a href="./LICENSE"><img src="./assets/badges/license.svg" alt="License: MIT" height="20" /></a>
 </p>
 
 <br />
@@ -29,7 +27,7 @@
   <img src="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" alt="Warren 工作台——深浅色自适应实机预览" width="100%" />
 </picture>
 
-<sub><i>深 / 浅双主题实机界面：左侧隔离环境列、顶栏 Person / Agent 双空间切换器、真实 <code>WebContentsView</code> 网页舞台与右侧随行工作台检查器。</i></sub>
+<sub><i>深浅主题自适应预览：左侧隔离环境列、Person / Agent 双空间、实时 <code>WebContentsView</code> 与右侧工作台检查器。</i></sub>
 
 </div>
 
@@ -80,7 +78,7 @@
         <img src="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png" alt="全局命令面板（⌘K）" width="100%" />
       </a>
       <br />
-      <strong>全局命令面板（<code>⌘K</code>）</strong>
+      <strong>全局命令面板 · <code>⌘K</code></strong>
       <br />
       <sub>基于预热透明顶层窗 <code>OverlayHost</code>，浮于原生网页视图上方毫秒级唤起，支持一键切环境、调布局与触发插件动作。</sub>
     </td>
@@ -210,20 +208,26 @@ warren --skill --plugin=<id>      # 输出指定插件完整手册
 ## 系统架构
 
 ```mermaid
-flowchart LR
-  CLI["Coding Agent / CLI<br/>bin/warren.mjs"] -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
-  UI["React 19 渲染壳层<br/>两层极简顶栏 + 工作台 + 设置"] <-->|"类型安全 contextBridge<br/>preload.ts"| Core
+flowchart TB
+  subgraph Clients["交互入口"]
+    direction LR
+    CLI["Coding Agent / CLI<br/>bin/warren.mjs · batch · exec"]
+    UI["React 19 渲染壳层<br/>两层极简顶栏 · 工作台 · 设置"]
+  end
+
+  CLI -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
+  UI <-->|"类型安全 contextBridge<br/>src/preload/preload.ts"| Core
+  RPC --> Core
 
   subgraph Core["Electron 主进程（Core）"]
-    Env["EnvironmentManager<br/>生命周期 · Session · Lease · 视图"]
-    CDP["隔离世界 CDP 控制层<br/>可操作性判定 · AXTree · OOPIF"]
-    Layers["WindowLayerManager<br/>5 层固定 Z-Order 视图栈"]
+    direction LR
+    Env["EnvironmentManager<br/>生命周期 · Session · Lease"]
+    CDP["隔离世界 CDP<br/>可操作性 · AXTree · OOPIF"]
     Store["SQLite (WAL) + Vault<br/>~/.warren/core/warren.db"]
     Plugins["PluginHost (v4)<br/>sandbox (node:vm) · host (ESM)"]
   end
 
-  RPC --> Core
-  Layers --> Stack["below → page → devtools → shield → overlay"]
+  Core --> Layers["WindowLayerManager · 5 层固定 Z-Order 栈<br/>below → page → devtools → shield → overlay"]
 ```
 
 ### 关键架构设计

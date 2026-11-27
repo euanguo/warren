@@ -1,8 +1,6 @@
 <div align="center">
 
-<a href="./README.md">
-  <img src="./assets/icon.png" alt="Warren" width="112" />
-</a>
+<img src="./assets/icon.png" alt="Warren" width="108" />
 
 # Warren
 
@@ -13,12 +11,12 @@ An Electron desktop workbench and native CLI where each **Environment** pairs is
 **English** · [简体中文](./README.zh-CN.md) · [Quick Start](#quick-start) · [Visual Tour](#visual-tour) · [CLI & Skills](#cli--agent-workflow) · [Architecture](#architecture) · [Plugins](#plugin-system-v4) · [Docs](./docs/README.md)
 
 <p>
-  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/Electron-45.5-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron 45.5" />
-  <img src="https://img.shields.io/badge/Node.js-24%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 24+" />
-  <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7.0" />
-  <img src="https://img.shields.io/badge/Platform-macOS-181b21?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-5b8cff?style=flat-square" alt="License: MIT" /></a>
+  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" height="20" /></a>
+  <img src="./assets/badges/electron.svg" alt="Electron 45.5" height="20" />
+  <img src="./assets/badges/node.svg" alt="Node.js 24+" height="20" />
+  <img src="./assets/badges/typescript.svg" alt="TypeScript 7.0" height="20" />
+  <a href="#quick-start"><img src="./assets/badges/platform.svg" alt="Platform: macOS" height="20" /></a>
+  <a href="./LICENSE"><img src="./assets/badges/license.svg" alt="License: MIT" height="20" /></a>
 </p>
 
 <br />
@@ -29,7 +27,7 @@ An Electron desktop workbench and native CLI where each **Environment** pairs is
   <img src="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" alt="Warren Workbench — Dark & Light Adaptive Preview" width="100%" />
 </picture>
 
-<sub><i>Adaptive dark/light preview: isolated environments, dual Person/Agent space switcher, live <code>WebContentsView</code> stage, and docked Workbench Inspector.</i></sub>
+<sub><i>Dark &amp; light adaptive preview — isolated environments, Person / Agent spaces, live <code>WebContentsView</code> &amp; Workbench Inspector.</i></sub>
 
 </div>
 
@@ -80,7 +78,7 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
         <img src="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png" alt="Global Command Palette (⌘K)" width="100%" />
       </a>
       <br />
-      <strong>Global Command Palette (<code>⌘K</code>)</strong>
+      <strong>Global Command Palette · <code>⌘K</code></strong>
       <br />
       <sub>Pre-warmed transparent <code>OverlayHost</code> floats cleanly above native Chromium views for instant environment switching, actions, and plugin command-bar entries.</sub>
     </td>
@@ -210,20 +208,26 @@ warren --skill --plugin=<id>      # Single plugin manual
 ## Architecture
 
 ```mermaid
-flowchart LR
-  CLI["Coding Agent / CLI<br/>bin/warren.mjs"] -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
-  UI["React 19 Renderer<br/>2-Row Shell + Inspector + Settings"] <-->|"Typed contextBridge IPC<br/>preload.ts"| Core
+flowchart TB
+  subgraph Clients["Clients"]
+    direction LR
+    CLI["Coding Agent / CLI<br/>bin/warren.mjs · batch · exec"]
+    UI["React 19 Desktop Shell<br/>2-Row Chrome · Inspector · Settings"]
+  end
+
+  CLI -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
+  UI <-->|"Typed contextBridge IPC<br/>src/preload/preload.ts"| Core
+  RPC --> Core
 
   subgraph Core["Electron Main Process (Core)"]
-    Env["EnvironmentManager<br/>Lifecycle · Session · Lease · View"]
+    direction LR
+    Env["EnvironmentManager<br/>Lifecycle · Session · Lease"]
     CDP["Isolated-World CDP<br/>Actionability · AXTree · OOPIF"]
-    Layers["WindowLayerManager<br/>5-Layer Z-Order Stack"]
     Store["SQLite (WAL) + Vault<br/>~/.warren/core/warren.db"]
     Plugins["PluginHost (v4)<br/>sandbox (node:vm) · host (ESM)"]
   end
 
-  RPC --> Core
-  Layers --> Stack["below → page → devtools → shield → overlay"]
+  Core --> Layers["WindowLayerManager · 5-Layer Z-Order Stack<br/>below → page → devtools → shield → overlay"]
 ```
 
 ### Core Architectural Decisions

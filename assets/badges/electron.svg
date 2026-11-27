@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="111" height="20" role="img" aria-label="Electron: 45.5">
+  <title>Electron: 45.5</title>
+  <defs>
+    <linearGradient id="bg-left" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop stop-color="#444D56" offset="0%"/>
+      <stop stop-color="#24292E" offset="100%"/>
+    </linearGradient>
+    <linearGradient id="bg-right" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop stop-color="#47848F" offset="0%"/>
+      <stop stop-color="#356872" offset="100%"/>
+    </linearGradient>
+    <clipPath id="clip">
+      <rect width="111" height="20" rx="3"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="74" height="20" fill="url(#bg-left)"/>
+    <rect x="74" width="37" height="20" fill="url(#bg-right)"/>
+  </g>
+  <g transform="translate(5.5 3)" fill="none" stroke="#9FEAF9" stroke-width="1.15">
+    <circle cx="7" cy="7" r="1.4" fill="#9FEAF9" stroke="none"/>
+    <ellipse cx="7" cy="7" rx="5.8" ry="2.2" transform="rotate(30 7 7)"/>
+    <ellipse cx="7" cy="7" rx="5.8" ry="2.2" transform="rotate(-30 7 7)"/>
+    <ellipse cx="7" cy="7" rx="5.8" ry="2.2" transform="rotate(90 7 7)"/>
+  </g>
+  <g fill="#FFFFFF" font-family="'DejaVu Sans',Verdana,Geneva,sans-serif" font-size="110" text-anchor="middle">
+    <text x="485" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="450" lengthAdjust="spacing" aria-hidden="true">Electron</text>
+    <text x="485" y="140" transform="scale(.1)" textLength="450" lengthAdjust="spacing">Electron</text>
+    <text x="925" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="250" lengthAdjust="spacing" aria-hidden="true">45.5</text>
+    <text x="925" y="140" transform="scale(.1)" textLength="250" lengthAdjust="spacing">45.5</text>
+  </g>
+</svg>
