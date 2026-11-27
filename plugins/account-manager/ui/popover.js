@@ -15,6 +15,7 @@ export function createPopoverViews(ctx) {
     FieldLabel,
     Icon,
     IconButton,
+    PluginBrandGlyph,
     Input,
     Spinner,
     cardSurfaceClass,
@@ -70,11 +71,18 @@ export function createPopoverViews(ctx) {
         'data-slot': 'account-match-badge',
         'data-match-count': String(count),
       },
-      h(Icon, {
-        name: 'User',
-        style: { '--brand-hue': 36 },
-        className: cn('plugin-brand-icon size-3.5 shrink-0', count === 0 && 'opacity-75'),
-      }),
+      PluginBrandGlyph
+        ? h(PluginBrandGlyph, {
+            pluginId: 'com.warren.accounts',
+            icon: 'Key',
+            size: 16,
+            className: cn(count === 0 && 'opacity-75'),
+          })
+        : h(Icon, {
+            name: 'User',
+            style: { '--brand-hue': 36 },
+            className: cn('plugin-brand-icon size-3.5 shrink-0', count === 0 && 'opacity-75'),
+          }),
       count > 0
         ? h(
             'span',

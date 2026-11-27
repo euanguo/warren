@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { toast } from 'sonner';
 import { Icon } from '@/components/icons';
+import { PluginBrandGlyph } from '@/components/identity-glyphs';
 import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -118,8 +119,9 @@ export const PLUGIN_UI = {
   controlFieldClass,
   elevatedMenuSurfaceClass,
   menuItemInteractiveClass,
-  // 图标（`components/icons.tsx` 是图标单源，插件不引图标包）
+  // 图标（`components/icons.tsx` 与 `PluginBrandGlyph` 是图标单源，插件不引图标包）
   Icon,
+  PluginBrandGlyph,
   // 基础控件
   Button,
   IconButton,

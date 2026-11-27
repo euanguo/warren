@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react';
-import { Icon, isIconName, type IconName } from '@/components/icons';
+import { KubaiIcon } from 'kubai-icons-react';
+import { type IconName } from '@/components/icons';
+import { resolvePluginKubaiIconData } from '@/components/plugin-kubai-icons';
 import { StatusDot } from '@/components/ui/status-dot';
 import { getEnvIdentity } from '@/lib/env-identity';
 import { statusTone } from '@/lib/labels';
@@ -64,13 +66,16 @@ export function EnvIdentityAvatar({
 }
 
 /**
- * 统一的插件品牌图标/底牌，共用同一套色相计算与 fallback 图标规则。
+ * 统一的插件品牌图标/大徽标（Kubai Icons 方案 1：小入口 Duotone + 大卡片 Layered）：
+ * - `variant="icon"`（14–18px 地址栏/顶栏/Tab/命令栏/设置侧栏）：Kubai Duotone 双色实心 + 父级悬停微动效；
+ * - `variant="chip"`（24–34px 插件卡片/插件页顶栏）：Kubai Layered 分层微立体 + 柔和渐变 + 父级悬停微动效。
  */
 export function PluginBrandGlyph({
   pluginId,
   icon,
   variant = 'icon',
   fallback = 'Plug',
+  size,
   className,
   iconClassName,
 }: {
@@ -78,30 +83,49 @@ export function PluginBrandGlyph({
   icon?: string;
   variant?: 'icon' | 'chip';
   fallback?: IconName;
+  /** 显式像素尺寸（默认 icon=16px，chip=32px）。 */
+  size?: number;
   className?: string;
   iconClassName?: string;
 }) {
   const brand = getPluginBrand(pluginId, icon);
-  const name: IconName = isIconName(brand.icon) ? brand.icon : fallback;
+  const resolvedName = brand.icon || fallback;
+  const brandStyle = { '--brand-hue': brand.hue } as CSSProperties;
+
   if (variant === 'chip') {
+    const layeredData = resolvePluginKubaiIconData(resolvedName, 'layered');
+    const px = size ?? 32;
     return (
       <span
         aria-hidden
-        style={{ '--brand-hue': brand.hue } as CSSProperties}
+        data-slot="plugin-brand-chip"
+        data-plugin-icon={resolvedName}
+        data-kubai-style="layered"
+        style={brandStyle}
         className={cn(
-          'plugin-brand-chip flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-md)]',
+          'plugin-brand-icon relative inline-flex shrink-0 items-center justify-center overflow-visible select-none',
+          size ? undefined : 'size-8',
           className,
         )}
       >
-        <Icon name={name} className={cn('size-4', iconClassName)} />
+        <KubaiIcon icon={layeredData} size={px} trigger="parent" className={cn('shrink-0', iconClassName)} />
       </span>
     );
   }
+
+  const duotoneData = resolvePluginKubaiIconData(resolvedName, 'duotone');
+  const px = size ?? 16;
   return (
-    <Icon
-      name={name}
-      style={{ '--brand-hue': brand.hue } as CSSProperties}
-      className={cn('plugin-brand-icon size-3.5 shrink-0', className)}
+    <KubaiIcon
+      icon={duotoneData}
+      aria-hidden
+      data-slot="plugin-brand-icon"
+      data-plugin-icon={resolvedName}
+      data-kubai-style="duotone"
+      size={px}
+      trigger="parent"
+      style={brandStyle}
+      className={cn('plugin-brand-icon shrink-0', className, iconClassName)}
     />
   );
 }

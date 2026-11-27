@@ -39,6 +39,7 @@ export function createWorkbenchViews(ctx, views) {
     FieldLabel,
     Icon,
     IconButton,
+    PluginBrandGlyph,
     Input,
     ListRow,
     ListRowLabel,
@@ -595,17 +596,19 @@ export function createWorkbenchViews(ctx, views) {
         { className: 'flex shrink-0 flex-col gap-2.5 border-b border-divider px-5 py-3' },
         h(
           'div',
-          { className: 'flex flex-wrap items-center gap-2' },
-          h(
-            'span',
-            {
-              'aria-hidden': true,
-              style: { '--brand-hue': 36 },
-              className:
-                'plugin-brand-chip flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-sm)]',
-            },
-            h(Icon, { name: 'User', className: 'size-3.5' }),
-          ),
+          { className: 'flex flex-wrap items-center gap-2', 'data-kubai-trigger': '' },
+          PluginBrandGlyph
+            ? h(PluginBrandGlyph, { pluginId: 'com.warren.accounts', icon: 'User', variant: 'chip', size: 24 })
+            : h(
+                'span',
+                {
+                  'aria-hidden': true,
+                  style: { '--brand-hue': 36 },
+                  className:
+                    'plugin-brand-chip flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-sm)]',
+                },
+                h(Icon, { name: 'User', className: 'size-3.5' }),
+              ),
           h('span', { className: 'text-sm font-semibold text-foreground' }, '账号管理'),
           h(
             'span',

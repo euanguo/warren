@@ -367,6 +367,14 @@ export interface PluginUi {
   elevatedMenuSurfaceClass: string;
   menuItemInteractiveClass: string;
   Icon: import('react').ComponentType<{ name: string; className?: string }>;
+  PluginBrandGlyph?: import('react').ComponentType<{
+    pluginId: string;
+    icon?: string;
+    variant?: 'icon' | 'chip';
+    size?: number;
+    className?: string;
+    iconClassName?: string;
+  }>;
   Button: import('react').ComponentType<Record<string, unknown>>;
   IconButton: import('react').ComponentType<Record<string, unknown>>;
   Input: import('react').ComponentType<Record<string, unknown>>;

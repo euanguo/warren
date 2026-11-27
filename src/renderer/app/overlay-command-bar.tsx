@@ -497,6 +497,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
                     itemRefs.current[idx] = el;
                   }}
                   type="button"
+                  data-kubai-trigger=""
                   onMouseEnter={() => setHighlighted(idx)}
                   onClick={() => void executeItem(item)}
                   className={cn(
@@ -521,7 +522,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
                       pluginId={item.pluginBrand.pluginId}
                       icon={item.pluginBrand.icon}
                       fallback={item.pluginBrand.fallback}
-                      className="size-4"
+                      size={16}
                     />
                   ) : (
                     <Icon name={item.icon} className="size-4 shrink-0 text-muted-foreground" />

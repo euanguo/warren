@@ -254,10 +254,15 @@ export function SettingsPage({
                       key={item.id}
                       value={item.id}
                       data-settings-section={item.id}
+                      data-kubai-trigger=""
                       className={SECTION_TRIGGER_CLASS}
                     >
                       {item.pluginSection ? (
-                        <PluginBrandGlyph pluginId={item.pluginSection.pluginId} icon={item.pluginSection.icon} />
+                        <PluginBrandGlyph
+                          pluginId={item.pluginSection.pluginId}
+                          icon={item.pluginSection.icon}
+                          size={15}
+                        />
                       ) : (
                         <Icon name={item.icon} className="size-3.5 shrink-0 opacity-80" />
                       )}

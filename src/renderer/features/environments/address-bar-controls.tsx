@@ -150,6 +150,7 @@ export function AddressBarRightControls({
               data-slot="plugin-quick-button"
               data-plugin-id={pop.pluginId}
               data-surface-id={pop.id}
+              data-kubai-trigger=""
               aria-expanded={isActive}
               aria-label={pop.title}
               onClick={(event) => {
@@ -190,6 +191,7 @@ export function AddressBarRightControls({
               data-slot="plugin-status-badge"
               data-plugin-id={badge.pluginId}
               data-surface-id={badge.id}
+              data-kubai-trigger=""
               aria-label={badge.title}
               onClick={() => {
                 if (firstTab) onOpenPluginSurface?.('inspectorTab', badge.pluginId, firstTab.id);

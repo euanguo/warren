@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppTitlebar } from '@/app/app-titlebar';
 import { PopoverRoot } from '@/app/popover-root';
+import { PluginBrandGlyph } from '@/components/identity-glyphs';
 import { PanelResizer } from '@/components/ui/panel-resizer';
 import { Switch } from '@/components/ui/switch';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -301,5 +302,31 @@ describe('OpenBot 设计体系迁移与可配置配色皮肤回归测试', () =>
 
     fireEvent.mouseDown(document.querySelector('[data-slot="popover-backdrop"]')!);
     expect(mocks.closePopover).toHaveBeenCalledWith('memory-quick');
+  });
+
+  it('PluginBrandGlyph 采用 Kubai 方案 1：小入口渲染 Duotone，大卡片渲染 Layered', () => {
+    const { rerender } = render(
+      <div data-kubai-trigger="">
+        <PluginBrandGlyph pluginId="com.warren.whistle" icon="Globe" />
+      </div>,
+    );
+
+    const smallIcon = document.querySelector<SVGElement>('[data-slot="plugin-brand-icon"]')!;
+    expect(smallIcon).not.toBeNull();
+    expect(smallIcon.dataset.kubaiStyle).toBe('duotone');
+    expect(smallIcon.getAttribute('class')).toContain('kubai-duotone');
+    expect(smallIcon.getAttribute('class')).toContain('kubai-icon-globe');
+
+    rerender(
+      <div data-kubai-trigger="">
+        <PluginBrandGlyph pluginId="com.warren.accounts" icon="User" variant="chip" size={32} />
+      </div>,
+    );
+
+    const chip = document.querySelector<HTMLElement>('[data-slot="plugin-brand-chip"]')!;
+    const layeredSvg = chip.querySelector('svg')!;
+    expect(chip.dataset.kubaiStyle).toBe('layered');
+    expect(layeredSvg.getAttribute('class')).toContain('kubai-icon-contact-book');
+    expect(layeredSvg.getAttribute('class')).not.toContain('kubai-duotone');
   });
 });

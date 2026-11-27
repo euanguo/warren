@@ -409,9 +409,10 @@ function PluginPopoverView({ props }: { props: PopoverPropsMap['plugin-popover']
     >
       <div
         data-slot="plugin-popover-header"
+        data-kubai-trigger=""
         className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5"
       >
-        <PluginBrandGlyph pluginId={pluginId} icon={surface?.icon} />
+        <PluginBrandGlyph pluginId={pluginId} icon={surface?.icon} size={16} />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{surface?.title ?? '插件快捷面板'}</span>
         {surface?.shortcut && <Kbd className="shrink-0 text-[length:var(--font-size-micro)]">{surface.shortcut}</Kbd>}
         {inspectorTab && (

@@ -250,6 +250,7 @@ export function AppTitlebar({
                 key={`${page.pluginId}:${page.id}`}
                 size="xs"
                 variant="ghost"
+                data-kubai-trigger=""
                 aria-label={page.title}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onOpenPluginPage(page.pluginId, page.id)}
@@ -258,7 +259,12 @@ export function AppTitlebar({
                   active ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                <PluginBrandGlyph pluginId={page.pluginId} icon={page.icon} className={cn(!active && 'opacity-80')} />
+                <PluginBrandGlyph
+                  pluginId={page.pluginId}
+                  icon={page.icon}
+                  size={15}
+                  className={cn(!active && 'opacity-85')}
+                />
                 <span>{page.title}</span>
               </Button>
             );

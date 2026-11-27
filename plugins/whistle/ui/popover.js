@@ -15,6 +15,7 @@ export function createPopoverViews(ctx) {
     CollapsibleContent,
     CollapsibleTrigger,
     Icon,
+    PluginBrandGlyph,
     StatusDot,
     Switch,
     Tabs,
@@ -46,11 +47,18 @@ export function createPopoverViews(ctx) {
         className: 'inline-flex items-center gap-1.5',
         'data-slot': 'whistle-status-badge',
       },
-      h(Icon, {
-        name: 'Globe',
-        style: { '--brand-hue': 192 },
-        className: cn('plugin-brand-icon size-3.5 shrink-0', !bound && 'opacity-75'),
-      }),
+      PluginBrandGlyph
+        ? h(PluginBrandGlyph, {
+            pluginId: 'com.warren.whistle',
+            icon: 'Globe',
+            size: 16,
+            className: cn(!bound && 'opacity-75'),
+          })
+        : h(Icon, {
+            name: 'Globe',
+            style: { '--brand-hue': 192 },
+            className: cn('plugin-brand-icon size-3.5 shrink-0', !bound && 'opacity-75'),
+          }),
       bound
         ? h(
             React.Fragment,

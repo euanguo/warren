@@ -156,10 +156,10 @@ export function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onC
   }, [logs, logFilter]);
 
   return (
-    <div className={cn(cardSurfaceClass, 'flex flex-col gap-3')} data-plugin={plugin.id}>
+    <div className={cn(cardSurfaceClass, 'flex flex-col gap-3')} data-plugin={plugin.id} data-kubai-trigger="">
       <div className="flex items-start justify-between gap-2.5">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <PluginBrandGlyph pluginId={plugin.id} icon={plugin.icon} variant="chip" className="mt-0.5" />
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <PluginBrandGlyph pluginId={plugin.id} icon={plugin.icon} variant="chip" size={32} className="mt-0.5" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-sm font-medium">{plugin.name}</span>

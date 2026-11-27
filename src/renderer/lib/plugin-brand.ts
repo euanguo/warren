@@ -10,12 +10,14 @@ export interface PluginBrand {
 }
 
 const KNOWN_PLUGIN_BRANDS: Readonly<Record<string, PluginBrand>> = {
-  'com.warren.whistle': { icon: 'Globe', hue: 192 },
+  'com.warren.whistle': { icon: 'Globe', hue: 199 },
   'com.warren.accounts': { icon: 'User', hue: 36 },
-  'com.example.notes': { icon: 'List', hue: 274 },
+  'com.example.notes': { icon: 'List', hue: 263 },
   'com.example.login': { icon: 'Key', hue: 158 },
-  'com.example.cookies': { icon: 'Shield', hue: 215 },
-  'com.example.host': { icon: 'Activity', hue: 332 },
+  'com.example.cookies': { icon: 'Cookie', hue: 217 },
+  'com.example.host': { icon: 'Terminal', hue: 332 },
+  'com.example.hosty': { icon: 'Terminal', hue: 332 },
+  'com.example.broken': { icon: 'Bug', hue: 14 },
 };
 
 const FALLBACK_HUES = [215, 165, 36, 274, 192, 332, 14, 52] as const;

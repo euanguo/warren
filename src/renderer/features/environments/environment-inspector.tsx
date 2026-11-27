@@ -225,6 +225,7 @@ export function EnvironmentInspector({
                   key={tab.id}
                   value={value}
                   disabled={!running}
+                  data-kubai-trigger=""
                   className={cn(
                     'relative h-[var(--control-height-icon)] shrink-0 flex-none gap-1 px-2 text-[12px] font-medium',
                     !isSelected &&
@@ -233,7 +234,7 @@ export function EnvironmentInspector({
                       'after:pointer-events-none after:absolute after:top-1/2 after:-right-[3px] after:h-4 after:w-px after:-translate-y-1/2 after:bg-border-strong hover:after:opacity-0',
                   )}
                 >
-                  <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} className="size-3" />
+                  <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} size={14} />
                   {tab.title}
                 </TabsTrigger>
               );
@@ -296,11 +297,12 @@ export function EnvironmentInspector({
                         <DropdownMenuItem
                           key={value}
                           disabled={!running}
+                          data-kubai-trigger=""
                           onClick={() => onTabChange(value)}
                           className="justify-between"
                         >
                           <span className="flex items-center gap-1.5">
-                            <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} />
+                            <PluginBrandGlyph pluginId={tab.pluginId} icon={tab.icon} size={15} />
                             {tab.title}
                           </span>
                           {activeTab === value && <Icon name="Check" className="size-3.5 text-accent-text" />}

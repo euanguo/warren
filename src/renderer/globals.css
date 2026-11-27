@@ -455,12 +455,18 @@ html[data-theme-sweep='active']::view-transition-old(root) {
 }
 
 .plugin-brand-icon {
-  color: hsl(var(--brand-hue, 215) 78% 34%);
+  color: hsl(var(--brand-hue, 215) 78% 44%);
 }
 
 :root.dark .plugin-brand-icon,
 :root[data-theme='dark'] .plugin-brand-icon {
-  color: hsl(var(--brand-hue, 215) 86% 74%);
+  color: hsl(var(--brand-hue, 215) 84% 64%);
+}
+
+/* Kubai Duotone 暗色模式主体填充改为与深色表面混色，避免默认混纯白在暗底上过亮刺眼 */
+:root.dark .kubai-duotone,
+:root[data-theme='dark'] .kubai-duotone {
+  --kd-b: color-mix(in srgb, currentColor 32%, var(--bg-surface));
 }
 
 .plugin-brand-chip {

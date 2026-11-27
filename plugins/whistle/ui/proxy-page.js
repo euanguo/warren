@@ -15,6 +15,7 @@ export function createProxyPageViews(ctx, tabs) {
     EmptyTitle,
     Icon,
     IconButton,
+    PluginBrandGlyph,
     ListRow,
     ListRowActionButton,
     ListRowActions,
@@ -78,17 +79,19 @@ export function createProxyPageViews(ctx, tabs) {
           { className: 'flex items-center justify-between gap-1.5 border-b border-border px-3 py-2.5' },
           h(
             'div',
-            { className: 'flex min-w-0 items-center gap-2' },
-            h(
-              'span',
-              {
-                'aria-hidden': true,
-                style: { '--brand-hue': 192 },
-                className:
-                  'plugin-brand-chip flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-sm)]',
-              },
-              h(Icon, { name: 'Globe', className: 'size-3.5' }),
-            ),
+            { className: 'flex min-w-0 items-center gap-2', 'data-kubai-trigger': '' },
+            PluginBrandGlyph
+              ? h(PluginBrandGlyph, { pluginId: 'com.warren.whistle', icon: 'Globe', variant: 'chip', size: 24 })
+              : h(
+                  'span',
+                  {
+                    'aria-hidden': true,
+                    style: { '--brand-hue': 192 },
+                    className:
+                      'plugin-brand-chip flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-sm)]',
+                  },
+                  h(Icon, { name: 'Globe', className: 'size-3.5' }),
+                ),
             h('span', { className: 'truncate text-sm font-medium' }, 'Whistle 代理'),
           ),
           h(
