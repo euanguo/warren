@@ -39,7 +39,7 @@ export function createInspectorViews(ctx) {
     useSignalTick,
     useInstances,
     useAgentControls,
-    NewInstanceDialog,
+    NewInstanceFormButton,
     RuleMatchResultView,
     ReplayDiffView,
     QuickMockForm,
@@ -212,7 +212,7 @@ export function createInspectorViews(ctx) {
           h(
             'div',
             { className: 'flex flex-wrap items-center gap-1.5' },
-            h(NewInstanceDialog, {
+            h(NewInstanceFormButton, {
               environments,
               busy,
               run,

@@ -484,6 +484,105 @@ export function createWhistleUiContext(app) {
     );
   }
 
+  /** 「先不绑定」的哨兵值：表单 select 的选项值不允许空串。 */
+  const BIND_NONE = 'none';
+
+  function newInstanceFormRequest({ environments, defaultBindEnvId }) {
+    const initialBind =
+      defaultBindEnvId && environments.some((env) => env.id === defaultBindEnvId) ? defaultBindEnvId : BIND_NONE;
+    return {
+      title: '新建 Whistle 代理实例',
+      description: '一个实例 = 一个独立 whistle@2.10.15 进程：独立端口、规则、Values 与抓包。',
+      submitLabel: '创建实例',
+      source: 'Whistle 代理',
+      fields: [
+        {
+          type: 'text',
+          key: 'storage',
+          label: '实例名（storage）',
+          placeholder: '例如 feat-a（留空自动起名）',
+          maxLength: 40,
+        },
+        {
+          type: 'text',
+          key: 'hostPattern',
+          label: '初始映射域名/路径（可选）',
+          placeholder: '例如 app.example.com/static/',
+          maxLength: 200,
+        },
+        {
+          type: 'number',
+          key: 'targetPort',
+          label: '本地服务端口（可选）',
+          placeholder: '例如 5173',
+          min: 0,
+          max: 65535,
+        },
+        {
+          type: 'select',
+          key: 'bindTo',
+          label: '创建后绑定到环境',
+          initial: initialBind,
+          options: [
+            { value: BIND_NONE, label: '先不绑定' },
+            ...environments.map((env) => ({ value: env.id, label: env.name })),
+          ],
+        },
+      ],
+    };
+  }
+
+  /** 主窗面用宿主原生表单（覆盖原生网页视图之上）；独立浮窗仍用 NewInstanceDialog。 */
+  function NewInstanceFormButton({
+    environments,
+    busy,
+    run,
+    defaultBindEnvId = '',
+    compact = false,
+    variant = 'default',
+    triggerLabel = '新建实例',
+    onCreated,
+  }) {
+    const [opening, setOpening] = useState(false);
+
+    const openForm = async () => {
+      if (opening || busy) return;
+      setOpening(true);
+      try {
+        const values = await shell.openForm(newInstanceFormRequest({ environments, defaultBindEnvId }));
+        if (!values) return;
+        const bindTo = values.bindTo === BIND_NONE ? '' : String(values.bindTo || '');
+        const result = await run(
+          () =>
+            rpc.call('fork', {
+              storage: String(values.storage || '').trim(),
+              hostPattern: String(values.hostPattern || '').trim(),
+              targetPort: Number(values.targetPort) || 0,
+            }),
+          '新建实例失败',
+        );
+        if (!result) return;
+        const created = result.created;
+        if (bindTo) {
+          await run(() => rpc.call('bind', { storage: created.storage, environmentId: bindTo }), '绑定环境失败');
+        }
+        notifySuccess(`实例 ${created.storage} 已创建`, `端口 :${created.port}`);
+        onCreated?.(created);
+      } catch (err) {
+        notifyError('新建实例失败', err);
+      } finally {
+        setOpening(false);
+      }
+    };
+
+    return h(
+      Button,
+      { size: compact ? 'xs' : 'sm', variant, disabled: busy || opening, onClick: () => void openForm() },
+      h(Icon, { name: 'Plus', className: 'size-3.5' }),
+      triggerLabel,
+    );
+  }
+
   function RuleMatchResultView({ result }) {
     if (!result) return null;
     const matched = Array.isArray(result.matched) ? result.matched : [];
@@ -1127,6 +1226,7 @@ export function createWhistleUiContext(app) {
     useAgentControls,
     ConfirmDialog,
     NewInstanceDialog,
+    NewInstanceFormButton,
     RuleMatchResultView,
     ReplayDiffView,
     QuickMockForm,

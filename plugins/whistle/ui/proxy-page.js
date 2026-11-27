@@ -41,7 +41,7 @@ export function createProxyPageViews(ctx, tabs) {
     useInstances,
     useAgentControls,
     ConfirmDialog,
-    NewInstanceDialog,
+    NewInstanceFormButton,
   } = ctx;
   const { useState } = React;
   const { RulesTab, ValuesTab, PresetsTab, TrafficTab, DoctorTab } = tabs;
@@ -102,7 +102,7 @@ export function createProxyPageViews(ctx, tabs) {
               { size: 'icon-sm', title: '刷新实例列表', onClick: reload },
               h(Icon, { name: 'Refresh', className: 'size-3.5' }),
             ),
-            h(NewInstanceDialog, {
+            h(NewInstanceFormButton, {
               environments,
               busy,
               run,

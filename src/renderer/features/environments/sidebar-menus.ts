@@ -2,7 +2,7 @@ import type { MouseEvent } from 'react';
 import { toast } from 'sonner';
 import { statusLabel } from '@/lib/labels';
 import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
-import type { Environment, Group, NativeMenuItem } from '@shared/types';
+import type { Environment, Group, NativeMenuItem, OverlayFormValues } from '@shared/types';
 
 export interface EnvMenuActions {
   onStart: (id: string) => void;
@@ -157,13 +157,14 @@ export async function openGroupContextMenu(
   if (picked === 'create-env') {
     void window.envApi.openOverlay({ kind: 'create-env', initialGroupId: group.id });
   } else if (picked === 'rename') {
-    const next = await window.envApi.openOverlay<string>({
-      kind: 'rename',
+    const next = await window.envApi.openOverlay<OverlayFormValues>({
+      kind: 'form',
       title: '重命名分组',
-      label: '分组名',
-      initialValue: group.name,
+      submitLabel: '保存',
+      fields: [{ type: 'text', key: 'name', label: '分组名', initial: group.name, required: true, maxLength: 80 }],
     });
-    if (next) actions.onRenameGroup(group.id, next);
+    const name = typeof next?.name === 'string' ? next.name.trim() : '';
+    if (name) actions.onRenameGroup(group.id, name);
   } else if (picked === 'toggle') {
     actions.onToggleGroup(group.id, !group.collapsed);
   } else if (picked === 'start-all') {

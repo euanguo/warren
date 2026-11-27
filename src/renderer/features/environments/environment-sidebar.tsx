@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ActionTooltip } from '@/components/action-tooltip';
 import { Icon } from '@/components/icons';
@@ -19,10 +20,27 @@ import type { PluginBadgeSnapshot } from '@/lib/plugin-badges';
 import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
 import { cn } from '@/lib/utils';
 import { listItemInteractiveClass } from '@/theme/surface';
-import type { Environment, Group, MemorySnapshot } from '@shared/types';
+import type { Environment, Group, MemorySnapshot, OverlayFormValues } from '@shared/types';
 import { SidebarEnvRow } from './sidebar-env-row';
 import { SidebarGroupHeader } from './sidebar-group-header';
 import { openEnvironmentContextMenu, openGroupContextMenu } from './sidebar-menus';
+
+async function createGroup(): Promise<void> {
+  const values = await window.envApi.openOverlay<OverlayFormValues>({
+    kind: 'form',
+    title: '新建分组',
+    description: '分组只影响侧栏的组织方式，不影响运行时。',
+    submitLabel: '创建',
+    fields: [{ type: 'text', key: 'name', label: '分组名', placeholder: '生产', required: true, maxLength: 80 }],
+  });
+  const name = typeof values?.name === 'string' ? values.name.trim() : '';
+  if (!name) return;
+  try {
+    await window.envApi.groupCreate(name);
+  } catch (error) {
+    toast.error('新建分组失败', { description: error instanceof Error ? error.message : String(error) });
+  }
+}
 
 interface Props {
   environments: Environment[];
@@ -410,11 +428,7 @@ export function EnvironmentSidebar({
                 <span>{memorySnap ? formatMemoryKb(memorySnap.totalMemoryKb) : '内存'}</span>
               </button>
               <ActionTooltip label="新建分组" side="top">
-                <IconButton
-                  variant="ghost"
-                  aria-label="新建分组"
-                  onClick={() => void window.envApi.openOverlay({ kind: 'create-group' })}
-                >
+                <IconButton variant="ghost" aria-label="新建分组" onClick={() => void createGroup()}>
                   <Icon name="FolderPlus" />
                 </IconButton>
               </ActionTooltip>

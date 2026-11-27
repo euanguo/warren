@@ -192,6 +192,13 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
+### 插件声明式表单 `shell.openForm`（2026-11-28）
+
+- **契约变更**：`OverlayRequest` 新增 `kind: 'form'`（`src/shared/types/ui.ts`），由 `src/shared/form-schema.ts` 的 `normalizeFormRequest` 在 `overlay:open` 主进程边界上校验/裁剪（字段 12、选项 24、key 唯一、number min/max、select initial 必须在 options 内）；渲染层由 `src/renderer/app/overlay-form.tsx` 的 `FormCard` 画成宿主原生浮层，能盖住原生网页视图。
+- **插件 API**：`app.shell.openForm(request) → Promise<values | null>`（`packages/plugin-sdk/index.d.ts` + `src/renderer/lib/plugin-sdk-types.ts`），复用 `ui.mount` 权限，不加新权限；popover 窗口调用直接拒绝（独立 BrowserWindow 在整窗之上）。
+- **删除的旧 kind**：`create-group` / `rename` 改走表单（`environment-sidebar.tsx` / `sidebar-menus.ts`）；Whistle 主窗面（inspectorTab、代理工作台）新建实例改走表单，popover 保留自家弹窗。
+- 文档：`plugins/README.md` 前端 API 一节；测试 `tests/form-schema.test.ts`、`tests/ui/overlay-form.test.tsx`。
+
 ### Agent-first：账号域名绑定与凭据填充不再设 UI 门槛（2026-11-27）
 
 - `plugins/account-manager/server.js` 移除 `update` 的 `ACCOUNT_DOMAIN_BINDING_UI_ONLY` 检查（Agent 可用 CLI/RPC 维护 `url` / `urls` / `allowedHosts`）；`buildFillOptions` 不再对 Agent 强制 `requireDomains=true`；`src/main/plugins/api/browser.ts` 的 `fillSecret` 不再按 `caller` 强制 `requireDomains`。

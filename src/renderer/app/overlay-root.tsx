@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CommandBarCard } from '@/app/overlay-command-bar';
-import { ConfirmCard, CreateEnvCard, CreateGroupCard, EditEnvCard, RenameCard } from '@/app/overlay-dialogs';
+import { FormCard } from '@/app/overlay-form';
+import { ConfirmCard, CreateEnvCard, EditEnvCard } from '@/app/overlay-dialogs';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import type { OverlayRequest } from '@shared/types';
@@ -47,10 +48,7 @@ export function OverlayRoot() {
       />
       {request.kind === 'create-env' && <CreateEnvCard initialGroupId={request.initialGroupId} />}
       {request.kind === 'edit-env' && <EditEnvCard environment={request.environment} />}
-      {request.kind === 'create-group' && <CreateGroupCard />}
-      {request.kind === 'rename' && (
-        <RenameCard title={request.title} label={request.label} initialValue={request.initialValue} />
-      )}
+      {request.kind === 'form' && <FormCard request={request} />}
       {request.kind === 'confirm' && (
         <ConfirmCard
           title={request.title}

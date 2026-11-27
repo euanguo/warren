@@ -4,6 +4,58 @@ export type SpaceId = 'person' | 'agent';
 
 export type BuiltinSettingsSection = 'general' | 'browser' | 'memory' | 'agent' | 'plugins' | 'diagnostics';
 
+export interface OverlayFormOption {
+  value: string;
+  label: string;
+}
+
+/** 声明式表单字段：只描述，宿主自己画（校验与裁剪在主进程入口）。 */
+export type OverlayFormField =
+  | {
+      type: 'text';
+      key: string;
+      label: string;
+      placeholder?: string;
+      initial?: string;
+      required?: boolean;
+      maxLength?: number;
+    }
+  | {
+      type: 'textarea';
+      key: string;
+      label: string;
+      placeholder?: string;
+      initial?: string;
+      required?: boolean;
+      maxLength?: number;
+    }
+  | {
+      type: 'number';
+      key: string;
+      label: string;
+      initial?: number;
+      min?: number;
+      max?: number;
+      step?: number;
+      required?: boolean;
+    }
+  | { type: 'select'; key: string; label: string; initial?: string; options: OverlayFormOption[] }
+  | { type: 'switch'; key: string; label: string; description?: string; initial?: boolean };
+
+/** text / textarea / select 给字符串，number 给数字（空且非必填时为空串），switch 给布尔。 */
+export type OverlayFormValues = Record<string, string | number | boolean>;
+
+export interface OverlayFormRequest {
+  title: string;
+  description?: string;
+  submitLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  /** 谁在问：显示成标题下的一行小字，一般是插件名。 */
+  source?: string;
+  fields: OverlayFormField[];
+}
+
 /**
  * 可授予权限（共 14 项：`granted` 6 项 + `confirm` 8 项）。
  * 以下 5 项永久留在 `denied` 层，即使声明也不会生效：
@@ -328,6 +380,11 @@ export interface PluginShellApi {
   openTab(environmentId: string, url: string, space?: SpaceId): Promise<void>;
   highlight(environmentId: string, selector?: string, space?: SpaceId): Promise<void>;
   notify(kind: 'success' | 'error' | 'info', title: string, description?: string): void;
+  /**
+   * 用宿主原生表单收一组值（主窗的面可用；独立浮窗会拒绝，那里用插件自己的内联表单）。
+   * 返回 null = 用户取消；提交是值级的，回来之后再写数据，失败自己 toast。
+   */
+  openForm(request: OverlayFormRequest): Promise<OverlayFormValues | null>;
 }
 
 export interface PluginHostApi {

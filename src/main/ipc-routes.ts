@@ -3,6 +3,7 @@
  */
 import { app, dialog, ipcMain, nativeTheme, shell, type BrowserWindow, type WebContents } from 'electron';
 import os from 'node:os';
+import { normalizeFormRequest } from '../shared/form-schema.ts';
 import type { Permission } from '../shared/permissions.ts';
 import { DEFAULT_SKIN_ID, resolveSkinPalette } from '../shared/skin.ts';
 import type {
@@ -256,7 +257,11 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
     return popupNativeMenu(win, items, position);
   });
 
-  handle('overlay:open', (request: OverlayRequest) => deps.getOverlayHost()?.open(request) ?? null);
+  handle('overlay:open', (request: OverlayRequest) => {
+    // 声明式表单是插件给的数据，必须在信任边界上校验；不合法就直接抛给调用方。
+    const normalized = request?.kind === 'form' ? normalizeFormRequest(request) : request;
+    return deps.getOverlayHost()?.open(normalized) ?? null;
+  });
   handleShell('overlay:current', () => deps.getOverlayHost()?.currentState() ?? null);
   handleShell('overlay:resolve', (result: unknown) => {
     deps.getOverlayHost()?.resolve(result);

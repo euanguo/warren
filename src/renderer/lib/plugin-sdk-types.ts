@@ -3,7 +3,13 @@ import type * as React from 'react';
 import type { PluginEnvBadgeSetter, PluginEnvBadgeSurface } from '@/lib/plugin-badges';
 import type { PluginUi } from '@/lib/plugin-ui';
 import type { BuiltinSettingsSection } from '@/state/navigation-store';
-import type { HostEnvironmentSummary, PluginSettingValue, SpaceId } from '@shared/types';
+import type {
+  HostEnvironmentSummary,
+  OverlayFormRequest,
+  OverlayFormValues,
+  PluginSettingValue,
+  SpaceId,
+} from '@shared/types';
 
 export interface PluginSurfaceProps {
   pluginId: string;
@@ -132,6 +138,11 @@ export interface PluginShellApi {
   openTab(environmentId: string, url: string, space?: SpaceId): Promise<void>;
   highlight(environmentId: string, selector?: string, space?: SpaceId): Promise<void>;
   notify(kind: 'success' | 'error' | 'info', title: string, description?: string): void;
+  /**
+   * 用宿主原生表单收一组值（主窗的面可用；独立浮窗会拒绝，那里请用插件自己的内联表单）。
+   * 返回 null = 用户取消。提交是值级的：回来之后再做写操作，失败自己 toast。
+   */
+  openForm(request: OverlayFormRequest): Promise<OverlayFormValues | null>;
 }
 
 export interface PluginSettingsHook {

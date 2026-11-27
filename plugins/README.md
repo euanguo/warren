@@ -98,7 +98,22 @@ export default function register(app) {
 
 ### 前端 API 规范
 
-- `app.shell`（唯一导航/外壳协同通道，**无**历史 `app.navigation`）：`closePopover()`、`resizePopover({ width, height })`、`openPopover(surfaceId, opts)`、`openPage(surfaceId?)`、`openSettings(section?)`、`openInspectorTab(surfaceId?)`、`openTab(envId, url, space?)`、`highlight(envId, selector?, space?)`、`notify(kind, title, description?)`。
+- `app.shell`（唯一导航/外壳协同通道，**无**历史 `app.navigation`）：`closePopover()`、`resizePopover({ width, height })`、`openPopover(surfaceId, opts)`、`openPage(surfaceId?)`、`openSettings(section?)`、`openInspectorTab(surfaceId?)`、`openTab(envId, url, space?)`、`highlight(envId, selector?, space?)`、`notify(kind, title, description?)`、`openForm(request)`。
+- `app.shell.openForm(request)`：用**宿主原生表单浮层**收一组值，能盖在原生网页视图之上（`railPage` / `inspectorTab` / `settingsSection` / `commandBarAction` 面板里的插件 DOM 弹窗会被网页视图盖住）。字段只支持 `text` / `textarea` / `number` / `select` / `switch`，返回 `Record<string, string | number | boolean> | null`（`null` = 取消）。提交是**值级**的：拿到值之后再做写操作，失败自己 `notify('error', …)`，弹窗不会回显服务端错误。独立浮窗（`popover`）调用会被拒绝——那里本来就在主窗之上，继续用自己的内联/DOM 表单。示例：
+
+```js
+const values = await app.shell.openForm({
+  title: '新建分组',
+  submitLabel: '创建',
+  source: '我的插件',
+  fields: [
+    { type: 'text', key: 'name', label: '分组名', required: true, maxLength: 40 },
+    { type: 'select', key: 'scope', label: '范围', options: [{ value: 'a', label: '全部' }] },
+    { type: 'switch', key: 'notify', label: '创建后通知', initial: true },
+  ],
+});
+if (values) await doCreate(String(values.name));
+```
 - `app.host`（只读宿主信息，无需声明额外权限，受 `shared/plugin-host-api.ts` 白名单约束）：`environment.list()`、`environment.get(id)`、`environment.activeContext()`、`browser.info(envId, { space? })`。
 - `app.ui`：必须复用宿主组件库（见 [`src/renderer/lib/plugin-ui.ts`](../src/renderer/lib/plugin-ui.ts)），禁止写死 hex、裸 `rounded-lg`、`h-8` 或自造 chrome；语义色走 `text-[var(--warning)]` 这类 CSS 变量语法。
 

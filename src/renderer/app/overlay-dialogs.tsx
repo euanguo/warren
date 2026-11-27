@@ -10,7 +10,7 @@ import type { Environment } from '@shared/types';
 
 const DEFAULT_START_URL = 'https://example.com';
 
-function OverlayCard({
+export function OverlayCard({
   title,
   description,
   onClose,
@@ -272,113 +272,6 @@ export function EditEnvCard({ environment }: { environment: Environment }) {
           取消
         </Button>
         <Button onClick={() => void submit()} disabled={!name.trim() || submitting}>
-          保存
-        </Button>
-      </div>
-    </OverlayCard>
-  );
-}
-
-export function CreateGroupCard() {
-  const [name, setName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
-  const cancel = () => void window.envApi.resolveOverlay(null);
-
-  const submit = async () => {
-    const trimmed = name.trim();
-    if (!trimmed || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const group = await window.envApi.groupCreate(trimmed);
-      await window.envApi.resolveOverlay(group);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <OverlayCard title="新建分组" description="分组只影响侧栏的组织方式，不影响运行时。" onClose={cancel}>
-      <form
-        className="flex flex-col gap-4 py-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <Field>
-          <FieldLabel htmlFor="overlay-new-group-name">分组名</FieldLabel>
-          <Input
-            ref={inputRef}
-            id="overlay-new-group-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="生产"
-          />
-        </Field>
-        {error && <p className="text-xs text-destructive">{error}</p>}
-      </form>
-      <div className="flex justify-end gap-2 border-t border-border pt-3.5">
-        <Button variant="ghost" onClick={cancel}>
-          取消
-        </Button>
-        <Button onClick={() => void submit()} disabled={!name.trim() || submitting}>
-          创建
-        </Button>
-      </div>
-    </OverlayCard>
-  );
-}
-
-export function RenameCard({ title, label, initialValue }: { title: string; label: string; initialValue: string }) {
-  const [value, setValue] = useState(initialValue);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
-  const cancel = () => void window.envApi.resolveOverlay(null);
-  const submit = () => {
-    const next = value.trim();
-    if (!next) return;
-    void window.envApi.resolveOverlay(next);
-  };
-
-  return (
-    <OverlayCard title={title} onClose={cancel}>
-      <form
-        className="flex flex-col gap-4 py-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <Field>
-          <FieldLabel htmlFor="overlay-rename-value">{label}</FieldLabel>
-          <Input
-            ref={inputRef}
-            id="overlay-rename-value"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
-        </Field>
-      </form>
-      <div className="flex justify-end gap-2 border-t border-border pt-3.5">
-        <Button variant="ghost" onClick={cancel}>
-          取消
-        </Button>
-        <Button onClick={submit} disabled={!value.trim()}>
           保存
         </Button>
       </div>

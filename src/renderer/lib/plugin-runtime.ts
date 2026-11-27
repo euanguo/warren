@@ -29,7 +29,7 @@ import {
 } from '@/lib/plugin-badges';
 import { emptyRegistry, type PluginAppApi, type PluginRegistry } from '@/lib/plugin-sdk-types';
 import { PLUGIN_UI } from '@/lib/plugin-ui';
-import type { InstalledPlugin, PluginSignal } from '@shared/types';
+import type { InstalledPlugin, OverlayFormValues, PluginSignal } from '@shared/types';
 
 function isPopoverWindow(): boolean {
   if (typeof window === 'undefined') return false;
@@ -185,6 +185,13 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
         if (kind === 'error') toast.error(title, description ? { description } : undefined);
         else if (kind === 'info') toast.info(title, description ? { description } : undefined);
         else toast.success(title, description ? { description } : undefined);
+      },
+      openForm: async (request) => {
+        // 独立浮窗是独立 BrowserWindow，主窗的浮层会被它自己挡住；那里请用插件自己的内联表单。
+        if (isPopoverWindow()) {
+          throw Object.assign(new Error('独立浮窗不能用宿主表单'), { code: 'PLUGIN_FORM_UNSUPPORTED_SURFACE' });
+        }
+        return window.envApi.openOverlay<OverlayFormValues>(request);
       },
     },
     settings: plugin.settings,

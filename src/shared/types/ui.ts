@@ -38,13 +38,68 @@ export interface NativeMenuItem {
   submenu?: NativeMenuItem[];
 }
 
+export interface OverlayFormOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * 声明式表单字段：插件只描述字段，宿主自己画。
+ * 校验与裁剪见 `shared/form-schema.ts`（IPC 入口的唯一真相）。
+ */
+export type OverlayFormField =
+  | {
+      type: 'text';
+      key: string;
+      label: string;
+      placeholder?: string;
+      initial?: string;
+      required?: boolean;
+      maxLength?: number;
+    }
+  | {
+      type: 'textarea';
+      key: string;
+      label: string;
+      placeholder?: string;
+      initial?: string;
+      required?: boolean;
+      maxLength?: number;
+    }
+  | {
+      type: 'number';
+      key: string;
+      label: string;
+      initial?: number;
+      min?: number;
+      max?: number;
+      step?: number;
+      required?: boolean;
+    }
+  | { type: 'select'; key: string; label: string; initial?: string; options: OverlayFormOption[] }
+  | { type: 'switch'; key: string; label: string; description?: string; initial?: boolean };
+
+/** text / textarea / select 给字符串，number 给数字（空且非必填时为空串），switch 给布尔。 */
+export type OverlayFormValues = Record<string, string | number | boolean>;
+
+export interface OverlayFormRequest {
+  kind: 'form';
+  title: string;
+  description?: string;
+  submitLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  /** 谁在问：显示成标题下的一行小字（插件名），用来防冒充。 */
+  source?: string;
+  fields: OverlayFormField[];
+}
+
 export type OverlayRequest =
   | { kind: 'create-env'; initialGroupId?: string }
   | { kind: 'edit-env'; environment: Environment }
-  | { kind: 'create-group' }
-  | { kind: 'rename'; title: string; label: string; initialValue: string }
   | { kind: 'confirm'; title: string; description: string; confirmLabel?: string; destructive?: boolean }
-  | { kind: 'command-bar'; initialQuery?: string };
+  | { kind: 'command-bar'; initialQuery?: string }
+  | OverlayFormRequest;
 
 export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-end' | 'top-start';
 
