@@ -212,7 +212,7 @@ Download `Warren-<version>-arm64.dmg` or `Warren-darwin-arm64-<version>.zip` fro
 
 **Option A — Install from `.dmg`:**
 
-1. Open `Warren-0.3.0-arm64.dmg` and drag `Warren.app` into `/Applications` (if Gatekeeper warns before dragging, do not move to Trash).
+1. Open `Warren-0.3.1-arm64.dmg` and drag `Warren.app` into `/Applications` (if Gatekeeper warns before dragging, do not move to Trash).
 2. Run in Terminal:
 
 ```bash
@@ -225,7 +225,7 @@ open -a Warren
 Extract with `ditto` into `/Applications` (preserves Electron bundle symlinks and permissions), clear quarantine, and launch:
 
 ```bash
-ditto -xk Warren-darwin-arm64-0.3.0.zip /Applications
+ditto -xk Warren-darwin-arm64-0.3.1.zip /Applications
 xattr -cr /Applications/Warren.app
 open -a Warren
 ```
