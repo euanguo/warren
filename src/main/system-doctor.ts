@@ -7,7 +7,6 @@ import { skillStatus } from './agent-integration.ts';
 import type { EnvironmentManager } from './environments.ts';
 import type { PluginHost } from './plugins/host.ts';
 import type { Store } from './store.ts';
-import type { VaultStore } from './vault/store.ts';
 
 export interface CollectSystemDiagnosticsInput {
   appVersion: string;
@@ -19,7 +18,6 @@ export interface CollectSystemDiagnosticsInput {
   db: DatabaseSync;
   store: Pick<Store, 'list' | 'listGroups' | 'events'>;
   manager: Pick<EnvironmentManager, 'list' | 'maxRunning' | 'hasActiveAgentLease'>;
-  vault: Pick<VaultStore, 'available' | 'list'>;
   plugins: Pick<PluginHost, 'list'>;
 }
 
@@ -87,19 +85,7 @@ export async function collectSystemDiagnostics(input: CollectSystemDiagnosticsIn
     detail: `共 ${envs.length} 个环境 · 运行中 ${running} / 休眠 ${dormant}（上限 ${input.manager.maxRunning || '不限'}）${input.manager.hasActiveAgentLease() ? ' · Agent 持权中' : ''}`,
   });
 
-  // 4. Vault 安全存储
-  const creds = input.vault.list();
-  const staleCreds = creds.filter((cred) => !cred.available).length;
-  checks.push({
-    id: 'vault',
-    label: '系统密钥存储 (Vault)',
-    status: !input.vault.available ? 'error' : staleCreds > 0 ? 'warn' : 'ok',
-    detail: !input.vault.available
-      ? '系统 Keychain / safeStorage 不可用'
-      : `已加密保存 ${creds.length} 条凭据${staleCreds > 0 ? `（${staleCreds} 条密钥已失效）` : ' · 仅向主进程填表与代理认证开放'}`,
-  });
-
-  // 5. 内置 Skill 同步状态
+  // 4. 内置 Skill 同步状态
   const skills = await skillStatus(os.homedir(), input.skillSourceDir).catch(() => []);
   const installedCount = skills.filter((item) => item.installed).length;
   const outdatedCount = skills.filter((item) => item.installed && item.upToDate === false).length;

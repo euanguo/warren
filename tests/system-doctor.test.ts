@@ -86,10 +86,6 @@ test('collectSystemDiagnostics 浏览器环境池统计读取 manager 运行时�
       maxRunning: 8,
       hasActiveAgentLease: () => true,
     },
-    vault: {
-      available: true,
-      list: () => [],
-    },
     plugins: {
       list: async () => [],
     },

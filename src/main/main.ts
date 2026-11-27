@@ -28,9 +28,6 @@ import { Store } from './store';
 import { WindowLayerManager } from './ui/layer-manager.ts';
 import { OverlayHost } from './ui/overlay-host.ts';
 import { PopoverHost } from './ui/popover-host.ts';
-import { SafeStorageEncryptor } from './vault/electron-encryptor';
-import { loadCredentials, saveCredentials } from './vault/persistence';
-import { VaultStore } from './vault/store';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -86,8 +83,6 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const store = new Store(coreDir);
-const encryptor = new SafeStorageEncryptor();
-const vault = new VaultStore(encryptor);
 
 let manager: EnvironmentManager;
 let plugins: PluginHost;
@@ -113,28 +108,54 @@ function broadcast(channel: string, payload?: unknown): void {
   }
 }
 
-const broadcastEnvDelta = (reason?: string): void => broadcast('env:delta', reason ? { reason } : {});
+let envDeltaTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingEnvDeltaReason: string | undefined;
+let envDeltaHasPending = false;
+
+function flushEnvDelta(): void {
+  if (!envDeltaHasPending) return;
+  const reason = pendingEnvDeltaReason;
+  pendingEnvDeltaReason = undefined;
+  envDeltaHasPending = false;
+  broadcast('env:delta', reason ? { reason } : {});
+}
+
+/** 合并 50ms 内的密集状态通知，避免多标签/下载进度触发渲染层 IPC 风暴。 */
+const broadcastEnvDelta = (reason?: string): void => {
+  if (!envDeltaHasPending) {
+    envDeltaHasPending = true;
+    pendingEnvDeltaReason = reason;
+    envDeltaTimer = setTimeout(() => {
+      envDeltaTimer = undefined;
+      flushEnvDelta();
+    }, 50);
+    envDeltaTimer.unref?.();
+    return;
+  }
+  if (pendingEnvDeltaReason && pendingEnvDeltaReason !== reason) {
+    pendingEnvDeltaReason = undefined;
+  }
+};
 const broadcastPluginChanged = (reason?: string): void => broadcast('plugin:changed', reason ? { reason } : {});
 
-async function loadVault(): Promise<void> {
-  vault.load(await loadCredentials(store.database, coreDir));
-}
-
-async function saveVault(): Promise<void> {
-  saveCredentials(store.database, vault.serialize());
-}
-
-/** 代理认证挑战没有匹配凭据时拒绝，禁止静默放行裸奔。 */
-function resolveProxyCredential(host: string): { username: string; password: string } | null {
-  const match = vault.list().find((item) => item.provider === 'proxy' && item.label === host);
-  if (!match) return null;
-  try {
-    const secret = vault.reveal(match.ref);
-    if (!secret.username || !secret.password) return null;
-    return { username: secret.username, password: secret.password };
-  } catch {
-    return null;
+/** 代理认证挑战从对应环境的代理 URL 凭据段解析；未配置凭据则拒绝，禁止静默放行裸奔。 */
+function resolveProxyCredential(host: string, port?: number): { username: string; password: string } | null {
+  for (const env of store.list()) {
+    if (!env.proxy) continue;
+    try {
+      const parsed = new URL(env.proxy);
+      if (parsed.hostname !== host) continue;
+      if (port && parsed.port && Number(parsed.port) !== port) continue;
+      if (!parsed.username || !parsed.password) continue;
+      return {
+        username: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
+      };
+    } catch {
+      // 忽略非法代理 URL
+    }
   }
+  return null;
 }
 
 /** 仅创建主窗对象与原生事件监听，暂不加载渲染层；待 IPC 路由就绪后再调用 `loadMainWindow`。 */
@@ -295,7 +316,7 @@ app.whenReady().then(async () => {
 
   app.on('login', (event, _webContents, _details, authInfo, callback) => {
     if (!authInfo.isProxy) return;
-    const resolved = resolveProxyCredential(authInfo.host);
+    const resolved = resolveProxyCredential(authInfo.host, authInfo.port);
     if (!resolved) return;
     event.preventDefault();
     callback(resolved.username, resolved.password);
@@ -306,10 +327,6 @@ app.whenReady().then(async () => {
   });
 
   await store.load();
-  await loadVault();
-  if (!vault.available) {
-    store.record(makeEvent('vault.unavailable', '系统密钥存储不可用，Vault 已禁用', 'system'));
-  }
 
   const pluginProtocol = registerPluginProtocol({
     protocol,
@@ -400,10 +417,8 @@ app.whenReady().then(async () => {
   plugins = new PluginHost({
     root: path.join(coreDir, 'plugins'),
     manager,
-    vault,
     store,
     db: store.database,
-    saveVault,
     appVersion: app.getVersion(),
     onSignal: (pluginId, channel, payload) => {
       window?.webContents.send('plugin:signal', { pluginId, channel, payload });
@@ -439,8 +454,6 @@ app.whenReady().then(async () => {
     getPlugins: () => plugins,
     getMemoryMonitor: () => memoryMonitor,
     store,
-    vault,
-    saveVault,
     homeDir: paths.home,
     coreDir,
     skillSourceDir,
@@ -455,8 +468,6 @@ app.whenReady().then(async () => {
   // 且打开后在空闲 3 分钟由 MemoryMonitor 自动回收。
 
   rpc = new RpcServer(manager, store, {
-    vault,
-    saveVault,
     plugins,
     memoryMonitor,
     skillSourceDir: skillSourceDir(),
@@ -504,6 +515,12 @@ let cleaningUp = false;
 
 async function gracefulShutdown(): Promise<void> {
   quitting = true;
+  if (envDeltaTimer) {
+    clearTimeout(envDeltaTimer);
+    envDeltaTimer = undefined;
+  }
+  envDeltaHasPending = false;
+  pendingEnvDeltaReason = undefined;
   memoryMonitor?.stop();
   memoryMonitor = undefined;
   overlayHost?.destroy();

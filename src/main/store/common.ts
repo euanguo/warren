@@ -72,7 +72,7 @@ export function assertNoteSafe(content: string): string {
     throw Object.assign(new Error('note content exceeds 8192 characters'), { code: 'BAD_REQUEST' });
   }
   if (SECRET_NOTE_PATTERNS.some((re) => re.test(cleaned))) {
-    throw Object.assign(new Error('site_notes 严禁存放密码或令牌明文，请使用 warren vault add'), {
+    throw Object.assign(new Error('site_notes 严禁存放密码或令牌明文，请使用账号管理插件（com.warren.accounts）'), {
       code: 'BAD_REQUEST',
     });
   }

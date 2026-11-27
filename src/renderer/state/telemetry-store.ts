@@ -166,7 +166,8 @@ async function pullTelemetry(telemetryOnly = false): Promise<void> {
 function ensureTelemetryListeners(): void {
   if (started || typeof window === 'undefined' || !window.envApi) return;
   started = true;
-  window.envApi.onEnvDelta(() => {
+  window.envApi.onEnvDelta((payload) => {
+    if (payload?.reason === 'downloads') return;
     if (!target.envId || !target.running) return;
     if (target.inspectorOpen) void pullTelemetry(false);
     else void pullNavOnly();

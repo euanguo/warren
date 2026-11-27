@@ -107,8 +107,6 @@ function unleasedDeps(): { deps: DispatchDeps; touchedController: () => boolean 
   const deps: DispatchDeps = {
     manager,
     store: {} as DispatchDeps['store'],
-    vault: {} as DispatchDeps['vault'],
-    saveVault: async () => {},
     plugins: {} as DispatchDeps['plugins'],
     isPackaged: false,
     quit: () => {},

@@ -98,6 +98,25 @@ export function wireDownloads(
       recordDownloadInfo(info);
       onChanged?.();
 
+      let lastNotifyAt = Date.now();
+      let notifyTimer: ReturnType<typeof setTimeout> | undefined;
+      const emitProgress = () => {
+        if (!onChanged) return;
+        const elapsed = Date.now() - lastNotifyAt;
+        if (elapsed >= 250) {
+          lastNotifyAt = Date.now();
+          onChanged();
+          return;
+        }
+        if (notifyTimer) return;
+        notifyTimer = setTimeout(() => {
+          notifyTimer = undefined;
+          lastNotifyAt = Date.now();
+          onChanged();
+        }, 250 - elapsed);
+        notifyTimer.unref?.();
+      };
+
       item.on('updated', (_e, state) => {
         const cur = historyById.get(downloadId);
         if (!cur) return;
@@ -105,10 +124,14 @@ export function wireDownloads(
         cur.totalBytes = item.getTotalBytes();
         cur.state = state === 'interrupted' ? 'interrupted' : 'progressing';
         cur.savePath = item.getSavePath() || cur.savePath;
-        onChanged?.();
+        emitProgress();
       });
 
       item.once('done', (_e, state) => {
+        if (notifyTimer) {
+          clearTimeout(notifyTimer);
+          notifyTimer = undefined;
+        }
         const cur = historyById.get(downloadId);
         if (!cur) return;
         cur.receivedBytes = item.getReceivedBytes();

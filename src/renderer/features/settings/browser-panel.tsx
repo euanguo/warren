@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Icon } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { setSettingsSection } from '@/state/navigation-store';
 import { pluginActions, usePluginState } from '@/state/plugin-store';
 import { cn } from '@/lib/utils';
 import { cardSurfaceClass } from '@/theme/surface';
@@ -20,9 +21,6 @@ const VIEWPORT_LABELS: Record<ViewportPresetId, string> = {
   'laptop-1280': '笔电 · 1280×800',
   'mobile-390': '手机 · 390×844',
 };
-
-const MAX_RUNNING_OPTIONS = ['4', '6', '8', '12', '16', '0'];
-const IDLE_MINUTES_OPTIONS = ['0', '5', '10', '30', '60'];
 
 export function BrowserPanel() {
   const { settings } = usePluginState();
@@ -127,54 +125,16 @@ export function BrowserPanel() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 border-t border-border pt-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium">并发运行环境上限（LRU 回收）</span>
-            <Select
-              value={String(settings.maxRunning ?? 8)}
-              onValueChange={(value) => void save({ maxRunning: Number(value) })}
-            >
-              <SelectTrigger>
-                <SelectValue>
-                  {(value) => (String(value) === '0' ? '不限制' : `最多 ${String(value)} 个（默认 8）`)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {MAX_RUNNING_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option === '0' ? '不限制' : `${option} 个环境`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex items-center justify-between gap-3 border-t border-border pt-3 text-xs">
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium">并发环境上限与自动休眠策略</span>
             <span className="text-[11px] text-muted-foreground">
-              超出上限时按策略自动休眠或停止最久未使用的非活跃环境（更多内存策略见「性能与内存」）。
+              已收拢至「性能与内存」统一配置，避免多处策略分散冲突。
             </span>
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium">闲置自动休眠阈值</span>
-            <Select
-              value={String(settings.idleHibernateMinutes ?? 10)}
-              onValueChange={(value) => void save({ idleHibernateMinutes: Number(value) })}
-            >
-              <SelectTrigger>
-                <SelectValue>
-                  {(value) => (String(value) === '0' ? '关闭自动休眠' : `${String(value)} 分钟`)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {IDLE_MINUTES_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option === '0' ? '关闭自动休眠' : `${option} 分钟`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-[11px] text-muted-foreground">
-              休眠会释放渲染进程内存，保留 Cookie 与标签，再次点击或 CLI 调用时透明唤醒。
-            </span>
-          </div>
+          <Button size="sm" variant="outline" onClick={() => setSettingsSection('memory')}>
+            前往性能与内存
+          </Button>
         </div>
       </div>
 

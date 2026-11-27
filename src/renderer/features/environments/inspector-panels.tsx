@@ -136,6 +136,8 @@ export function EventsInspectorPanel({
   totalCount,
   events,
   actorFilter,
+  onlyCurrentEnv = false,
+  onToggleOnlyCurrentEnv,
   query,
   expandedEventId,
   onActorFilterChange,
@@ -145,6 +147,8 @@ export function EventsInspectorPanel({
   totalCount: number;
   events: EventRecord[];
   actorFilter: 'all' | 'agent' | 'human' | 'system';
+  onlyCurrentEnv?: boolean;
+  onToggleOnlyCurrentEnv?: () => void;
   query: string;
   expandedEventId: string | null;
   onActorFilterChange: (next: 'all' | 'agent' | 'human' | 'system') => void;
@@ -153,7 +157,7 @@ export function EventsInspectorPanel({
 }) {
   return (
     <>
-      <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2.5 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2.5 py-1.5">
         {(
           [
             ['all', '全部'],
@@ -176,6 +180,21 @@ export function EventsInspectorPanel({
             {label}
           </button>
         ))}
+        {onToggleOnlyCurrentEnv && (
+          <button
+            type="button"
+            aria-pressed={onlyCurrentEnv}
+            onClick={onToggleOnlyCurrentEnv}
+            className={cn(
+              'rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[length:var(--font-size-micro)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-focus',
+              onlyCurrentEnv
+                ? 'border-[var(--theme-accent)]/60 bg-surface-selected font-medium text-foreground'
+                : 'border-border/70 text-subtle-foreground hover:bg-surface-hover hover:text-foreground',
+            )}
+          >
+            仅当前环境
+          </button>
+        )}
         <input
           type="text"
           value={query}
@@ -389,10 +408,21 @@ export function NetRulesPanel({
   );
 }
 
-export function StorageInspectorPanel({ cookies }: { cookies?: CookieSummary[] }) {
+export function StorageInspectorPanel({ cookies, onRefresh }: { cookies?: CookieSummary[]; onRefresh?: () => void }) {
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-0.5 px-3 py-2 font-mono text-xs">
+        {onRefresh && (
+          <div className="mb-1.5 flex items-center justify-between border-b border-border/60 pb-1.5 font-sans">
+            <span className="text-[11px] text-muted-foreground">
+              {cookies ? `共 ${cookies.length} 条 Cookie 元数据` : '正在读取…'}
+            </span>
+            <Button size="xs" variant="ghost" onClick={onRefresh}>
+              <Icon name="RotateClockwise" className="size-3" />
+              刷新
+            </Button>
+          </div>
+        )}
         {!cookies && <p className="font-sans text-muted-foreground">正在读取…</p>}
         {cookies?.length === 0 && <p className="font-sans text-muted-foreground">这个环境还没有 cookie。</p>}
         {cookies?.map((cookie) => (

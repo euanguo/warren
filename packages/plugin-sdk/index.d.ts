@@ -2,7 +2,7 @@ export type PluginRuntime = 'sandbox' | 'host';
 
 export type SpaceId = 'person' | 'agent';
 
-export type BuiltinSettingsSection = 'general' | 'browser' | 'agent' | 'vault' | 'plugins' | 'diagnostics';
+export type BuiltinSettingsSection = 'general' | 'browser' | 'memory' | 'agent' | 'plugins' | 'diagnostics';
 
 /**
  * 可授予权限（共 14 项：`granted` 6 项 + `confirm` 8 项）。
@@ -144,13 +144,6 @@ export interface CookieInput {
   expirationDate?: number;
 }
 
-export interface VaultCredentialSummary {
-  ref: string;
-  provider: string;
-  label: string;
-  usernameHint: string;
-}
-
 export interface PluginHostEnvironmentSummary {
   id: string;
   name: string;
@@ -225,12 +218,6 @@ export interface PluginHost {
     stop(id: string): Promise<{ ok: boolean }>;
   };
   vault: {
-    listRefs(provider?: string): Promise<VaultCredentialSummary[]>;
-    fill(
-      ref: string,
-      target: unknown,
-      field?: 'username' | 'password' | 'token' | 'totp',
-    ): Promise<{ filled: boolean; field: string }>;
     maskHint(username: string): Promise<string>;
   };
   browser: {

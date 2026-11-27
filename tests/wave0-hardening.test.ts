@@ -139,7 +139,6 @@ test('插件 host API：storage.sql.query 强制鉴权，browser.waitForFunction
           waitForFunction: async () => true,
         }),
       } as never,
-      vault: { available: false, list: () => [], reveal: () => ({}) },
       storage,
       settings: {} as never,
       descriptors: [],

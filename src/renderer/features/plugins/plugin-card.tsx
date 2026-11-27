@@ -83,7 +83,7 @@ function SettingField({
     setBusy(true);
     try {
       await window.envApi.pluginConfigSet(plugin.id, setting.key, draft);
-      setDraft('');
+      if (isSecret) setDraft('');
       toast.success(`已保存 ${setting.label}`);
       onSaved();
     } catch (error) {
@@ -235,6 +235,28 @@ export function PluginCard({ plugin, onChanged }: { plugin: InstalledPlugin; onC
             }}
           >
             <Icon name="Code" />
+          </IconButton>
+          <IconButton
+            title="卸载插件"
+            aria-label={`卸载插件 ${plugin.name}`}
+            onClick={() =>
+              void (async () => {
+                const confirmed = await window.envApi.openOverlay<boolean>({
+                  kind: 'confirm',
+                  title: `卸载插件「${plugin.name}」`,
+                  description: '将停用并移除插件包文件（插件独立数据目录保留，重新安装可恢复）。确定继续吗？',
+                  confirmLabel: '卸载',
+                  destructive: true,
+                });
+                if (!confirmed) return;
+                await act(async () => {
+                  await window.envApi.pluginUninstall(plugin.id);
+                  toast.success(`已卸载插件「${plugin.name}」`);
+                }, '卸载插件失败');
+              })()
+            }
+          >
+            <Icon name="Trash" />
           </IconButton>
         </div>
       </div>

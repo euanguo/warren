@@ -6,7 +6,6 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../store';
-import type { VaultStore } from '../vault/store';
 import {
   diffPermissions,
   needsUserConfirmation,
@@ -79,10 +78,8 @@ export async function hashPluginDir(dir: string): Promise<string> {
 
 export interface InstallerDeps {
   root: string;
-  vault: VaultStore;
   store: Store;
   db: DatabaseSync;
-  saveVault: () => Promise<void>;
   appVersion: string;
   getState: () => PluginState;
   saveState: () => Promise<void>;
@@ -98,9 +95,22 @@ export interface InstallerDeps {
 export class PluginInstaller {
   #deps: InstallerDeps;
   #skillCache = new Map<string, PluginSkillEntry>();
+  #packageCache = new Map<string, { pkg: PluginPackage; dir: string; installedAt: string }>();
+  #dirEntriesCache?: string[];
 
   constructor(deps: InstallerDeps) {
     this.#deps = deps;
+  }
+
+  invalidateMetadataCache(id?: string): void {
+    this.#dirEntriesCache = undefined;
+    if (!id) {
+      this.#packageCache.clear();
+      this.#skillCache.clear();
+      return;
+    }
+    this.#packageCache.delete(id);
+    this.#invalidateSkillCache(id);
   }
 
   #invalidateSkillCache(id?: string): void {
@@ -151,8 +161,6 @@ export class PluginInstaller {
     const settings = new PluginSettings({
       dir: this.dirFor(id),
       pluginId: id,
-      vault: this.#deps.vault,
-      saveVault: this.#deps.saveVault,
       db: this.#deps.db,
     });
     await settings.load();
@@ -214,21 +222,32 @@ export class PluginInstaller {
   }
 
   async list(): Promise<InstalledPlugin[]> {
-    let entries: string[] = [];
-    try {
-      entries = (await readdir(this.#deps.root, { withFileTypes: true }))
-        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-        .map((entry) => entry.name)
-        .sort((a, b) => a.localeCompare(b));
-    } catch {
-      return [];
+    let entries = this.#dirEntriesCache;
+    if (!entries) {
+      try {
+        entries = (await readdir(this.#deps.root, { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+          .map((entry) => entry.name)
+          .sort((a, b) => a.localeCompare(b));
+        this.#dirEntriesCache = entries;
+      } catch {
+        return [];
+      }
     }
 
     const items = await Promise.all(
       entries.map(async (id): Promise<InstalledPlugin | null> => {
         try {
-          const pkg = await this.readPackage(id);
-          return await this.decorate(pkg, this.dirFor(id));
+          let cached = this.#packageCache.get(id);
+          if (!cached) {
+            const dir = this.dirFor(id);
+            const pkg = await this.readPackage(id);
+            const install = this.#deps.getState().installs[pkg.id];
+            const installedAt = install?.installedAt ?? (await stat(dir)).mtime.toISOString();
+            cached = { pkg, dir, installedAt };
+            this.#packageCache.set(id, cached);
+          }
+          return await this.decorate(cached.pkg, cached.dir);
         } catch {
           // 目录存在但 pkg 坏了：跳过，不阻塞其它插件
           return null;
@@ -325,7 +344,7 @@ export class PluginInstaller {
         }
 
         if (existed) await rm(backup, { recursive: true, force: true });
-        this.#invalidateSkillCache(id);
+        this.invalidateMetadataCache(id);
         this.#deps.onChange();
         this.#deps.store.record({
           id: crypto.randomUUID(),
@@ -363,7 +382,7 @@ export class PluginInstaller {
         state.enabled = state.enabled.filter((entry) => entry !== id);
         if (previousEnabled) state.enabled.push(id);
         await this.#deps.saveState();
-        this.#invalidateSkillCache(id);
+        this.invalidateMetadataCache(id);
         if (previousEnabled) {
           await this.#deps.activate(await this.readPackage(id)).catch(() => undefined);
         }
@@ -397,7 +416,7 @@ export class PluginInstaller {
     delete state.installs[id];
     if (state.skillExposed) delete state.skillExposed[id];
     this.#deps.deleteStatus(id);
-    this.#invalidateSkillCache(id);
+    this.invalidateMetadataCache(id);
     await this.#deps.saveState();
     this.#deps.onChange();
     this.#deps.store.record({

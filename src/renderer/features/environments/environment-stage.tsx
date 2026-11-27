@@ -244,19 +244,20 @@ export function EnvironmentStage({
     });
   }, [current, running, activeSpaceId]);
 
+  const currentId = current?.id;
   useEffect(() => {
-    if (!current || !running) return;
+    if (!currentId || !running || stageReplaced) return;
     let cancelled = false;
-    const pull = () => {
+    const pullAll = () => {
       void Promise.all([
-        window.envApi.getZoom(current.id, activeSpaceId),
-        window.envApi.getViewportPreset(current.id, activeSpaceId),
+        window.envApi.getZoom(currentId, activeSpaceId),
+        window.envApi.getViewportPreset(currentId, activeSpaceId),
         window.envApi.getDevToolsState(),
-        window.envApi.downloads(current.id),
+        window.envApi.downloads(currentId),
       ]).then(([z, p, d, dl]) => {
         if (cancelled) return;
         setPagePrefs({
-          envId: current.id,
+          envId: currentId,
           spaceId: activeSpaceId,
           zoom: z.factor,
           preset: p.preset,
@@ -265,13 +266,26 @@ export function EnvironmentStage({
         });
       });
     };
-    pull();
-    const unsub = window.envApi.onEnvDelta(() => pull());
+    const pullDownloads = () => {
+      void window.envApi.downloads(currentId).then((dl) => {
+        if (cancelled) return;
+        setPagePrefs((prev) =>
+          prev && prev.envId === currentId && prev.spaceId === activeSpaceId
+            ? { ...prev, hasActiveDownload: dl.some((item) => item.state === 'progressing') }
+            : prev,
+        );
+      });
+    };
+    pullAll();
+    const unsub = window.envApi.onEnvDelta((payload) => {
+      if (payload?.reason === 'downloads') pullDownloads();
+      else pullAll();
+    });
     return () => {
       cancelled = true;
       unsub();
     };
-  }, [current, running, activeSpaceId, activeTabId, nav?.url]);
+  }, [currentId, running, activeSpaceId, activeTabId, nav?.url, stageReplaced]);
 
   const shouldExcludeRight = useCallback(
     (dock: DevToolsDockMode = devToolsState.dock) =>
@@ -867,6 +881,7 @@ export function EnvironmentStage({
                 if (tab === 'storage' && current) onReadCookies(current.id);
               }}
               onRefreshSnapshot={() => current && onRefreshSnapshot(current.id)}
+              onRefreshCookies={() => current && onReadCookies(current.id)}
               cookies={cookies}
               pluginTabs={pluginTabs}
               environmentId={current?.id}

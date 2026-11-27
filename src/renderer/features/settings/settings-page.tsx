@@ -6,7 +6,6 @@ import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PluginsPanel } from '@/features/plugins/plugins-panel';
-import { VaultPanel } from '@/features/plugins/vault-panel';
 import { AgentPanel } from '@/features/settings/agent-panel';
 import { ApprovalPanel } from '@/features/settings/approval-panel';
 import { BrowserPanel } from '@/features/settings/browser-panel';
@@ -53,9 +52,9 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     id: 'browser',
     group: '界面与浏览',
     title: '浏览器与 DevTools',
-    subtitle: '设置开发者工具默认停靠方式、默认视口、并发与休眠阈值以及按域偏好。',
+    subtitle: '设置开发者工具默认停靠方式、默认视口以及按域偏好与地址历史。',
     icon: 'Code',
-    keywords: '浏览器 devtools 开发者工具 停靠 右侧 底部 独立 视口 缩放 并发 休眠 按域 历史 dock viewport maxrunning',
+    keywords: '浏览器 devtools 开发者工具 停靠 右侧 底部 独立 视口 缩放 按域 历史 dock viewport',
     render: () => <BrowserPanel />,
   },
   {
@@ -80,15 +79,6 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
         <AgentPanel />
       </div>
     ),
-  },
-  {
-    id: 'vault',
-    group: '自动化与安全',
-    title: '凭据与安全边界',
-    subtitle: '使用系统 Keychain 安全录入或移除凭据，审视无明文回流机制。',
-    icon: 'Key',
-    keywords: '凭据 vault key keychain 代理 密码 token 安全 边界',
-    render: () => <VaultPanel />,
   },
   {
     id: 'plugins',
@@ -140,7 +130,15 @@ export function SettingsPage({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // 子对话框、下拉选择或弹出菜单打开时，把 Esc 留给子浮层消费，避免整页设置被误关
+      if (
+        document.querySelector(
+          '[role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"][data-open], [data-popup-open]',
+        )
+      ) {
+        return;
+      }
       if (settingsQuery.trim()) {
         setSettingsQuery('');
         return;
@@ -272,7 +270,7 @@ export function SettingsPage({
           {filteredSections.length === 0 ? (
             <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 py-8">
               <p className="text-sm font-medium">没有找到包含「{settingsQuery}」的设置项</p>
-              <p className="text-xs text-muted-foreground">试试主题、DevTools、审批、Vault 或插件关键字。</p>
+              <p className="text-xs text-muted-foreground">试试主题、DevTools、内存、审批或插件关键字。</p>
               <Button size="sm" variant="outline" onClick={() => setSettingsQuery('')}>
                 清除搜索
               </Button>

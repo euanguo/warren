@@ -75,7 +75,6 @@ const PATH_RULES = [
   },
   { match: /^plugins\/account-manager\//, unit: ['tests/account-manager.test.ts', 'tests/wave0-hardening.test.ts'] },
   { match: /^plugins\/whistle\//, unit: allUnitTests.filter((t) => /whistle|wave0/.test(t)) },
-  { match: /^src\/main\/vault\//, unit: ['tests/vault.test.ts', 'tests/approval.test.ts'] },
   {
     match: /^src\/main\/(rpc\.ts|rpc\/|rpc-dispatch\.ts)/,
     unit: allUnitTests.filter((t) => /rpc|browser|env-|memory-management|wave0/.test(t)),

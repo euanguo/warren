@@ -91,9 +91,6 @@ const api: EnvApi = {
   onPopoverAction: (callback) => subscribe('popover:action', callback),
   onPopoverDismissed: (callback) => subscribe('popover:dismissed', callback),
   onBrowserShortcut: (callback) => subscribe('browser:shortcut', callback),
-  vault: () => ipcRenderer.invoke('vault:list'),
-  vaultAdd: (input) => ipcRenderer.invoke('vault:add', input),
-  vaultRemove: (ref) => ipcRenderer.invoke('vault:remove', ref),
   domainPrefs: (envId) => ipcRenderer.invoke('browser:domainPrefs', envId),
   clearDomainPref: (envId, origin) => ipcRenderer.invoke('browser:clearDomainPref', envId, origin),
   clearUrlHistory: () => ipcRenderer.invoke('system:clearUrlHistory'),
@@ -107,6 +104,7 @@ const api: EnvApi = {
   plugins: () => ipcRenderer.invoke('plugin:list'),
   pluginEnable: (id) => ipcRenderer.invoke('plugin:enable', id),
   pluginDisable: (id) => ipcRenderer.invoke('plugin:disable', id),
+  pluginUninstall: (id) => ipcRenderer.invoke('plugin:uninstall', id),
   pluginGrant: (id, permissions) => ipcRenderer.invoke('plugin:grant', id, permissions),
   pluginInstall: (source) =>
     source ? ipcRenderer.invoke('plugin:installSource', source) : ipcRenderer.invoke('plugin:installFromDialog'),

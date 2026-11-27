@@ -9,7 +9,7 @@ import { MenuLabel } from '@/components/ui/menu';
 import { Spinner } from '@/components/ui/spinner';
 import { StatusDot, type StatusDotTone } from '@/components/ui/status-dot';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { formatMemoryKb } from '@/features/settings/memory-panel';
+import { formatBytes, formatMemoryKb } from '@/lib/format';
 import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { usePluginState } from '@/state/plugin-store';
@@ -189,6 +189,9 @@ function FindInPageView({ props }: { props: PopoverPropsMap['find-in-page'] }) {
           if (event.key === 'Enter') {
             event.preventDefault();
             step(!event.shiftKey);
+          } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'g') {
+            event.preventDefault();
+            step(!event.shiftKey);
           } else if (event.key === 'Escape') {
             event.preventDefault();
             close();
@@ -222,13 +225,6 @@ function FindInPageView({ props }: { props: PopoverPropsMap['find-in-page'] }) {
       </IconButton>
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function DownloadsView({ props }: { props: PopoverPropsMap['downloads'] }) {
@@ -483,6 +479,7 @@ export function MemoryQuickView() {
   useEffect(() => {
     let active = true;
     const load = () => {
+      if (document.hidden) return;
       void window.envApi
         .memorySnapshot()
         .then((next) => {
@@ -491,7 +488,7 @@ export function MemoryQuickView() {
         .catch(() => undefined);
     };
     load();
-    const timer = window.setInterval(load, 2000);
+    const timer = window.setInterval(load, 3000);
     return () => {
       active = false;
       window.clearInterval(timer);

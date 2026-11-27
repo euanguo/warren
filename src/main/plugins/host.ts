@@ -7,7 +7,6 @@ import { mkdir } from 'node:fs/promises';
 import type { DatabaseSync } from 'node:sqlite';
 import type { EnvironmentManager } from '../environments';
 import type { Store } from '../store';
-import type { VaultStore } from '../vault/store';
 import { PluginEventBus } from './event-bus.ts';
 import { PluginInstaller } from './installer.ts';
 import { PluginInvoker, type RunResult } from './invoker.ts';
@@ -39,11 +38,9 @@ export class PluginHost {
   constructor(options: {
     root: string;
     manager: EnvironmentManager;
-    vault: VaultStore;
     store: Store;
     /** 共享连接（`warren.db`）：注册表 / kv / 设置 / 日志都在这一个库上 */
     db: DatabaseSync;
-    saveVault: () => Promise<void>;
     appVersion?: string;
     onSignal?: (pluginId: string, channel: string, payload: unknown) => void;
     /** 插件集合或状态变了：渲染层要重取清单（CLI 改的也要通知到界面） */
@@ -68,10 +65,8 @@ export class PluginHost {
 
     this.#installer = new PluginInstaller({
       root: options.root,
-      vault: options.vault,
       store: options.store,
       db: options.db,
-      saveVault: options.saveVault,
       appVersion: options.appVersion ?? '0.1.0',
       getState,
       saveState,
@@ -87,7 +82,6 @@ export class PluginHost {
     this.#lifecycle = new PluginLifecycle({
       root: options.root,
       manager: options.manager,
-      vault: options.vault,
       store: options.store,
       db: options.db,
       eventBus: this.#eventBus,

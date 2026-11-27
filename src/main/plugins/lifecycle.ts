@@ -7,7 +7,6 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { EnvironmentManager } from '../environments';
 import type { Store } from '../store';
-import type { VaultStore } from '../vault/store';
 import { pluginAutoApproves } from '../domain/approval.ts';
 import { createHandlers, dispatchHostCall } from './api/index.ts';
 import type { HostHandler } from './api/types.ts';
@@ -62,7 +61,6 @@ const BATCH_NOTIFY_DEBOUNCE_MS = 80;
 export interface LifecycleDeps {
   root: string;
   manager: EnvironmentManager;
-  vault: VaultStore;
   store: Store;
   db: DatabaseSync;
   eventBus: PluginEventBus;
@@ -484,7 +482,6 @@ export class PluginLifecycle {
         currentCaller,
         require: (permission) => this.requirePermission(id, permission),
         manager: this.#deps.manager,
-        vault: this.#deps.vault,
         storage,
         settings,
         descriptors: pkg.contributes.settings,

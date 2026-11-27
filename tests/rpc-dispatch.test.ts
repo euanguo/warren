@@ -145,30 +145,19 @@ function makeManager(options: { lease?: FakeLease; pageUrl?: string; dormant?: b
 function makeDeps(
   manager: ReturnType<typeof makeManager>,
   overrides: Partial<DispatchDeps> = {},
-): DispatchDeps & { events: Array<{ type: string; message: string }>; revealed: string[] } {
+): DispatchDeps & { events: Array<{ type: string; message: string }> } {
   const events: Array<{ type: string; message: string }> = [];
-  const revealed: string[] = [];
   const deps = {
     manager: manager as never,
     store: {
       record: (event: { type: string; message: string }) => void events.push(event),
       get: () => undefined,
     } as never,
-    vault: {
-      available: true,
-      list: () => [],
-      reveal: (ref: string) => {
-        revealed.push(ref);
-        return { password: 'hunter2' };
-      },
-    } as never,
-    saveVault: async () => {},
     plugins: {} as never,
     isPackaged: false,
     quit: () => {},
     ...overrides,
     events,
-    revealed,
   };
   return deps;
 }
@@ -186,16 +175,14 @@ const WRITE_CALLS: Array<[string, Record<string, unknown>]> = [
   ['browser.navigate', { id: ENV, url: 'https://example.com/' }],
   ['browser.fill', { id: ENV, target: { kind: 'css', selector: '#name' }, value: 'x' }],
   ['net.rule.add', { id: ENV, rule: { match: { url: '**/api/**' }, action: { type: 'block' } } }],
-  ['vault.fill', { id: ENV, ref: 'example/fixture', target: { kind: 'css', selector: '#password' } }],
 ];
 
-test('没持 lease 的写操作一律被拒，且不碰 controller / vault', async () => {
+test('没持 lease 的写操作一律被拒，且不碰 controller', async () => {
   for (const [method, params] of WRITE_CALLS) {
     const manager = makeManager();
     const deps = makeDeps(manager);
     await expectCode(dispatchRpc(deps, method, params), 'ENV_NOT_LEASED');
     assert.deepEqual(manager.calls, ['assertWritable'], `${method} 不该在门控之外再碰别的东西`);
-    assert.deepEqual(deps.revealed, [], `${method} 在没租约时连凭据都不该去读`);
   }
 });
 
@@ -335,42 +322,6 @@ test('后台截图用临时可操作视图，不取 lease，结束必摘掉', as
   assert.ok(manager.calls.includes('screenshot'));
   assert.ok(manager.calls.includes('detachOperable'));
   assert.equal(manager.calls.includes('assertWritable'), false);
-});
-
-test('vault.fill 在域名名单外拒绝：记事件、不填、返回值里没有明文', async () => {
-  const manager = makeManager({ lease: { leaseId: LEASE_ID, expiresAt: Date.now() + 60_000 } });
-  const deps = makeDeps(manager);
-  await expectCode(
-    dispatchRpc(deps, 'vault.fill', {
-      id: ENV,
-      leaseId: LEASE_ID,
-      ref: 'example/fixture',
-      target: { kind: 'css', selector: '#password' },
-      allowedDomains: ['other.example'],
-    }),
-    'PATH_DENIED',
-  );
-  assert.deepEqual(
-    deps.events.map((event) => event.type),
-    ['vault.fillDenied'],
-  );
-  assert.equal(manager.calls.includes('fill'), false, '被拒时绝不能真的填进去');
-});
-
-test('vault.fill 命中名单时填充，返回值只报字段、不带值', async () => {
-  const manager = makeManager({ lease: { leaseId: LEASE_ID, expiresAt: Date.now() + 60_000 } });
-  const deps = makeDeps(manager);
-  const result = await dispatchRpc(deps, 'vault.fill', {
-    id: ENV,
-    leaseId: LEASE_ID,
-    ref: 'example/fixture',
-    target: { kind: 'css', selector: '#password' },
-    allowedDomains: ['example.com'],
-  });
-
-  assert.deepEqual(result, { filled: true, ref: 'example/fixture', field: 'password' });
-  assert.equal(JSON.stringify(result).includes('hunter2'), false, '明文一个字都不能出现在返回值里');
-  assert.ok(manager.calls.includes('fill'));
 });
 
 test('缺参数报 BAD_REQUEST，未知方法报 METHOD_NOT_FOUND', async () => {

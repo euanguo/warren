@@ -320,11 +320,12 @@ describe('无头迁移：原 scripts/regress/ui.cjs 核心外壳 / 工作台 / �
     );
     expect(tabs.some((t) => t?.includes('插件'))).toBe(true);
     expect(tabs.some((t) => t?.includes('Agent'))).toBe(true);
-    expect(tabs.some((t) => t?.includes('凭据'))).toBe(true);
+    expect(tabs.some((t) => t?.includes('性能与内存'))).toBe(true);
+    expect(tabs.some((t) => t?.includes('凭据'))).toBe(false);
 
     const search = screen.getByRole('textbox', { name: '搜索设置' });
-    fireEvent.change(search, { target: { value: '凭据' } });
-    expect(document.querySelectorAll('[data-slot="settings-page"] [role="tab"]').length).toBe(1);
+    fireEvent.change(search, { target: { value: '内存' } });
+    expect(document.querySelectorAll('[data-slot="settings-page"] [data-settings-section]').length).toBe(1);
   });
 
   it('11.x 坏插件在 PluginSurfaceHost 内被隔离渲染错误卡片，不拖垮宿主节点', () => {

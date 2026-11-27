@@ -1,17 +1,10 @@
 /**
- * 站点记忆（notes）、只读参数化 GET Flow（flow）与凭据金库（vault）CLI 命令组。
+ * 站点记忆（notes）与只读参数化 GET Flow（flow）CLI 命令组。
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { usageOf } from '../commands.mjs';
-import {
-  formatFlowLine,
-  formatFlowStepLine,
-  formatNoteLine,
-  parseJsonArg,
-  parseKvFlags,
-  print,
-} from '../formatters.mjs';
+import { formatFlowLine, formatFlowStepLine, formatNoteLine, parseKvFlags, print } from '../formatters.mjs';
 import { toCsv } from '../output-guard.mjs';
 
 export async function runNotesCommand({ args, asJson, callerLabel, call, readStdin }) {
@@ -156,65 +149,6 @@ export async function runFlowCommand({ args, flags, asJson, callerLabel, call })
     }
     default:
       console.error(usageOf('flow', ' ...'));
-      return 1;
-  }
-}
-
-export async function runVaultCommand({ args, flags, call, readStdin, withLease }) {
-  switch (args[1]) {
-    case 'list':
-      print(await call('vault.list'), true);
-      return 0;
-    case 'add': {
-      const raw = await readStdin();
-      if (!raw.trim()) {
-        console.error(
-          '用法: echo \'{"username":"a@b.com","password":"..."}\' | warren vault add <provider> --label=<name>',
-        );
-        return 1;
-      }
-      print(
-        await call('vault.add', {
-          provider: args[2],
-          label: typeof flags.label === 'string' ? flags.label : '',
-          secret: parseJsonArg(raw, 'vault secret'),
-        }),
-        true,
-      );
-      return 0;
-    }
-    case 'remove':
-      print(await call('vault.remove', { ref: args[2] }), true);
-      return 0;
-    case 'fill': {
-      const environmentId = typeof flags.env === 'string' ? flags.env : '';
-      const target = flags.target
-        ? parseJsonArg(flags.target, '--target')
-        : { kind: 'selector', selector: 'input[type=password]' };
-      const allowedDomains =
-        typeof flags.domains === 'string'
-          ? flags.domains
-              .split(',')
-              .map((d) => d.trim())
-              .filter(Boolean)
-          : undefined;
-      print(
-        await withLease(environmentId, flags, 'warren vault fill', (leaseId) =>
-          call('vault.fill', {
-            id: environmentId,
-            leaseId,
-            ref: args[2],
-            field: typeof flags.field === 'string' ? flags.field : 'password',
-            target,
-            allowedDomains,
-          }),
-        ),
-        true,
-      );
-      return 0;
-    }
-    default:
-      console.error(usageOf('vault'));
       return 1;
   }
 }

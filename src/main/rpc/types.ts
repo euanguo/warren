@@ -7,7 +7,6 @@ import type { EnvironmentManager } from '../environments.ts';
 import type { MemoryMonitor } from '../memory-monitor.ts';
 import type { PluginHost } from '../plugins/host.ts';
 import type { Store } from '../store.ts';
-import type { VaultStore } from '../vault/store.ts';
 
 export class RpcError extends Error {
   code: string;
@@ -20,8 +19,6 @@ export class RpcError extends Error {
 export interface DispatchDeps {
   manager: EnvironmentManager;
   store: Store;
-  vault: VaultStore;
-  saveVault: () => Promise<void>;
   plugins: PluginHost;
   memoryMonitor?: Pick<MemoryMonitor, 'snapshot' | 'reclaimShellSurfaces'>;
   skillSourceDir?: string;

@@ -2,6 +2,7 @@ import { Icon } from '@/components/icons';
 import { Button, IconButton } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Kbd } from '@/components/ui/kbd';
+import { Spinner } from '@/components/ui/spinner';
 import { WarrenMark } from '@/components/warren-mark';
 import { cn } from '@/lib/utils';
 import { egressLabel } from './sidebar-env-row';
@@ -63,6 +64,10 @@ export function StageEmptyPlaceholder({
   onStart: (id: string) => void;
   onTabCreate: (id: string, space: SpaceId) => void;
 }) {
+  const isStarting = current?.status === 'starting';
+  const isDormant = current?.status === 'dormant';
+  const isError = current?.status === 'error';
+
   return (
     <Empty className="absolute inset-0 border-0 pb-8">
       <EmptyHeader>
@@ -73,7 +78,17 @@ export function StageEmptyPlaceholder({
           </div>
         </EmptyMedia>
         <EmptyTitle>
-          {!current ? '还没有选择环境' : running ? '这个空间还没有标签' : `环境「${current.name}」未启动`}
+          {!current
+            ? '还没有选择环境'
+            : running
+              ? '这个空间还没有标签'
+              : isStarting
+                ? `环境「${current.name}」正在启动…`
+                : isDormant
+                  ? `环境「${current.name}」已休眠`
+                  : isError
+                    ? `环境「${current.name}」启动异常`
+                    : `环境「${current.name}」未启动`}
         </EmptyTitle>
         {!current || running ? (
           <EmptyDescription>
@@ -82,17 +97,27 @@ export function StageEmptyPlaceholder({
               : '新建标签页开始浏览，或在上方地址栏直接输入网址。'}
           </EmptyDescription>
         ) : (
-          <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
-              <span>网络出口</span>
-              <span className="font-mono font-medium text-foreground">{egressLabel(current.proxy)}</span>
-            </span>
-            {current.startUrl && (
-              <span className="inline-flex max-w-[420px] items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
-                <span className="shrink-0">默认页</span>
-                <span className="truncate font-mono font-medium text-foreground">{current.startUrl}</span>
-              </span>
+          <div className="mt-1 flex flex-col items-center gap-2">
+            {isDormant && (
+              <EmptyDescription>渲染进程已释放，登录态、Cookie 与标签页完整保留，点击即可秒级唤醒。</EmptyDescription>
             )}
+            {isError && current.error && (
+              <p className="max-w-[460px] rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                {current.error}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
+                <span>网络出口</span>
+                <span className="font-mono font-medium text-foreground">{egressLabel(current.proxy)}</span>
+              </span>
+              {current.startUrl && (
+                <span className="inline-flex max-w-[420px] items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 py-0.5 text-muted-foreground">
+                  <span className="shrink-0">默认页</span>
+                  <span className="truncate font-mono font-medium text-foreground">{current.startUrl}</span>
+                </span>
+              )}
+            </div>
           </div>
         )}
       </EmptyHeader>
@@ -114,9 +139,15 @@ export function StageEmptyPlaceholder({
       ) : (
         <div className="flex flex-col items-center gap-3">
           <div className="flex items-center gap-2">
-            <Button data-slot="stage-start-button" onClick={() => onStart(current.id)}>
-              <Icon name="Play" />
-              启动「{current.name}」
+            <Button data-slot="stage-start-button" disabled={isStarting} onClick={() => onStart(current.id)}>
+              {isStarting ? <Spinner className="size-3.5" /> : <Icon name="Play" />}
+              {isStarting
+                ? `启动中…`
+                : isDormant
+                  ? `唤醒「${current.name}」`
+                  : isError
+                    ? `重试启动「${current.name}」`
+                    : `启动「${current.name}」`}
             </Button>
             <Button
               variant="outline"
@@ -127,9 +158,11 @@ export function StageEmptyPlaceholder({
               编辑配置
             </Button>
           </div>
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            按 <Kbd>Enter</Kbd> 立即启动
-          </span>
+          {!isStarting && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              按 <Kbd>Enter</Kbd> {isDormant ? '立即唤醒' : '立即启动'}
+            </span>
+          )}
         </div>
       )}
     </Empty>

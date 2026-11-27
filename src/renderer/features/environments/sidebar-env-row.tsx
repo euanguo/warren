@@ -141,6 +141,16 @@ export function SidebarEnvRow({
                 <span className="min-w-0 truncate font-mono" title={egressLabel(env.proxy)}>
                   {egressLabel(env.proxy)}
                 </span>
+                {env.status === 'dormant' && (
+                  <span className="shrink-0 text-[var(--warning)]" title="已休眠，登录态与标签已保留">
+                    已休眠
+                  </span>
+                )}
+                {env.error && (
+                  <span className="shrink-0 text-destructive" title={env.error}>
+                    异常
+                  </span>
+                )}
                 {env.owner !== 'none' && (
                   <span
                     className={cn(
@@ -194,8 +204,8 @@ export function SidebarEnvRow({
           ) : (
             <ListRowActionButton
               tone="success"
-              title="启动环境"
-              aria-label="启动"
+              title={env.status === 'dormant' ? '唤醒环境（保留登录态）' : '启动环境'}
+              aria-label={env.status === 'dormant' ? '唤醒' : '启动'}
               className="opacity-75 hover:opacity-100"
               onClick={() => onStart(env.id)}
             >

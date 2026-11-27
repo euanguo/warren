@@ -71,7 +71,9 @@ export function ensureEnvironmentStoreStarted(): void {
   if (started || typeof window === 'undefined' || !window.envApi) return;
   started = true;
   void refreshEnvironments();
-  window.envApi.onEnvDelta(() => {
+  window.envApi.onEnvDelta((payload) => {
+    // 下载进度变更不影响环境/分组/事件列表，避免下载期间触发全量列表重拉
+    if (payload?.reason === 'downloads') return;
     void refreshEnvironments();
   });
 }

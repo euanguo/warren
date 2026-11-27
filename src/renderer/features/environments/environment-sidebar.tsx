@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusDot, type StatusDotTone } from '@/components/ui/status-dot';
-import { formatMemoryKb } from '@/features/settings/memory-panel';
+import { formatMemoryKb } from '@/lib/format';
 import { disclosureInnerClassName, disclosureShellClassName } from '@/lib/disclosure-motion';
 import type { PluginBadgeSnapshot } from '@/lib/plugin-badges';
 import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
@@ -44,6 +44,8 @@ interface Props {
   pluginBadges?: PluginBadgeSnapshot;
   /** 侧栏收起时只留 icon，label 进 title */
   compact?: boolean;
+  /** 侧栏被全屏设置/插件页遮挡时暂停低频内存采样 */
+  paused?: boolean;
   onRenameGroup: (id: string, name: string) => void;
   onRemoveGroup: (id: string) => void;
   onToggleGroup: (id: string, collapsed: boolean) => void;
@@ -90,6 +92,7 @@ export function EnvironmentSidebar({
   onRunPluginAction,
   pluginBadges,
   compact = false,
+  paused = false,
   onRenameGroup,
   onRemoveGroup,
   onToggleGroup,
@@ -104,11 +107,12 @@ export function EnvironmentSidebar({
     localStorage.setItem(UNGROUPED_COLLAPSED_KEY, ungroupedCollapsed ? '1' : '0');
   }, [ungroupedCollapsed]);
 
-  // 侧栏展开时低频（5s）采样一次内存摘要，收起时不轮询
+  // 侧栏可见时每 15s 静默采样一次内存摘要；收起、隐藏或被全屏页覆盖时暂停
   useEffect(() => {
-    if (compact || typeof window === 'undefined' || !window.envApi?.memorySnapshot) return;
+    if (compact || paused || typeof window === 'undefined' || !window.envApi?.memorySnapshot) return;
     let active = true;
     const pull = () => {
+      if (document.hidden) return;
       void window.envApi
         .memorySnapshot()
         .then((snap) => {
@@ -117,12 +121,17 @@ export function EnvironmentSidebar({
         .catch(() => undefined);
     };
     pull();
-    const timer = window.setInterval(pull, 5000);
+    const timer = window.setInterval(pull, 15_000);
+    const onVisibility = () => {
+      if (!document.hidden) pull();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [compact]);
+  }, [compact, paused]);
 
   const openMemoryQuickPopover = (event: MouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -141,8 +150,9 @@ export function EnvironmentSidebar({
     });
   };
 
+  // 正常水位下保持静默中性色，仅在偏高 / 高压时点亮告警色
   const memoryTone: StatusDotTone =
-    memorySnap?.pressure === 'high' ? 'error' : memorySnap?.pressure === 'elevated' ? 'warning' : 'success';
+    memorySnap?.pressure === 'high' ? 'error' : memorySnap?.pressure === 'elevated' ? 'warning' : 'idle';
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -171,8 +181,18 @@ export function EnvironmentSidebar({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索环境…"
               aria-label="搜索环境"
-              className="h-[var(--control-height-icon)] border-border/80 bg-[var(--chrome-field-fill)] pl-7 text-xs shadow-none focus-visible:border-focus"
+              className="h-[var(--control-height-icon)] border-border/80 bg-[var(--chrome-field-fill)] pr-6 pl-7 text-xs shadow-none focus-visible:border-focus"
             />
+            {query && (
+              <button
+                type="button"
+                aria-label="清空环境搜索"
+                onClick={() => setQuery('')}
+                className="absolute top-1/2 right-1.5 flex size-4 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+              >
+                <Icon name="X" className="size-3" />
+              </button>
+            )}
           </div>
           <IconButton
             variant="secondary"

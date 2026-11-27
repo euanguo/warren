@@ -18,7 +18,7 @@ export type DevToolsDockMode = 'right' | 'bottom' | 'detach';
 
 export type ViewportPresetId = 'auto' | 'desktop-1440' | 'laptop-1280' | 'mobile-390';
 
-export type BuiltinSettingsSection = 'general' | 'browser' | 'memory' | 'agent' | 'vault' | 'plugins' | 'diagnostics';
+export type BuiltinSettingsSection = 'general' | 'browser' | 'memory' | 'agent' | 'plugins' | 'diagnostics';
 
 /**
  * 页面视图的矩形。原生视图不遵守 DOM 布局，位置只能由渲染层实测后报给主进程。

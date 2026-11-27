@@ -42,8 +42,8 @@ interface Props {
   onTabSelect: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabClose: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabCreate: (id: string, space: SpaceId) => void;
-  onTabReload: () => void;
-  onTabHardReload: () => void;
+  onTabReload: (ref?: TabRef) => void;
+  onTabHardReload: (ref?: TabRef) => void;
   onTabCloseOthers: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabCloseRight: (id: string, space: SpaceId, ref: TabRef) => void;
   onTabReorder: (id: string, space: SpaceId, from: number, to: number) => void;
@@ -166,11 +166,7 @@ export function AppTitlebar({
       }
       items.push({ type: 'separator' });
     }
-    items.push(
-      { id: 'settings:plugins', label: '插件与权限管理…' },
-      { id: 'settings:vault', label: '凭据与安全边界 (Vault)…' },
-      { id: 'settings:general', label: '设置中心…' },
-    );
+    items.push({ id: 'settings:plugins', label: '插件与权限管理…' }, { id: 'settings:general', label: '设置中心…' });
     const picked = await window.envApi.popupMenu(items, {
       x: Math.min(Math.round(rect.left), Math.max(8, Math.round(window.innerWidth - 236))),
       y: Math.round(rect.bottom + 4),

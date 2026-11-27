@@ -51,6 +51,7 @@ interface Props {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onRefreshSnapshot: () => void;
+  onRefreshCookies?: () => void;
   /** 插件往检查器里加的页 */
   pluginTabs?: PluginInspectorTab[];
   environmentId?: string;
@@ -76,6 +77,7 @@ export function EnvironmentInspector({
   activeTab,
   onTabChange,
   onRefreshSnapshot,
+  onRefreshCookies,
   pluginTabs = [],
   environmentId,
   space = 'person',
@@ -87,6 +89,7 @@ export function EnvironmentInspector({
   const tabsListRef = useRef<HTMLDivElement>(null);
   const [tabScroll, setTabScroll] = useState({ left: false, right: false });
   const [eventActorFilter, setEventActorFilter] = useState<'all' | 'agent' | 'human' | 'system'>('all');
+  const [onlyCurrentEnv, setOnlyCurrentEnv] = useState(false);
   const [eventQuery, setEventQuery] = useState('');
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
@@ -127,11 +130,12 @@ export function EnvironmentInspector({
       .slice(-120)
       .reverse()
       .filter((event) => {
+        if (onlyCurrentEnv && current && event.environmentId !== current.id) return false;
         if (eventActorFilter !== 'all' && event.actor !== eventActorFilter) return false;
         if (!q) return true;
         return event.message.toLowerCase().includes(q) || event.actor.toLowerCase().includes(q);
       });
-  }, [events, eventActorFilter, eventQuery]);
+  }, [events, eventActorFilter, eventQuery, onlyCurrentEnv, current]);
 
   const builtinTabItems = [
     { id: 'events', label: '事件', disabled: false },
@@ -288,6 +292,18 @@ export function EnvironmentInspector({
             <Icon name="RotateClockwise" className={snapshotLoading ? 'animate-spin' : undefined} />
           </IconButton>
         )}
+        {activeTab === 'storage' && onRefreshCookies && (
+          <IconButton
+            size="icon-xs"
+            title="刷新 Cookie 列表"
+            aria-label="刷新 Cookie 列表"
+            disabled={!running}
+            onClick={onRefreshCookies}
+            className="shrink-0"
+          >
+            <Icon name="RotateClockwise" />
+          </IconButton>
+        )}
       </div>
 
       <TabsContent value="events" className="flex min-h-0 flex-col">
@@ -295,6 +311,8 @@ export function EnvironmentInspector({
           totalCount={events.length}
           events={filteredEvents}
           actorFilter={eventActorFilter}
+          onlyCurrentEnv={onlyCurrentEnv}
+          onToggleOnlyCurrentEnv={current ? () => setOnlyCurrentEnv((prev) => !prev) : undefined}
           query={eventQuery}
           expandedEventId={expandedEventId}
           onActorFilterChange={setEventActorFilter}
@@ -350,7 +368,7 @@ export function EnvironmentInspector({
       </TabsContent>
 
       <TabsContent value="storage" className="min-h-0">
-        <StorageInspectorPanel cookies={cookies} />
+        <StorageInspectorPanel cookies={cookies} onRefresh={onRefreshCookies} />
       </TabsContent>
     </Tabs>
   );

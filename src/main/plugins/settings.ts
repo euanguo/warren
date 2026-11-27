@@ -1,23 +1,13 @@
 /**
  * 插件设置。
  *
- * - 非 secret 的值落在 `warren.db` 的 `plugin_values`（scope='setting'）；
- * - `secret` 的值走 Vault（safeStorage），**永远不返回给插件前端**，
+ * - 普通设置落在 `warren.db` 的 `plugin_values`（`scope='setting'`）；
+ * - `secret` 设置落在 `plugin_values`（`scope='secret'`），**永远不返回给插件前端**，
  *   插件后端用 `host.settings.get()` 取；前端只看到「已配置」。
- *
- * 和 `vault.fill` 是同一个思路：秘密只在一个方向上流动。
  */
 import type { DatabaseSync } from 'node:sqlite';
 import { tx } from '../db.ts';
 import type { PluginSettingDescriptor, PluginSettingValue } from '../../shared/types.ts';
-
-export interface SettingsVault {
-  available: boolean;
-  list(): Array<{ ref: string; provider: string; label: string }>;
-  add(input: { provider: string; label: string; secret: { password: string } }): { ref: string };
-  reveal(ref: string): { password?: string };
-  remove(ref: string): boolean;
-}
 
 const MAX_VALUE_LENGTH = 8 * 1024;
 
@@ -49,30 +39,29 @@ function coerce(descriptor: PluginSettingDescriptor, raw: unknown): string | num
 
 export class PluginSettings {
   #pluginId: string;
-  #vault: SettingsVault;
-  #saveVault: () => Promise<void>;
   #db: DatabaseSync;
   #values: Record<string, string | number | boolean> = {};
+  #secrets: Record<string, string> = {};
 
-  constructor(options: {
-    dir?: string;
-    pluginId: string;
-    vault: SettingsVault;
-    saveVault: () => Promise<void>;
-    db: DatabaseSync;
-  }) {
+  constructor(options: { dir?: string; pluginId: string; db: DatabaseSync }) {
     this.#pluginId = options.pluginId;
-    this.#vault = options.vault;
-    this.#saveVault = options.saveVault;
     this.#db = options.db;
-  }
-
-  get #provider(): string {
-    return `plugin:${this.#pluginId}`;
   }
 
   async load(): Promise<void> {
     this.#values = this.#readSettings();
+    this.#secrets = this.#readSecrets();
+  }
+
+  #readSecrets(): Record<string, string> {
+    const rows = this.#db
+      .prepare("SELECT key, value FROM plugin_values WHERE plugin_id = ? AND scope = 'secret'")
+      .all(this.#pluginId) as Array<{ key: string; value: string }>;
+    const out: Record<string, string> = {};
+    for (const row of rows) {
+      if (typeof row.value === 'string' && row.value.length > 0) out[row.key] = row.value;
+    }
+    return out;
   }
 
   #readSettings(): Record<string, string | number | boolean> {
@@ -103,8 +92,16 @@ export class PluginSettings {
     });
   }
 
-  #secretRef(key: string): string | undefined {
-    return this.#vault.list().find((item) => item.provider === this.#provider && item.label === key)?.ref;
+  #putSecret(key: string, value: string): void {
+    this.#db
+      .prepare('INSERT OR REPLACE INTO plugin_values (plugin_id, scope, key, value) VALUES (?, ?, ?, ?)')
+      .run(this.#pluginId, 'secret', key, value);
+  }
+
+  #deleteSecret(key: string): void {
+    this.#db
+      .prepare("DELETE FROM plugin_values WHERE plugin_id = ? AND scope = 'secret' AND key = ?")
+      .run(this.#pluginId, key);
   }
 
   /** 描述符的默认值：没设过就补上，让插件第一次跑起来就有值。 */
@@ -120,13 +117,12 @@ export class PluginSettings {
     if (changed) this.#save();
   }
 
-  /** 给插件后端用：secret 在这里被解出来。 */
+  /** 给插件后端用：secret 仅在此处返回给插件后端。 */
   get(descriptors: PluginSettingDescriptor[]): Record<string, string | number | boolean | undefined> {
     const result: Record<string, string | number | boolean | undefined> = {};
     for (const descriptor of descriptors) {
       if (descriptor.type === 'secret') {
-        const ref = this.#secretRef(descriptor.key);
-        result[descriptor.key] = ref ? this.#vault.reveal(ref).password : undefined;
+        result[descriptor.key] = this.#secrets[descriptor.key];
         continue;
       }
       result[descriptor.key] = this.#values[descriptor.key] ?? descriptor.default;
@@ -145,7 +141,7 @@ export class PluginSettings {
         description: descriptor.description,
         options: descriptor.options,
         value: secret ? undefined : (this.#values[descriptor.key] ?? descriptor.default),
-        configured: secret ? Boolean(this.#secretRef(descriptor.key)) : this.#values[descriptor.key] !== undefined,
+        configured: secret ? Boolean(this.#secrets[descriptor.key]) : this.#values[descriptor.key] !== undefined,
       };
     });
   }
@@ -156,17 +152,15 @@ export class PluginSettings {
       throw Object.assign(new Error(`插件没有声明设置 ${key}`), { code: 'PLUGIN_SETTING_UNKNOWN' });
     }
     if (descriptor.type === 'secret') {
-      if (!this.#vault.available) {
-        throw Object.assign(new Error('系统密钥存储不可用，secret 设置无法保存'), {
-          code: 'VAULT_UNAVAILABLE',
-        });
-      }
       const text = String(raw ?? '');
       if (!text) return this.unset(descriptors, key);
-      const ref = this.#secretRef(key);
-      if (ref) this.#vault.remove(ref);
-      this.#vault.add({ provider: this.#provider, label: key, secret: { password: text } });
-      await this.#saveVault();
+      if (text.length > MAX_VALUE_LENGTH) {
+        throw Object.assign(new Error(`设置 ${descriptor.key} 超过 ${MAX_VALUE_LENGTH} 字节`), {
+          code: 'PLUGIN_SETTING_TOO_LARGE',
+        });
+      }
+      this.#secrets[key] = text;
+      this.#putSecret(key, text);
       return;
     }
     const value = coerce(descriptor, raw);
@@ -181,11 +175,8 @@ export class PluginSettings {
     const descriptor = descriptors.find((item) => item.key === key);
     if (!descriptor) return;
     if (descriptor.type === 'secret') {
-      const ref = this.#secretRef(key);
-      if (ref) {
-        this.#vault.remove(ref);
-        await this.#saveVault();
-      }
+      delete this.#secrets[key];
+      this.#deleteSecret(key);
       return;
     }
     delete this.#values[key];
@@ -193,12 +184,8 @@ export class PluginSettings {
   }
 
   /** 卸载时把 secret 一起带走。 */
-  async purge(descriptors: PluginSettingDescriptor[]): Promise<void> {
-    for (const descriptor of descriptors) {
-      if (descriptor.type !== 'secret') continue;
-      const ref = this.#secretRef(descriptor.key);
-      if (ref) this.#vault.remove(ref);
-    }
-    await this.#saveVault();
+  async purge(_descriptors: PluginSettingDescriptor[]): Promise<void> {
+    this.#secrets = {};
+    this.#db.prepare("DELETE FROM plugin_values WHERE plugin_id = ? AND scope = 'secret'").run(this.#pluginId);
   }
 }

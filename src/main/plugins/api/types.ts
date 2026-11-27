@@ -18,11 +18,6 @@ export interface HostApiDeps {
   currentCaller?: () => PluginRpcCaller;
   require: (permission: Permission) => void;
   manager: EnvironmentManager;
-  vault: {
-    available: boolean;
-    list(): Array<{ ref: string; provider: string; label: string; usernameHint: string }>;
-    reveal(ref: string): { username?: string; password?: string; token?: string; totp?: string };
-  };
   storage: PluginStorage;
   settings: PluginSettings;
   descriptors: PluginSettingDescriptor[];

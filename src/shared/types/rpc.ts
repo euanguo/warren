@@ -17,7 +17,7 @@ import type {
   PluginSignal,
   PluginSkillDocument,
 } from './plugin.ts';
-import type { AgentSkillStatus, AppSettings, CredentialSummary, SystemDiagnosticsReport } from './settings.ts';
+import type { AgentSkillStatus, AppSettings, SystemDiagnosticsReport } from './settings.ts';
 import type { MemorySnapshot } from './memory.ts';
 import type {
   BrowserShortcut,
@@ -83,7 +83,13 @@ export interface EnvApi {
    */
   readonly platform: NodeJS.Platform;
   list(): Promise<Environment[]>;
-  create(input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }): Promise<Environment>;
+  create(input: {
+    id: string;
+    name?: string;
+    proxy?: string;
+    startUrl?: string;
+    headed?: boolean;
+  }): Promise<Environment>;
   start(id: string): Promise<Environment>;
   stop(id: string): Promise<void>;
   /** 休眠指定运行中环境（释放渲染进程，保留 Cookie / Session 与标签快照）。 */
@@ -191,15 +197,6 @@ export interface EnvApi {
   tabSleep(id: string, space: SpaceId, ref: TabRef): Promise<{ ok: boolean }>;
   /** 释放指定环境（或全部运行中环境）内可安全休眠的非激活标签。 */
   sleepIdleTabs(id?: string): Promise<{ slept: number }>;
-  vault(): Promise<{ available: boolean; credentials: CredentialSummary[] }>;
-  vaultAdd(input: {
-    provider: string;
-    label: string;
-    username?: string;
-    password?: string;
-    token?: string;
-  }): Promise<CredentialSummary>;
-  vaultRemove(ref: string): Promise<{ removed: boolean }>;
   domainPrefs(envId?: string): Promise<DomainPref[]>;
   clearDomainPref(envId: string, origin: string): Promise<{ removed: boolean }>;
   clearUrlHistory(): Promise<{ cleared: number }>;
@@ -218,6 +215,7 @@ export interface EnvApi {
   plugins(): Promise<InstalledPlugin[]>;
   pluginEnable(id: string): Promise<InstalledPlugin>;
   pluginDisable(id: string): Promise<void>;
+  pluginUninstall(id: string): Promise<void>;
   pluginGrant(id: string, permissions: string[]): Promise<InstalledPlugin>;
   pluginInstall(source?: string): Promise<{ cancelled: boolean; plugin?: InstalledPlugin }>;
   pluginReload(id: string): Promise<InstalledPlugin>;

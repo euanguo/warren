@@ -209,11 +209,18 @@ export class EnvironmentRepository {
 
   removeGroup(id: string): { detached: number } {
     if (!this.groupFor(id)) throw Object.assign(new Error(`unknown group ${id}`), { code: 'GROUP_NOT_FOUND' });
-    const detached = this.#configsInGroup(id).length;
-    const next = detachGroupEnvironments(this.list(), id);
+    const existing = this.list();
+    const detached = existing.filter((env) => env.groupId === id).length;
+    const before = new Map(existing.map((env) => [env.id, env]));
+    const next = detachGroupEnvironments(existing, id);
     const db = this.#db();
     tx(db, () => {
-      for (const config of next) this.insertConfig(config);
+      const updateEnv = db.prepare('UPDATE environments SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?');
+      for (const config of next) {
+        const prev = before.get(config.id);
+        if (prev && prev.groupId === config.groupId && prev.order === config.order) continue;
+        updateEnv.run(config.groupId ?? null, config.order, config.updatedAt, config.id);
+      }
       db.prepare('DELETE FROM groups WHERE id = ?').run(id);
     });
     return { detached };

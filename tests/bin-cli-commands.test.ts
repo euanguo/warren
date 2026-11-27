@@ -75,11 +75,10 @@ test('runCli：help、--skill 与未知命令组返回正确退出码', async ()
   assert.match(unknown.stderr, /未知命令组/);
 });
 
-test('runCli：env / tab / net / vault / plugin 命令正确拼接参数并管理 lease 与 secret', async () => {
+test('runCli：env / tab / net / plugin 命令正确拼接参数并管理 lease', async () => {
   const rpc = createFakeRpc({
     'env.list': [{ id: 'e1', name: 'E1', status: 'stopped', activeSpaceId: 'person', spaces: [] }],
     'tab.list': [{ id: 't1', url: 'https://a.test', title: 'A', active: true }],
-    'vault.add': { ref: 'v-1', provider: 'github', label: 'prod' },
     'net.rule.add': { id: 'r1', match: { url: '*/api/*' }, action: { type: 'block' }, enabled: true },
     'plugin.run': { result: { pong: 1 } },
   });
@@ -126,16 +125,6 @@ test('runCli：env / tab / net / vault / plugin 命令正确拼接参数并管�
       action: { type: 'block' },
     },
   });
-
-  // vault add 从 stdin 读凭据，不经 argv
-  const vaultOut = await captureStdout(() =>
-    runCli(['vault', 'add', 'github', '--label=prod', '--json'], {
-      rpc,
-      readStdin: async () => JSON.stringify({ username: 'u', password: '[REDACTED]' }),
-    }),
-  );
-  assert.equal(vaultOut.result, 0);
-  assert.equal(JSON.parse(vaultOut.stdout).ref, 'v-1');
 
   // plugin run 带 --input
   const pluginOut = await captureStdout(() =>

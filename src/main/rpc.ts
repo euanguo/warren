@@ -6,7 +6,6 @@ import type { EnvironmentManager } from './environments';
 import type { MemoryMonitor } from './memory-monitor.ts';
 import type { PluginHost } from './plugins/host';
 import type { Store } from './store';
-import type { VaultStore } from './vault/store';
 import type { LeaseDenialReason, RpcErrorDetails, RpcRequest, RpcResponse } from '../shared/types';
 import { dispatchRpc, RpcError, type DispatchDeps } from './rpc/registry.ts';
 import { resolveErrorDetails } from './browser/ops/remedy.ts';
@@ -18,8 +17,6 @@ export const SOCKET_PATH = path.join(RUNTIME_DIR, 'envd.sock');
 export const RUNTIME_FILE = path.join(RUNTIME_DIR, 'runtime.json');
 
 export interface RpcDeps {
-  vault: VaultStore;
-  saveVault: () => Promise<void>;
   plugins: PluginHost;
   memoryMonitor?: Pick<MemoryMonitor, 'snapshot' | 'reclaimShellSurfaces'>;
   skillSourceDir?: string;
@@ -35,8 +32,6 @@ export class RpcServer {
     this.#dispatchDeps = {
       manager,
       store,
-      vault: deps.vault,
-      saveVault: deps.saveVault,
       plugins: deps.plugins,
       memoryMonitor: deps.memoryMonitor,
       skillSourceDir: deps.skillSourceDir,

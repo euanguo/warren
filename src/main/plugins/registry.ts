@@ -103,6 +103,9 @@ export function savePluginState(db: DatabaseSync, state: PluginState): void {
   });
 }
 
+const LOG_PRUNE_EVERY = 50;
+const pluginLogWriteCounts = new WeakMap<DatabaseSync, Map<string, number>>();
+
 export function appendPluginLog(db: DatabaseSync, pluginId: string, level: LogLevel, message: string): void {
   try {
     db.prepare('INSERT INTO plugin_logs (plugin_id, at, level, message) VALUES (?, ?, ?, ?)').run(
@@ -111,12 +114,20 @@ export function appendPluginLog(db: DatabaseSync, pluginId: string, level: LogLe
       level,
       message,
     );
-    // 按插件留最近 N 条。攒着按批清理没有意义——插件日志本身就不频繁。
-    db.prepare(
-      `DELETE FROM plugin_logs WHERE plugin_id = ? AND rowid NOT IN (
-         SELECT rowid FROM plugin_logs WHERE plugin_id = ? ORDER BY rowid DESC LIMIT ?
-       )`,
-    ).run(pluginId, pluginId, LOG_LIMIT_PER_PLUGIN);
+    let counts = pluginLogWriteCounts.get(db);
+    if (!counts) {
+      counts = new Map<string, number>();
+      pluginLogWriteCounts.set(db, counts);
+    }
+    const next = (counts.get(pluginId) ?? 0) + 1;
+    counts.set(pluginId, next);
+    if (next % LOG_PRUNE_EVERY === 0) {
+      db.prepare(
+        `DELETE FROM plugin_logs WHERE plugin_id = ? AND rowid NOT IN (
+           SELECT rowid FROM plugin_logs WHERE plugin_id = ? ORDER BY rowid DESC LIMIT ?
+         )`,
+      ).run(pluginId, pluginId, LOG_LIMIT_PER_PLUGIN);
+    }
   } catch {
     // 日志写不进去不能影响插件本身
   }
@@ -127,7 +138,7 @@ export function readPluginLogs(
   pluginId: string,
   limit = 200,
 ): Array<{ at: string; level: LogLevel; message: string }> {
-  const size = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 200;
+  const size = Math.min(LOG_LIMIT_PER_PLUGIN, Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 200);
   const rows = db
     .prepare('SELECT at, level, message FROM plugin_logs WHERE plugin_id = ? ORDER BY rowid DESC LIMIT ?')
     .all(pluginId, size) as Row[];

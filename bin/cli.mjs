@@ -4,7 +4,7 @@
 import { detectCallerLabel } from './caller.mjs';
 import { buildHelpText, parseCliFlags } from './commands.mjs';
 import { runBatchCommand, runBrowserCommand } from './commands/browser.mjs';
-import { runFlowCommand, runNotesCommand, runVaultCommand } from './commands/data.mjs';
+import { runFlowCommand, runNotesCommand } from './commands/data.mjs';
 import {
   runEnvCommand,
   runEventsCommand,
@@ -42,7 +42,6 @@ const GROUP_HANDLERS = {
   env: runEnvCommand,
   group: runGroupCommand,
   events: runEventsCommand,
-  vault: runVaultCommand,
   plugin: runPluginCommand,
   shot: runShotCommand,
   extension: runExtensionCommand,

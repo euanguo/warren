@@ -12,7 +12,6 @@ import { environmentCapabilities } from './environment.ts';
 import { eventsCapabilities } from './events.ts';
 import { netCapabilities } from './net.ts';
 import { storageCapabilities } from './storage.ts';
-import { vaultCapabilities } from './vault.ts';
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : String(value ?? '');
@@ -23,7 +22,6 @@ export function createCapabilitySpecs(): Record<string, CapabilitySpec> {
     ...eventsCapabilities,
     ...environmentCapabilities,
     ...browserCapabilities,
-    ...vaultCapabilities,
     ...storageCapabilities,
     ...netCapabilities,
   };

@@ -73,7 +73,6 @@ export const SUBS = {
     'detect-login',
   ],
   net: ['rules', 'rule', 'hits', 'body', 'passthrough', 'record', 'replay'],
-  vault: ['list', 'add', 'remove', 'fill'],
   extension: ['list', 'add', 'remove'],
   shot: ['diff'],
   notes: ['get', 'set', 'append', 'list', 'rm'],
@@ -235,12 +234,6 @@ const GROUP_DETAIL_LINES = {
     'warren extension remove <env> <目录名>',
   ],
   shot: ['warren shot diff <a.png> <b.png>'],
-  vault: [
-    'warren vault list',
-    'warren vault add <provider> --label=<name>     # 从 stdin 读秘密',
-    'warren vault remove <ref>',
-    'warren vault fill <ref> --env=<env> [--field=password] [--target=JSON] [--domains=a.com]',
-  ],
   plugin: [
     'warren plugin list',
     'warren plugin commands',

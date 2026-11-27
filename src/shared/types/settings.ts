@@ -70,18 +70,6 @@ export interface SystemDiagnosticsReport {
   checks: SystemDiagnosticCheck[];
 }
 
-/** Vault 对外只给这个摘要，没有读取明文的通道。 */
-export interface CredentialSummary {
-  ref: string;
-  provider: string;
-  label: string;
-  usernameHint: string;
-  /** 这条凭据现在还能不能解开（旧密钥写的记录永远解不开，见 vault/store.ts）。 */
-  available: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** 自带 Skill 在一个 agent 目录里的状态。跨 IPC 边界，所以放这里。 */
 export interface AgentSkillStatus {
   id: string;

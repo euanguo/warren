@@ -83,7 +83,18 @@ function cdpWrite(
   };
 }
 
+function maskUsernameHint(username: string): string {
+  if (!username) return '';
+  const [local, domain] = username.split('@');
+  if (domain) return `${(local ?? '').slice(0, 1)}***@${domain}`;
+  return `${username.slice(0, 1)}***`;
+}
+
 export const browserCapabilities: Record<string, CapabilitySpec> = {
+  /** 纯函数用户名打码辅助（兼容 com.warren.accounts），不访问任何存储。 */
+  'vault.maskHint': {
+    handler: ({ text }, username) => maskUsernameHint(text(username)),
+  },
   // ── 读：页面观察 ────────────────────────────────────────────────
   'browser.url': cdpRead('browser.dom.read', (c) => c.currentUrl()),
   'browser.title': cdpRead('browser.dom.read', (c) => c.title()),

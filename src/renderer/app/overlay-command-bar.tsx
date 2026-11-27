@@ -59,13 +59,6 @@ const SETTINGS_COMMANDS: Array<{ section: string; title: string; subtitle: strin
       keywords: 'agent cli skill approval control lease ttl shenpi',
     },
     {
-      section: 'vault',
-      title: '设置 · 凭据与安全边界',
-      subtitle: 'Keychain / 代理凭据录入 / 安全说明',
-      icon: 'Key',
-      keywords: 'vault credentials password proxy anquan pingju',
-    },
-    {
       section: 'plugins',
       title: '设置 · 插件管理',
       subtitle: '启停 / 权限矩阵 / 隔离日志 / 安装',
@@ -146,13 +139,23 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
       );
     }
     for (const env of envs) {
+      const envSubtitle =
+        env.status === 'running'
+          ? env.currentUrl || '运行中'
+          : env.status === 'dormant'
+            ? '已休眠 · 保留登录态'
+            : env.status === 'starting'
+              ? '启动中…'
+              : env.status === 'error'
+                ? `异常：${env.error || '启动失败'}`
+                : '未启动';
       list.push({
         id: `select:${env.id}`,
         group: '环境',
         icon: 'Globe',
         envChip: { id: env.id, name: env.name, status: env.status, error: env.error },
         title: env.name,
-        subtitle: env.status === 'running' ? env.currentUrl || '运行中' : '未启动',
+        subtitle: envSubtitle,
         keywords: `${env.id} ${env.name} ${env.proxy ?? ''} switch select 切换 环境`,
         run: async () => {
           if (env.status !== 'running') await window.envApi.start(env.id);
@@ -417,6 +420,23 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
   }, [items, query]);
 
   const clampedIndex = filtered.length === 0 ? -1 : Math.min(highlighted, filtered.length - 1);
+  const [runError, setRunError] = useState<string | null>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (clampedIndex < 0) return;
+    itemRefs.current[clampedIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [clampedIndex]);
+
+  const executeItem = async (item: CommandItem | undefined) => {
+    if (!item) return;
+    setRunError(null);
+    try {
+      await item.run();
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   return (
     <dialog
@@ -447,7 +467,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
               setHighlighted((idx) => (idx <= 0 ? filtered.length - 1 : idx - 1));
             } else if (event.key === 'Enter' && clampedIndex >= 0) {
               event.preventDefault();
-              void filtered[clampedIndex]?.run();
+              void executeItem(filtered[clampedIndex]);
             }
           }}
           placeholder="搜索环境、操作、地址或设置…"
@@ -473,9 +493,12 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
                   </div>
                 )}
                 <button
+                  ref={(el) => {
+                    itemRefs.current[idx] = el;
+                  }}
                   type="button"
                   onMouseEnter={() => setHighlighted(idx)}
-                  onClick={() => void item.run()}
+                  onClick={() => void executeItem(item)}
                   className={cn(
                     menuItemInteractiveClass,
                     'flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-left',
@@ -518,6 +541,14 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
           })
         )}
       </div>
+      {runError && (
+        <div
+          role="alert"
+          className="border-t border-destructive/30 bg-destructive/10 px-3.5 py-1.5 text-xs text-destructive"
+        >
+          执行失败：{runError}
+        </div>
+      )}
       <div className="flex items-center justify-between border-t border-border/80 bg-surface-under/50 px-3.5 py-1.5 text-[length:var(--font-size-micro)] text-subtle-foreground">
         <span className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1">

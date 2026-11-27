@@ -25,6 +25,7 @@ import type { PopoverHost } from './ui/popover-host.ts';
 const PRESSURE_SWEEP_MS = 30_000;
 const PRESSURE_COOLDOWN_MS = 60_000;
 const SHELL_IDLE_RECLAIM_MS = 3 * 60_000;
+const SNAPSHOT_CACHE_TTL_MS = 2_500;
 
 export interface MemoryMonitorDeps {
   getWindow: () => BrowserWindow | undefined;
@@ -40,6 +41,8 @@ export class MemoryMonitor {
   #softLimitMb = 6144;
   #timer?: ReturnType<typeof setInterval>;
   #lastPressureActionAt = 0;
+  #cachedSnapshot?: { snap: MemorySnapshot; at: number };
+  #inflightSnapshot?: Promise<MemorySnapshot>;
 
   constructor(deps: MemoryMonitorDeps) {
     this.#deps = deps;
@@ -73,8 +76,26 @@ export class MemoryMonitor {
     return overlay + popover + shield;
   }
 
-  /** 采集按 PID 去重后的完整内存快照。 */
-  async snapshot(): Promise<MemorySnapshot> {
+  /** 采集按 PID 去重后的完整内存快照（带 2.5s 短期缓存与并发去重，避免多视图同时轮询反复采样）。 */
+  async snapshot(options: { force?: boolean } = {}): Promise<MemorySnapshot> {
+    const now = Date.now();
+    if (!options.force && this.#cachedSnapshot && now - this.#cachedSnapshot.at < SNAPSHOT_CACHE_TTL_MS) {
+      return this.#cachedSnapshot.snap;
+    }
+    if (this.#inflightSnapshot) return this.#inflightSnapshot;
+    const task = this.#collectSnapshot()
+      .then((snap) => {
+        this.#cachedSnapshot = { snap, at: Date.now() };
+        return snap;
+      })
+      .finally(() => {
+        if (this.#inflightSnapshot === task) this.#inflightSnapshot = undefined;
+      });
+    this.#inflightSnapshot = task;
+    return task;
+  }
+
+  async #collectSnapshot(): Promise<MemorySnapshot> {
     const rawMetrics: RawAppMetric[] = app.getAppMetrics().map((metric) => ({
       pid: metric.pid,
       type: metric.type,
@@ -134,7 +155,7 @@ export class MemoryMonitor {
       return { sleptTabs: 0, hibernated: [], reclaimedShells };
     }
 
-    const snap = await this.snapshot();
+    const snap = await this.snapshot({ force: true });
     if (snap.totalMemoryKb <= this.#softLimitMb * 1024) {
       return { sleptTabs: 0, hibernated: [], reclaimedShells };
     }

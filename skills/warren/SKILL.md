@@ -69,12 +69,11 @@ VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`
 ## 凭据与隐私红线
 
 ```bash
-warren vault fill <ref> --env=<env> --field=password --target='{"kind":"label","text":"密码"}'
 warren browser detect-login <env>
 ```
 
-- Vault 密文直入表单字段，不返回明文；`storage.cookie.read` / `write` 永久禁用（仅受控 `storage.cookie.port` 允许元数据搬运）。
-- 若启用账号管理类插件（见下方已启用插件索引），按需读取对应插件 Skill 后使用受控填充；**Agent 通道绝不读取或导出密码/TOTP 明文，未绑定域名的空域名账号也会被白名单拦截（`PATH_DENIED`）**。
+- 账号凭据统一收拢在「账号管理」插件（`com.warren.accounts`，本地明文存储、受控直填页面）；`storage.cookie.read` / `write` 永久禁用（仅受控 `storage.cookie.port` 允许元数据搬运）。
+- 按下方已启用插件索引按需读取 `com.warren.accounts` Skill 后使用 `autoFill` / `fill` 受控填充；**Agent 通道绝不读取或导出密码/TOTP 明文，未绑定域名的空域名账号也会被白名单拦截（`PATH_DENIED`）**。
 
 ## 会改变行为分支的错误码
 

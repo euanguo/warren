@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { AppTitlebar } from '@/app/app-titlebar';
 import { PluginSurfaceHost } from '@/app/plugin-surfaces';
@@ -8,7 +8,6 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { EnvironmentSidebar } from '@/features/environments/environment-sidebar';
 import { EnvironmentStage } from '@/features/environments/environment-stage';
-import { SettingsPage } from '@/features/settings/settings-page';
 import { usePluginBadges } from '@/lib/plugin-badges';
 import { cn } from '@/lib/utils';
 import { environmentActions, useEnvironmentState } from '@/state/environment-store';
@@ -24,7 +23,9 @@ import {
 } from '@/state/navigation-store';
 import { pluginActions, usePluginState } from '@/state/plugin-store';
 import { configureTelemetryTarget, telemetryActions, useTelemetryState } from '@/state/telemetry-store';
-import type { NavigationAction, SpaceId } from '@shared/types';
+import type { NavigationAction, SpaceId, TabRef } from '@shared/types';
+
+const SettingsPage = lazy(() => import('@/features/settings/settings-page').then((m) => ({ default: m.SettingsPage })));
 
 /** 侧栏宽度阶梯。react-resizable-panels v4 里数字即像素。 */
 const SIDEBAR_WIDTH = { default: 248, min: 200, max: 420, collapsed: 0 };
@@ -224,6 +225,20 @@ export function App() {
     void environmentActions.navigate(current.id, current.activeSpaceId ?? 'person', action);
   };
 
+  /** 对右键菜单指定的标签执行刷新：若目标不是当前激活标签，先切换过去再刷新，避免误刷前景页。 */
+  const reloadTab = (ref: TabRef | undefined, hard: boolean) => {
+    if (!current) return;
+    const space = current.activeSpaceId ?? 'person';
+    const action: NavigationAction = { kind: hard ? 'hardReload' : 'reload' };
+    if (ref !== undefined && ref !== activeTabId) {
+      void environmentActions.tabSelect(current.id, space, ref).then(() => {
+        void environmentActions.navigate(current.id, space, action);
+      });
+      return;
+    }
+    void environmentActions.navigate(current.id, space, action);
+  };
+
   const shellStyle: CSSProperties = {
     '--sidebar-width': `${SIDEBAR_WIDTH.default}px`,
     ...(settings.compactTopbar
@@ -261,8 +276,8 @@ export function App() {
               onTabSelect={(id, space, ref) => void environmentActions.tabSelect(id, space, ref)}
               onTabClose={(id, space, ref) => void environmentActions.tabClose(id, space, ref)}
               onTabCreate={(id, space) => void environmentActions.tabCreate(id, space)}
-              onTabReload={() => navigate({ kind: 'reload' })}
-              onTabHardReload={() => navigate({ kind: 'hardReload' })}
+              onTabReload={(ref) => reloadTab(ref, false)}
+              onTabHardReload={(ref) => reloadTab(ref, true)}
               onTabCloseOthers={(id, space, ref) => void environmentActions.tabCloseOthers(id, space, ref)}
               onTabCloseRight={(id, space, ref) => void environmentActions.tabCloseRight(id, space, ref)}
               onTabReorder={(id, space, from, to) => void environmentActions.tabReorder(id, space, from, to)}
@@ -327,6 +342,7 @@ export function App() {
                       }
                       pluginBadges={pluginBadges}
                       compact={sidebarCollapsed}
+                      paused={stageReplaced}
                     />
                   </ResizablePanel>
 
@@ -369,16 +385,18 @@ export function App() {
 
               {settingsOpen && (
                 <div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-background animate-in fade-in-0 duration-150 motion-reduce:animate-none">
-                  <SettingsPage
-                    section={settingsSection}
-                    onSectionChange={(next) => setSettingsSection(next as SettingsSection)}
-                    onChanged={() => void pluginActions.refreshAll()}
-                    onClose={openEnvironments}
-                    pluginSections={registry.settingsSections}
-                    pluginErrors={registry.errors}
-                    plugins={plugins}
-                    environments={environments}
-                  />
+                  <Suspense fallback={null}>
+                    <SettingsPage
+                      section={settingsSection}
+                      onSectionChange={(next) => setSettingsSection(next as SettingsSection)}
+                      onChanged={() => void pluginActions.refreshAll()}
+                      onClose={openEnvironments}
+                      pluginSections={registry.settingsSections}
+                      pluginErrors={registry.errors}
+                      plugins={plugins}
+                      environments={environments}
+                    />
+                  </Suspense>
                 </div>
               )}
 

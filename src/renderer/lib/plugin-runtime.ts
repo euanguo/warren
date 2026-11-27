@@ -41,7 +41,6 @@ const ALLOWED_PLUGIN_SETTINGS_SECTIONS: ReadonlySet<BuiltinSettingsSection> = ne
   'browser',
   'memory',
   'agent',
-  'vault',
   'plugins',
   'diagnostics',
 ]);

@@ -191,24 +191,8 @@ test('storage.sql：migrate 只跑没跑过的，重复调用不会重放', asyn
   }
 });
 
-test('settings：secret 存进 Vault，插件前端只看到「已配置」', async () => {
+test('settings：secret 存于独立 secret 作用域，插件前端只看到「已配置」', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'warren-plugin-'));
-  const records = new Map<string, string>();
-  const vault = {
-    available: true,
-    list: () =>
-      [...records.entries()].map(([ref]) => ({
-        ref,
-        provider: 'plugin:com.example.notes',
-        label: ref,
-      })),
-    add: ({ label, secret }: { label: string; secret: { password: string } }) => {
-      records.set(label, secret.password);
-      return { ref: label };
-    },
-    reveal: (ref: string) => ({ password: records.get(ref) }),
-    remove: (ref: string) => records.delete(ref),
-  };
   try {
     const descriptors = [
       { key: 'title', type: 'string' as const, label: '标题', default: '笔记' },
@@ -217,8 +201,6 @@ test('settings：secret 存进 Vault，插件前端只看到「已配置」', as
     const settings = new PluginSettings({
       dir,
       pluginId: 'com.example.notes',
-      vault,
-      saveVault: async () => undefined,
       db: openDatabase(':memory:'),
     });
     await settings.load();

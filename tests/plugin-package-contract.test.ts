@@ -161,7 +161,7 @@ const pluginManifests = () =>
 
 test('rpc 方法必须注册成命令，或在 internalRpc 豁免表里', () => {
   const manifests = pluginManifests();
-  assert.ok(manifests.length >= 5, '插件清单没扫到，断言会空转');
+  assert.ok(manifests.length >= 4, '插件清单没扫到，断言会空转');
   const violations: string[] = [];
   for (const manifest of manifests) {
     const warren = manifest.warren ?? {};

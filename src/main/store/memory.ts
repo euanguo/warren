@@ -23,8 +23,11 @@ import {
   type Row,
 } from './common.ts';
 
+const URL_HISTORY_PRUNE_EVERY = 50;
+
 export class SiteMemoryRepository {
   #db: () => DatabaseSync;
+  #urlHistoryWrites = 0;
 
   constructor(getDb: () => DatabaseSync) {
     this.#db = getDb;
@@ -64,6 +67,8 @@ export class SiteMemoryRepository {
     const now = new Date().toISOString();
     const db = this.#db();
     try {
+      this.#urlHistoryWrites += 1;
+      const shouldPrune = this.#urlHistoryWrites % URL_HISTORY_PRUNE_EVERY === 0;
       tx(db, () => {
         db.prepare(
           `INSERT INTO url_history (url, visit_count, last_visited_at) VALUES (?, 1, ?)
@@ -71,11 +76,13 @@ export class SiteMemoryRepository {
              visit_count = url_history.visit_count + 1,
              last_visited_at = excluded.last_visited_at`,
         ).run(rawUrl, now);
-        db.prepare(
-          `DELETE FROM url_history WHERE url NOT IN (
-             SELECT url FROM url_history ORDER BY last_visited_at DESC LIMIT ?
-           )`,
-        ).run(URL_HISTORY_LIMIT);
+        if (shouldPrune) {
+          db.prepare(
+            `DELETE FROM url_history WHERE url NOT IN (
+               SELECT url FROM url_history ORDER BY last_visited_at DESC LIMIT ?
+             )`,
+          ).run(URL_HISTORY_LIMIT);
+        }
       });
     } catch (error) {
       warnStore('recordUrlHistory', error);

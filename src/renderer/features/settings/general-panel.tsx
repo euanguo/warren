@@ -172,7 +172,7 @@ export function GeneralPanel() {
           <span className="text-xs text-muted-foreground">数据根目录（WARREN_HOME）</span>
           <span className="truncate font-mono text-sm font-medium text-foreground">{dataDir || '~/.warren'}</span>
           <span className="text-[length:var(--font-size-micro)] text-muted-foreground">
-            保存隔离环境 Session、SQLite、Vault 密文与插件。
+            保存隔离环境 Session、SQLite 与插件数据。
           </span>
         </div>
         <Button size="sm" variant="outline" className="shrink-0" onClick={() => void window.envApi.openDataDir()}>

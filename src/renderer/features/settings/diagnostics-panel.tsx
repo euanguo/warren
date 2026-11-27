@@ -74,7 +74,7 @@ export function DiagnosticsPanel() {
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">健康自检（Doctor）</span>
             <span className="text-xs text-muted-foreground">
-              检查存储引擎、Agent RPC Socket、环境池、Keychain、Skill 与插件工作进程。
+              检查存储引擎、Agent RPC Socket、环境池、Skill 与插件工作进程。
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

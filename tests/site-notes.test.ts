@@ -55,8 +55,11 @@ test('site_notes 支持 set / append / list / match / remove 并持久化', asyn
 
 test('site_notes 拒绝存入疑似密码或令牌明文', async () => {
   await withTempStore(async (store) => {
-    assert.throws(() => store.setSiteNote('example.com', 'password=hunter2'), /vault/i);
-    assert.throws(() => store.appendSiteNote('example.com', 'Authorization Bearer eyJhbGciOiJIUzI1NiIs'), /vault/i);
-    assert.throws(() => store.setSiteNote('example.com', 'token sk-live_1234567890abcdefg'), /vault/i);
+    assert.throws(() => store.setSiteNote('example.com', 'password=hunter2'), /账号管理插件/);
+    assert.throws(
+      () => store.appendSiteNote('example.com', 'Authorization Bearer eyJhbGciOiJIUzI1NiIs'),
+      /账号管理插件/,
+    );
+    assert.throws(() => store.setSiteNote('example.com', 'token sk-live_1234567890abcdefg'), /账号管理插件/);
   });
 });

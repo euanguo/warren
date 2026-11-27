@@ -47,30 +47,52 @@ function OverlayCard({
   );
 }
 
+const ENV_ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+function slugifyEnvId(raw: string): string {
+  const ascii = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .replace(/-+$/, '');
+  if (ascii && ascii !== '.' && ascii !== '..') return ascii.slice(0, 32);
+  if (!raw.trim()) return '';
+  let hash = 0;
+  for (const ch of raw.trim()) hash = ((hash << 5) - hash + ch.codePointAt(0)!) | 0;
+  return `env-${Math.abs(hash).toString(36).slice(0, 6)}`;
+}
+
 export function CreateEnvCard({ initialGroupId }: { initialGroupId?: string }) {
+  const [name, setName] = useState('');
   const [id, setId] = useState('');
+  const [idManual, setIdManual] = useState(false);
   const [proxy, setProxy] = useState('');
   const [startUrl, setStartUrl] = useState(DEFAULT_START_URL);
   const [headed, setHeaded] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const idRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => idRef.current?.focus());
+    const frame = requestAnimationFrame(() => nameRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  const effectiveId = (idManual ? id : slugifyEnvId(name)).trim();
+  const idInvalid =
+    Boolean(effectiveId) && (!ENV_ID_RE.test(effectiveId) || effectiveId === '.' || effectiveId === '..');
 
   const cancel = () => void window.envApi.resolveOverlay(null);
 
   const submit = async () => {
-    const trimmedId = id.trim();
-    if (!trimmedId || submitting) return;
+    if (!effectiveId || idInvalid || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
       const created = await window.envApi.create({
-        id: trimmedId,
+        id: effectiveId,
+        name: name.trim() || effectiveId,
         proxy: proxy.trim() || undefined,
         startUrl: startUrl.trim() || undefined,
         headed,
@@ -95,14 +117,32 @@ export function CreateEnvCard({ initialGroupId }: { initialGroupId?: string }) {
         }}
       >
         <Field>
-          <FieldLabel htmlFor="overlay-new-env-id">环境名</FieldLabel>
+          <FieldLabel htmlFor="overlay-new-env-name">环境名称</FieldLabel>
           <Input
-            ref={idRef}
-            id="overlay-new-env-id"
-            value={id}
-            onChange={(event) => setId(event.target.value)}
-            placeholder="例如 alpha"
+            ref={nameRef}
+            id="overlay-new-env-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="例如 店铺主号 / alpha"
           />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="overlay-new-env-id">环境 ID（CLI 与目录标识）</FieldLabel>
+          <Input
+            id="overlay-new-env-id"
+            value={idManual ? id : effectiveId}
+            onChange={(event) => {
+              setIdManual(true);
+              setId(event.target.value.toLowerCase());
+            }}
+            placeholder="例如 alpha（自动根据名称生成，可自定义）"
+            className="font-mono text-xs"
+          />
+          {idInvalid && (
+            <p className="text-[11px] text-destructive">
+              仅支持以小写字母或数字开头，包含小写字母、数字、点、下划线或短横线。
+            </p>
+          )}
         </Field>
         <Field>
           <FieldLabel htmlFor="overlay-new-env-proxy">代理</FieldLabel>
@@ -132,7 +172,7 @@ export function CreateEnvCard({ initialGroupId }: { initialGroupId?: string }) {
         <Button variant="ghost" onClick={cancel}>
           取消
         </Button>
-        <Button onClick={() => void submit()} disabled={!id.trim() || submitting}>
+        <Button onClick={() => void submit()} disabled={!effectiveId || idInvalid || submitting}>
           创建
         </Button>
       </div>

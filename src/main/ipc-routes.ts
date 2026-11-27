@@ -31,7 +31,6 @@ import { collectSystemDiagnostics } from './system-doctor.ts';
 import { popupNativeMenu } from './ui/native-menu.ts';
 import type { OverlayHost } from './ui/overlay-host.ts';
 import type { PopoverHost } from './ui/popover-host.ts';
-import { sanitizeCredentialSecret, type VaultStore } from './vault/store.ts';
 
 export interface IpcRoutesDeps {
   getWindow: () => BrowserWindow | undefined;
@@ -41,8 +40,6 @@ export interface IpcRoutesDeps {
   getPlugins: () => PluginHost;
   getMemoryMonitor?: () => MemoryMonitor | undefined;
   store: Store;
-  vault: VaultStore;
-  saveVault: () => Promise<void>;
   homeDir: string;
   coreDir: string;
   skillSourceDir: () => string;
@@ -87,8 +84,10 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   };
 
   handleShell('env:list', () => deps.getManager().list());
-  handleCoreShell('env:create', (input: { id: string; proxy?: string; startUrl?: string; headed?: boolean }) =>
-    deps.getManager().create({ ...input, createdBy: 'human' }),
+  handleCoreShell(
+    'env:create',
+    (input: { id: string; name?: string; proxy?: string; startUrl?: string; headed?: boolean }) =>
+      deps.getManager().create({ ...input, createdBy: 'human' }),
   );
   handleShell('env:start', (id: string) => deps.getManager().start(id));
   handleCoreShell('env:stop', (id: string) => deps.getManager().stop(id));
@@ -257,25 +256,6 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
     deps.getPopoverHost()?.emitAction(event);
   });
 
-  handle('vault:list', () => ({ available: deps.vault.available, credentials: deps.vault.list() }));
-  handle(
-    'vault:add',
-    async (input: { provider: string; label: string; username?: string; password?: string; token?: string }) => {
-      const secret = sanitizeCredentialSecret({
-        username: input.username,
-        password: input.password,
-        token: input.token,
-      });
-      const summary = deps.vault.add({
-        provider: input.provider.trim(),
-        label: input.label.trim() || input.provider.trim(),
-        secret,
-      });
-      await deps.saveVault();
-      deps.store.record(makeEvent('vault.added', `新增凭据 ${summary.provider}（${summary.label}）`, 'human'));
-      return summary;
-    },
-  );
   handle('browser:domainPrefs', (envId?: string) => deps.store.listDomainPrefs(envId));
   handle('browser:clearDomainPref', (envId: string, origin: string) => {
     const removed = deps.store.removeDomainPref(envId, origin);
@@ -300,7 +280,6 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
       db: deps.store.database,
       store: deps.store,
       manager: deps.getManager(),
-      vault: deps.vault,
       plugins: deps.getPlugins(),
     }),
   );
@@ -322,11 +301,6 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   handle('agent:refreshSkills', async () =>
     refreshSkills(os.homedir(), deps.skillSourceDir(), await deps.getPlugins().skillEntries()),
   );
-  handle('vault:remove', async (ref: string) => {
-    const removed = deps.vault.remove(ref);
-    await deps.saveVault();
-    return { removed };
-  });
 
   const pluginsChanged = async <T>(action: () => Promise<T>): Promise<T> => {
     const result = await action();
@@ -337,6 +311,7 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   handleShell('plugin:list', () => deps.getPlugins().list());
   handle('plugin:enable', (id: string) => pluginsChanged(() => deps.getPlugins().enable(id)));
   handle('plugin:disable', (id: string) => pluginsChanged(() => deps.getPlugins().disable(id)));
+  handle('plugin:uninstall', (id: string) => pluginsChanged(() => deps.getPlugins().uninstall(id)));
   handle('plugin:reload', (id: string) => pluginsChanged(() => deps.getPlugins().reload(id)));
   handle('plugin:grant', (id: string, permissions: Permission[]) => deps.getPlugins().grant(id, permissions));
   handle('plugin:logs', (id: string, limit?: number) => deps.getPlugins().logs(id, limit));
