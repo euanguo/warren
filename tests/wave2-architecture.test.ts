@@ -6,6 +6,7 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import type { WebContents, WebContentsView } from 'electron';
 import { validateCliInvocation } from '../bin/commands.mjs';
+import { appShellUrl, resolveAppAssetPath } from '../src/main/app-protocol.ts';
 import { resolveErrorDetails, sampleBuiltInRemedies } from '../src/main/browser/ops/remedy.ts';
 import { createMainLogger } from '../src/main/logger.ts';
 import { EnvironmentNetOps, type NetInterceptable } from '../src/main/net/ops.ts';
@@ -143,4 +144,30 @@ test('Wave 2：新增错误码（ENV_BUSY / ENV_NOT_VISIBLE / TAB_NOT_VISIBLE / 
     const parsed = validateCliInvocation(argv);
     assert.equal(parsed.ok, true, `remedy 非法：${cmd}`);
   }
+});
+
+test('v0.2.1：warren-app:// 壳层协议路径解析与越界防护', () => {
+  const root = '/Applications/Warren.app/Contents/Resources/app.asar/.vite/renderer/main_window';
+  assert.equal(appShellUrl(), 'warren-app://shell/index.html');
+  assert.equal(appShellUrl('overlay'), 'warren-app://shell/index.html?surface=overlay');
+  assert.equal(appShellUrl('popover'), 'warren-app://shell/index.html?surface=popover');
+
+  const indexHit = resolveAppAssetPath('warren-app://shell/index.html?surface=overlay', root);
+  assert.deepEqual(indexHit, {
+    filePath: path.join(root, 'index.html'),
+    contentType: 'text/html; charset=utf-8',
+  });
+
+  const jsHit = resolveAppAssetPath('warren-app://shell/assets/App-123.js', root);
+  assert.deepEqual(jsHit, {
+    filePath: path.join(root, 'assets', 'App-123.js'),
+    contentType: 'text/javascript; charset=utf-8',
+  });
+
+  // 拒绝越界路径、错误 host、隐藏文件与非白名单扩展名
+  assert.equal(resolveAppAssetPath('warren-app://shell/../build/main.cjs', root), null);
+  assert.equal(resolveAppAssetPath('warren-app://shell/%2e%2e/package.json', root), null);
+  assert.equal(resolveAppAssetPath('warren-app://evil/index.html', root), null);
+  assert.equal(resolveAppAssetPath('warren-app://shell/.env', root), null);
+  assert.equal(resolveAppAssetPath('warren-app://shell/assets/data.db', root), null);
 });

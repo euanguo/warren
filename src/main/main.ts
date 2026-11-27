@@ -14,6 +14,7 @@ import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { refreshSkills } from './agent-integration';
+import { APP_PROTOCOL_SCHEME, appShellUrl, registerAppProtocol } from './app-protocol.ts';
 import { BROWSER_MENU_SHORTCUTS, browserShortcut } from './browser-shortcuts';
 import { closeDatabases } from './db';
 import { makeEvent } from './domain/environment';
@@ -94,6 +95,15 @@ function assetPath(...segments: string[]): string {
 
 // 必须在 app ready 之前注册特权协议，否则跨源模块脚本会被 CORS/CSP 直接拦截
 protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_PROTOCOL_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
   {
     scheme: 'warren-plugin',
     privileges: {
@@ -228,6 +238,12 @@ function createMainWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    logger.error('renderer', `主窗口加载失败 (${errorCode} ${errorDescription})`, { validatedURL });
+    console.error('[main] renderer did-fail-load:', errorCode, errorDescription, validatedURL);
+  });
+
   win.on('close', (event) => {
     if (quitting) return;
     event.preventDefault();
@@ -246,7 +262,7 @@ function loadMainWindow(win: BrowserWindow): void {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     void win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    void win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+    void win.loadURL(appShellUrl());
   }
 }
 
@@ -355,6 +371,11 @@ app.whenReady().then(async () => {
 
   await store.load();
 
+  registerAppProtocol({
+    protocol,
+    rootDir: path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`),
+  });
+
   const pluginProtocol = registerPluginProtocol({
     protocol,
     getPlugins: () => plugins,
@@ -369,7 +390,7 @@ app.whenReady().then(async () => {
       devUrl.searchParams.set('surface', surface);
       return { devUrl: devUrl.toString() };
     }
-    return { filePath: path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`) };
+    return { devUrl: appShellUrl(surface) };
   };
   overlayHost = new OverlayHost({
     window,

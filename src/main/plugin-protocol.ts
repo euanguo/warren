@@ -7,6 +7,7 @@
 import type { Protocol } from 'electron';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { APP_PROTOCOL_ORIGIN } from './app-protocol.ts';
 import type { PluginHost } from './plugins/host.ts';
 
 interface CachedPluginEntry {
@@ -62,7 +63,12 @@ export function isBlockedPluginAssetPath(
 function allowedCorsOrigin(request: Request): string | undefined {
   const origin = request.headers.get('origin');
   if (!origin) return undefined;
-  if (origin === 'null' || origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173') {
+  if (
+    origin === APP_PROTOCOL_ORIGIN ||
+    origin === 'null' ||
+    origin === 'http://localhost:5173' ||
+    origin === 'http://127.0.0.1:5173'
+  ) {
     return origin;
   }
   return undefined;
