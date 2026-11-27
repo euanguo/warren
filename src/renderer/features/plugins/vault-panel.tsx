@@ -89,10 +89,11 @@ export function VaultPanel() {
         <Icon name="Shield" className="size-4" />
         <AlertTitle>安全边界：Vault 绝不暴露明文</AlertTitle>
         <AlertDescription className="text-xs leading-relaxed">
-          密码通过系统 Keychain / Electron <code className="font-mono">safeStorage</code> 加密存储。外部 Agent
-          与插件仅能获取
-          <code className="font-mono">vault://...</code>{' '}
-          引用与打码账号提示；填入页面或代理认证时由主进程直接投递，不回流渲染层。
+          <span>
+            密码通过系统 Keychain / Electron <code className="font-mono">safeStorage</code> 加密存储。外部 Agent
+            与插件仅能获取 <code className="font-mono">vault://...</code>{' '}
+            引用与打码账号提示；填入页面或代理认证时由主进程直接投递，不回流渲染层。
+          </span>
         </AlertDescription>
       </Alert>
 
@@ -174,7 +175,8 @@ export function VaultPanel() {
                   <span className="flex items-center gap-1.5 text-xs font-medium">
                     <span className="truncate">{credential.label}</span>
                     <span className="text-muted-foreground">
-                      {credential.provider} · {credential.usernameHint}
+                      {credential.provider}
+                      {credential.usernameHint ? ` · ${credential.usernameHint}` : ''}
                     </span>
                     {!credential.available && (
                       <Badge

@@ -22,12 +22,12 @@ An Electron desktop workbench and native CLI where each **Environment** pairs is
 <br />
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/14-light-mode-main.png" />
-  <img src="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" alt="Warren Workbench — Dark & Light Adaptive Preview" width="100%" />
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/screenshots/01-workbench-dark.png" />
+  <source media="(prefers-color-scheme: light)" srcset="./docs/screenshots/02-workbench-light.png" />
+  <img src="./docs/screenshots/01-workbench-dark.png" alt="Warren Workbench — Dark & Light Adaptive Preview" width="100%" />
 </picture>
 
-<sub><i>Dark &amp; light adaptive preview — isolated environments, Person / Agent spaces, live <code>WebContentsView</code> &amp; Workbench Inspector.</i></sub>
+<sub><i>Dark &amp; light adaptive preview — grouped environments, Person / Agent spaces, live websites (<code>react.dev</code> / <code>github.com</code>), and the right Workbench Inspector.</i></sub>
 
 </div>
 
@@ -42,25 +42,25 @@ Most browser-automation setups split into two extremes: headless scripts you can
 | Capability | What It Solves |
 |---|---|
 | **Per-Burrow Isolation** | Each **Environment** owns a partitioned Electron `Session` (cookies, `localStorage`, cache), independent HTTP/SOCKS/Whistle proxy, and per-environment X.509 `trustedCa` verification—without kernel patches or fingerprint spoofing. |
-| **Dual Spaces, Shared Auth** | Every Environment contains a **Person Space** (always human-owned, no lease required) and an **Agent Space** (lease-gated). Both share the same login session and proxy egress while keeping separate tab sets that never collide. |
-| **Single-Writer Lease & AI Shield** | Reading never requires a lease; writing requires an explicit `<env>` lease. When an agent holds the lock, a native `WebContentsView` shield renders an optical border, live action badge, and damped AI cursor—blocking accidental clicks while letting CDP events pass cleanly. |
+| **Dual Spaces, Shared Auth** | Every Environment contains a **Person Space** (always human-owned, no lease required) and an **Agent Space** (lease-gated). Both share the same login session and proxy egress while keeping separate tab sets that never collide—and releasing control keeps you right in your active view. |
+| **Single-Writer Lease & 3-Layer WebGL Shield** | Reading never requires a lease; writing requires an explicit `<env>` lease. When an agent holds the lock, a native `WebContentsView` shield renders an animated 3-layer WebGL veil (domain-warped FBM aurora, interactive dot-matrix pointer trail & click ripple, and Poisson-blurred border glow) plus CTA target box and one-click **Take Over**. |
 | **CLI + Auto-Synced Skills** | Designed for coding agents (`warren` CLI + compiled `SKILL.md` for `~/.agents`, `~/.claude`, `~/.codex`) with compact accessibility `@N` snapshots, batched Delta Receipts, and a locked `node:vm` scripting runtime. |
 
 ---
 
 ## Visual Tour
 
-### Native AI Input Shield (Dark & Light)
+### 3-Layer WebGL Native AI Shield (Dark & Light)
 
-When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield`) highlights active operations around the viewport perimeter and guides an interpolated virtual cursor onto target elements—keeping the center 100% transparent until you click **Take Over**.
+When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield`) blends a translucent WebGL breathing veil, radial dot-matrix pointer trail, Poisson-blurred flowing border glow, CTA highlight anchor, and virtual cursor directly above real web pages—keeping content legible while blocking accidental clicks until you click **Take Over**.
 
 <table>
   <tr>
     <td width="100%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
-        <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
-        <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI Input Shield Active State" width="100%" />
+        <source media="(prefers-color-scheme: dark)" srcset="./docs/screenshots/03-agent-shield-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./docs/screenshots/04-agent-shield-light.png" />
+        <img src="./docs/screenshots/03-agent-shield-dark.png" alt="Warren 3-Layer WebGL AI Input Shield (Dark & Light)" width="100%" />
       </picture>
     </td>
   </tr>
@@ -69,25 +69,133 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="./docs/verification/shell-layout-interaction-2026-11-26/06b-devtools-bottom-coexist.png">
-        <img src="./docs/verification/shell-layout-interaction-2026-11-26/06b-devtools-bottom-coexist.png" alt="5-Layer View Stack with Docked DevTools & Plugin Inspector" width="100%" />
+      <a href="./docs/screenshots/07-devtools-bottom-workbench.png">
+        <img src="./docs/screenshots/07-devtools-bottom-workbench.png" alt="5-Layer View Stack with Resizable Bottom DevTools & Network Inspector" width="100%" />
       </a>
       <br />
-      <strong>5-Layer View Stack &amp; Docked DevTools</strong>
+      <strong>Resizable Docked DevTools &amp; 3-Pane Coexist</strong>
       <br />
-      <sub>Native Chrome DevTools (<code>right</code> / <code>bottom</code> / <code>detach</code>) coexists cleanly alongside the live page and <code>360px</code> Workbench Inspector without z-index clipping.</sub>
+      <sub>Native Chrome DevTools (<code>right</code> / <code>bottom</code> / <code>detach</code>) with a draggable splitter coexists cleanly alongside <code>react.dev</code> and the <code>360px</code> Network Inspector—zero z-index clipping.</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png">
-        <img src="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png" alt="Global Command Palette (⌘K)" width="100%" />
+      <a href="./docs/screenshots/06-simulated-viewport-mobile.png">
+        <img src="./docs/screenshots/06-simulated-viewport-mobile.png" alt="Centered Simulated Mobile Viewport (390×844)" width="100%" />
+      </a>
+      <br />
+      <strong>Centered Simulated Viewport Studio</strong>
+      <br />
+      <sub>Preset sizes (<code>390×844</code> Mobile Touch, <code>1280×800</code>, <code>1440×900</code>) center smoothly on a dotted recessed canvas with real-time CDP <code>scale</code> fit, floating device pill, and one-click reset.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/05-agent-idle-readonly.png">
+        <img src="./docs/screenshots/05-agent-idle-readonly.png" alt="Agent Idle Read-Only Mode Preserving View" width="100%" />
+      </a>
+      <br />
+      <strong>View-Preserving Control Release (Read-Only Guard)</strong>
+      <br />
+      <sub>Handing control back leaves you inside <code>Agent Space</code> with a crisp dashed perimeter guard and a single-click <strong>Take Over Edit</strong> trigger instead of yanking you away.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/09-workbench-snapshot-hn.png">
+        <img src="./docs/screenshots/09-workbench-snapshot-hn.png" alt="Workbench Accessibility Snapshot Inspector on Hacker News" width="100%" />
+      </a>
+      <br />
+      <strong>Live AXTree Snapshot Inspector</strong>
+      <br />
+      <sub>Inspect what agents perceive on live sites like <code>news.ycombinator.com</code> (504 accessibility nodes) directly beside the viewport, or jump to Console, Network, Rules, and Storage.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/10-workbench-accounts-tab.png">
+        <img src="./docs/screenshots/10-workbench-accounts-tab.png" alt="Account Manager Inspector Tab with Live 2FA TOTP" width="100%" />
+      </a>
+      <br />
+      <strong>Plugin Workbench Tabs &amp; Live 2FA TOTP</strong>
+      <br />
+      <sub>Contextual plugin tabs (such as <code>com.warren.accounts</code>) match current origins like <code>github.com</code> with live TOTP countdowns, selector binding, and one-click form autofill.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/11-command-palette.png">
+        <img src="./docs/screenshots/11-command-palette.png" alt="Global Command Palette (⌘K)" width="100%" />
       </a>
       <br />
       <strong>Global Command Palette · <code>⌘K</code></strong>
       <br />
-      <sub>Pre-warmed transparent <code>OverlayHost</code> floats cleanly above native Chromium views for instant environment switching, actions, and plugin command-bar entries.</sub>
+      <sub>Pre-warmed transparent <code>OverlayHost</code> floats cleanly above live <code>WebContentsView</code> pages for instant environment switching, actions, and plugin command-bar entries.</sub>
     </td>
   </tr>
 </table>
+
+<details>
+<summary><strong>More Real-Site Captures: Right-Dock Exclusivity, Stopped Env Launchpad, Whistle Proxy, Accounts &amp; Vault Settings</strong></summary>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/08-devtools-right-exclusive.png">
+        <img src="./docs/screenshots/08-devtools-right-exclusive.png" alt="Right-Docked DevTools & Exclusivity Notice Banner" width="100%" />
+      </a>
+      <br />
+      <strong>Smart Right-Dock Exclusivity &amp; One-Click Bottom Switch</strong>
+      <br />
+      <sub>Docking DevTools on the right auto-collapses the Workbench drawer cleanly and offers a one-click jump to bottom coexist mode.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/12-stopped-env-cta.png">
+        <img src="./docs/screenshots/12-stopped-env-cta.png" alt="Stopped Environment Launchpad with Proxy Badge" width="100%" />
+      </a>
+      <br />
+      <strong>Stopped Environment Launchpad</strong>
+      <br />
+      <sub>Shows per-environment egress proxy (<code>127.0.0.1:1080</code>) and start URL before booting with <code>Enter</code> or editing configuration.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/13-global-accounts-page.png">
+        <img src="./docs/screenshots/13-global-accounts-page.png" alt="Account Manager Global Keep-Alive Workspace" width="100%" />
+      </a>
+      <br />
+      <strong>Global Account Manager Workspace (<code>com.warren.accounts</code>)</strong>
+      <br />
+      <sub>Full-page keep-alive plugin view with tag filters, 2FA TOTP filter, domain matching rules, and explicit Vault migration callout.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/14-global-whistle-page.png">
+        <img src="./docs/screenshots/14-global-whistle-page.png" alt="Whistle Multi-Instance Proxy Workbench" width="100%" />
+      </a>
+      <br />
+      <strong>Whistle Multi-Instance Proxy Workbench (<code>com.warren.whistle</code>)</strong>
+      <br />
+      <sub>Per-environment <code>whistle@2.10.15</code> instance binding, live <code>quickMock</code> / <code>injectFault</code> rule groups, syntax check, and <code>ruleTest</code> hit diagnostics.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/15-global-settings-general.png">
+        <img src="./docs/screenshots/15-global-settings-general.png" alt="General & Theme Settings" width="100%" />
+      </a>
+      <br />
+      <strong>Settings Center — Appearance &amp; Chrome</strong>
+      <br />
+      <sub>4-seed Dark / Light / System themes synced across chrome, DevTools, and overlays, plus compact chrome &amp; <code>8px</code> corner controls.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/16-global-settings-vault.png">
+        <img src="./docs/screenshots/16-global-settings-vault.png" alt="Encrypted Vault & Security Boundaries" width="100%" />
+      </a>
+      <br />
+      <strong>Encrypted <code>safeStorage</code> Vault</strong>
+      <br />
+      <sub>Stores proxy/login/API secrets encrypted at rest with opaque <code>vault://...</code> references—never exposed in plaintext to agents or renderer UI.</sub>
+    </td>
+  </tr>
+</table>
+
+</details>
 
 ---
 
@@ -266,10 +374,10 @@ flowchart TB
 ### Core Architectural Decisions
 
 - **Two-Row Minimal Chrome + Keep-Alive Shell**:
-  - **Row 1 (`40px`)**: Sidebar collapse (`⌘B`), environment pill, `Person | Agent` space switcher, tab strip, single lease/takeover pill, `⌘K` command bar trigger, global settings.
-  - **Row 2 (`40px`)**: Navigation, decomposed URL bar with one-click copy, omnibox history popover, plugin `statusBadge` / `popover` slots, zoom, viewport presets, downloads, DevTools, and right Workbench Inspector toggle.
+  - **Row 1 (`40px`)**: Sidebar collapse (`⌘B`), environment pill, `Person | Agent` space switcher, tab strip, single lease/takeover pill (control release preserves the active view), `⌘K` command bar trigger, global settings.
+  - **Row 2 (`40px`)**: Navigation, decomposed URL bar with one-click copy, omnibox history popover, plugin `statusBadge` / `popover` slots, zoom, centered/scaled simulated viewport presets (`390×844` / `1280×800` / `1440×900` over a dotted canvas), direct Downloads trigger, DevTools, and right Workbench Inspector toggle.
   - Switching to full-page Settings or a plugin `railPage` preserves live sidebar and page views with zero teardown.
-- **5-Layer Native Window Stack ([`layer-order.ts`](src/main/ui/layer-order.ts))**: Every Chromium `WebContentsView` is ordered strictly by `below → page → devtools → shield → overlay` with unified `8px` corners—guaranteeing `OverlayHost` (`⌘K` / dialogs), `PopoverHost` (omnibox / find / plugin popovers), and docked `DevToolsHost` (`right` / `bottom` / `detach`) are never covered by native web views.
+- **5-Layer Native Window Stack ([`layer-order.ts`](src/main/ui/layer-order.ts))**: Every Chromium `WebContentsView` is ordered strictly by `below → page → devtools → shield → overlay` with unified `8px` corners—guaranteeing `OverlayHost` (`⌘K` / dialogs), `PopoverHost` (omnibox / downloads / find / plugin popovers), 3-layer WebGL `InputShield`, and resizable docked `DevToolsHost` (`right` / `bottom` draggable splitter + `detach`) never clip or occlude each other.
 - **Clean Telemetry & Anti-Detection Hygiene**: Warren never keeps `Runtime.enable` or `Network.enable` permanently attached. Console and network logs come from Electron's native `console-message` and `webRequest` hooks and persist per tab in SQLite (`warren.db`, retained across stop/hibernate and purged on `env remove`). CSS/XPath locators run inside `Page.createIsolatedWorld` rather than polluting page globals.
 - **Right Workbench Inspector & 6+N Settings**: On-demand `360px` drawer bundling 6 built-in tabs (`events`, `snapshot`, `console`, `network`, `rules`, `storage`) + plugin `inspectorTab` contributions, paired with a searchable 6-section Settings center (`general`, `browser`, `agent`, `vault`, `plugins`, `diagnostics`) + plugin `settingsSection` contributions and light/dark (`#181b21`) theming.
 
@@ -348,7 +456,7 @@ warren/
 ├── packages/plugin-sdk/   @warren/plugin-sdk TypeScript package contract
 ├── plugins/               Official & reference plugins (whistle, account-manager, example-*)
 ├── skills/warren/         Built-in Warren Agent Skill template
-├── tests/                 Node unit tests (69 files) + Vitest/happy-dom UI tests (tests/ui/)
+├── tests/                 Node unit tests (71 files) + Vitest/happy-dom UI tests (tests/ui/)
 ├── scripts/               Fixture server, changed-test selector, and regression suite
 └── docs/                  Architecture plans, product specs, UI design language & handoff
 ```

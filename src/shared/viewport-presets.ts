@@ -78,8 +78,8 @@ export function computeSimulatedPageBounds(container: ViewportRect, preset: View
 
   const spec = VIEWPORT_PRESET_SPECS[preset];
   const padX = Math.min(28, Math.max(8, Math.floor(container.width * 0.04)));
-  const padBottom = Math.min(24, Math.max(8, Math.floor(container.height * 0.04)));
-  const rawPadTop = Math.min(46, Math.max(24, Math.floor(container.height * 0.08)));
+  const padBottom = Math.min(44, Math.max(16, Math.floor(container.height * 0.06)));
+  const rawPadTop = Math.min(48, Math.max(24, Math.floor(container.height * 0.08)));
   const padTop = container.height < 140 ? Math.min(rawPadTop, Math.floor(container.height * 0.16)) : rawPadTop;
 
   const availW = Math.max(40, container.width - padX * 2);

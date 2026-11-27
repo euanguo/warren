@@ -107,12 +107,12 @@ export function buildShieldHtml(): string {
     transition: box-shadow 0.24s ease, border-color 0.24s ease, opacity 0.2s ease;
   }
   body[data-mode="idle"] #aura {
-    border: 1.5px dashed rgba(128, 140, 162, 0.72);
-    box-shadow: inset 0 0 0 1px rgba(128, 140, 162, 0.18);
+    border: 2px dashed rgba(99, 115, 138, 0.9);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28);
   }
   body[data-theme="light"][data-mode="idle"] #aura {
-    border: 1.5px dashed rgba(94, 108, 134, 0.64);
-    box-shadow: inset 0 0 0 1px rgba(94, 108, 134, 0.16);
+    border: 2px dashed rgba(51, 65, 85, 0.86);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.75);
   }
   body[data-mode="agent"]:not(.webgl-fallback) #aura {
     border: 0; box-shadow: none;
@@ -197,7 +197,7 @@ export function buildShieldHtml(): string {
     100% { background-position: 160% 0; }
   }
   #status-chip {
-    position: fixed; top: 10px; right: 12px; z-index: 8;
+    position: fixed; bottom: 14px; right: 14px; z-index: 8;
     display: inline-flex; align-items: center; gap: 7px;
     padding: 4px 10px; border-radius: 999px;
     background: rgba(24, 27, 33, 0.88); color: #f4f6fa;
@@ -208,7 +208,7 @@ export function buildShieldHtml(): string {
     transition: left 0.26s ease, right 0.26s ease, opacity 0.2s ease;
     pointer-events: auto;
   }
-  #status-chip.dodge-left { right: auto; left: 12px; }
+  #status-chip.dodge-left { right: auto; left: 14px; }
   body[data-mode="idle"] #status-chip {
     border-color: rgba(116, 128, 150, 0.38);
     background: rgba(24, 27, 33, 0.82);
@@ -808,8 +808,9 @@ export function buildShieldHtml(): string {
         const x = Number(act.x);
         const y = Number(act.y);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-        const nearTopRight = y < 84 && x > Math.max(260, window.innerWidth - 280);
-        statusChip.classList.toggle('dodge-left', nearTopRight);
+        const nearBottomRight =
+          y > Math.max(120, window.innerHeight - 96) && x > Math.max(260, window.innerWidth - 280);
+        statusChip.classList.toggle('dodge-left', nearBottomRight);
         syncChip(act.label || act.kind);
         clearTimeout(chipTimer);
         chipTimer = setTimeout(() => { if (state.mode === 'agent') syncChip(); }, 2800);

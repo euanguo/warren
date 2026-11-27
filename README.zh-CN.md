@@ -22,12 +22,12 @@
 <br />
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" />
-  <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/14-light-mode-main.png" />
-  <img src="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" alt="Warren 工作台——深浅色自适应实机预览" width="100%" />
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/screenshots/01-workbench-dark.png" />
+  <source media="(prefers-color-scheme: light)" srcset="./docs/screenshots/02-workbench-light.png" />
+  <img src="./docs/screenshots/01-workbench-dark.png" alt="Warren 工作台——深浅色自适应实机预览" width="100%" />
 </picture>
 
-<sub><i>深浅主题自适应预览：左侧隔离环境列、Person / Agent 双空间、实时 <code>WebContentsView</code> 与右侧工作台检查器。</i></sub>
+<sub><i>深浅主题自适应预览：左侧分组环境树、Person / Agent 双空间、真实网页（<code>react.dev</code> / <code>github.com</code>）与右侧随行工作台检查器。</i></sub>
 
 </div>
 
@@ -42,25 +42,25 @@
 | 核心能力 | 解决什么问题 |
 |---|---|
 | **环境级完全隔离** | 每个 **Environment** 拥有独立分区的 Electron `Session`（Cookie、`localStorage`、缓存）、独立 HTTP / SOCKS / Whistle 代理出口，以及环境级 X.509 `trustedCa` 验签——不魔改内核，也不做指纹伪装。 |
-| **同会话双空间（Person / Agent）** | 同一环境内共享登录态与代理出口，但分离为 **Person Space**（永远由人控制、免 lease）与 **Agent Space**（受单写者租约约束）两套独立标签工作区，人与 Agent 并行操作互不碰撞。 |
-| **显式寻址 + 原生 AI 护盾** | 读操作免 lease，写操作必须显式指定 `<env>` 并持 lease（UI 选中环境 ≠ 获得写权限）。Agent 持锁期间，独立原生 `WebContentsView` 护盾在视口边缘投射光学边界、实时动作微标与阻尼虚拟光标，中心 100% 透视——拦住人工误触而不阻塞 Agent CDP 输入，点击「接管」即可随时收回控制权。 |
+| **同会话双空间（Person / Agent）** | 同一环境内共享登录态与代理出口，但分离为 **Person Space**（永远由人控制、免 lease）与 **Agent Space**（受单写者租约约束）两套独立标签工作区，人与 Agent 并行操作互不碰撞；交还控制权时保持当前视角，不强制跳回。 |
+| **显式寻址 + 三层 WebGL 原生护盾** | 读操作免 lease，写操作必须显式指定 `<env>` 并持 lease（UI 选中环境 ≠ 获得写权限）。Agent 持锁期间，独立原生 `WebContentsView` 护盾通过三层 WebGL 着色器（域扭曲呼吸面纱、点阵微粒与指针尾迹水波、Poisson 模糊流光边框）配合目标锚框与右下角接管胶囊，在不遮挡网页内容的前提下阻断误触，一键即可收回控制权。 |
 | **CLI + 自动合成 Skill** | 专为 Coding Agent 打造（`warren` CLI + 自动同步至 `~/.agents`、`~/.claude`、`~/.codex` 的 `SKILL.md`），提供紧凑可读的无障碍树 `@N` 快照、带 Delta Receipt 的 `batch` 批处理与受限 `node:vm` 脚本运行时。 |
 
 ---
 
 ## 界面实机预览
 
-### 透明原生 AI 护盾（深色 / 浅色自适应）
+### 三层 WebGL 原生 AI 护盾（深色 / 浅色自适应）
 
-当 Agent 持有 lease 操作 `Agent Space` 时，原生 `shield` 视窗层（`InputShield`）在四周呈现高对比光学边框与顶部扫光，并通过阻尼虚拟光标与外扩目标锚框直观标示当前动作，同时确保网页内容 100% 无遮挡可见。
+当 Agent 持有 lease 操作 `Agent Space` 时，原生 `shield` 视窗层（`InputShield`）在网页上方叠加动态呼吸面纱、随指尖移动的点阵星火尾迹、流光圆角边框、目标 CTA 锚框与虚拟光标，同时右下角悬浮实时动作状态胶囊，兼顾极佳通透感与随行可接管性。
 
 <table>
   <tr>
     <td width="100%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
-        <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
-        <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI 输入护盾激活态" width="100%" />
+        <source media="(prefers-color-scheme: dark)" srcset="./docs/screenshots/03-agent-shield-dark.png" />
+        <source media="(prefers-color-scheme: light)" srcset="./docs/screenshots/04-agent-shield-light.png" />
+        <img src="./docs/screenshots/03-agent-shield-dark.png" alt="Warren 三层 WebGL AI 输入护盾激活态（深色与浅色主题）" width="100%" />
       </picture>
     </td>
   </tr>
@@ -69,25 +69,133 @@
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="./docs/verification/shell-layout-interaction-2026-11-26/06b-devtools-bottom-coexist.png">
-        <img src="./docs/verification/shell-layout-interaction-2026-11-26/06b-devtools-bottom-coexist.png" alt="5 层原生视图栈与底部 DevTools / 插件面板共存" width="100%" />
+      <a href="./docs/screenshots/07-devtools-bottom-workbench.png">
+        <img src="./docs/screenshots/07-devtools-bottom-workbench.png" alt="5 层原生视图栈与可拖拽底部 DevTools + 网络检查器" width="100%" />
       </a>
       <br />
-      <strong>5 层原生视图栈 &amp; 停靠式 DevTools</strong>
+      <strong>可拖拽停靠式 DevTools &amp; 三区并行工作台</strong>
       <br />
-      <sub>原生 Chrome DevTools（支持 <code>right</code> / <code>bottom</code> / <code>detach</code>）与网页视图、<code>360px</code> 工作台抽屉同屏稳定共存，彻底根除 DOM 叠层遮挡。</sub>
+      <sub>原生 Chrome DevTools（支持 <code>right</code> / <code>bottom</code> 拖拽改大小与 <code>detach</code> 独立窗）可与 <code>react.dev</code> 网页视图及 <code>360px</code> 右侧检查器稳定共存，零 DOM 叠层遮挡。</sub>
     </td>
     <td width="50%" valign="top">
-      <a href="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png">
-        <img src="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png" alt="全局命令面板（⌘K）" width="100%" />
+      <a href="./docs/screenshots/06-simulated-viewport-mobile.png">
+        <img src="./docs/screenshots/06-simulated-viewport-mobile.png" alt="居中对称点阵画布上的移动端模拟视口（390×844）" width="100%" />
+      </a>
+      <br />
+      <strong>居中模拟视口画布 · 等比缩放</strong>
+      <br />
+      <sub>选择预设尺寸（<code>390×844</code> 移动触控 / <code>1280×800</code> / <code>1440×900</code>）后视图自动在点阵下沉画布中对称居中，联动 CDP <code>scale</code> 实时微缩并配顶部悬浮胶囊与一键还原。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/05-agent-idle-readonly.png">
+        <img src="./docs/screenshots/05-agent-idle-readonly.png" alt="Agent 空间释放控制权后保留原视角的只读虚线边框" width="100%" />
+      </a>
+      <br />
+      <strong>交还控制权不跳视角（只读虚线护栏）</strong>
+      <br />
+      <sub>在 <code>Agent Space</code> 点击「交还」后稳稳停留在当前 Agent 视图方便继续围观，并以高对比虚线边框与顶栏「接管编辑」清楚提示只读保护状态。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/09-workbench-snapshot-hn.png">
+        <img src="./docs/screenshots/09-workbench-snapshot-hn.png" alt="Hacker News 页面与工作台实时可访问性快照树" width="100%" />
+      </a>
+      <br />
+      <strong>真实网站实时无障碍快照面板</strong>
+      <br />
+      <sub>在 <code>news.ycombinator.com</code> 等真实站点旁一键读取页面可访问性节点树（504 个节点），并与事件、控制台、网络、规则和存储面板随时切换对照。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/10-workbench-accounts-tab.png">
+        <img src="./docs/screenshots/10-workbench-accounts-tab.png" alt="GitHub 仓库页旁边的账号管理插件伴随标签与动态 TOTP" width="100%" />
+      </a>
+      <br />
+      <strong>插件随行工作台 &amp; 实时 2FA 动态码</strong>
+      <br />
+      <sub>插件 <code>inspectorTab</code>（如 <code>com.warren.accounts</code>）按域名智能匹配 <code>github.com</code> 账号，内置 2FA 倒计时动态码与零手写选择器一键登录填充。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/11-command-palette.png">
+        <img src="./docs/screenshots/11-command-palette.png" alt="浮于 react.dev 上方的 ⌘K 全局命令面板" width="100%" />
       </a>
       <br />
       <strong>全局命令面板 · <code>⌘K</code></strong>
       <br />
-      <sub>基于预热透明顶层窗 <code>OverlayHost</code>，浮于原生网页视图上方毫秒级唤起，支持一键切环境、调布局与触发插件动作。</sub>
+      <sub>预热透明顶层窗 <code>OverlayHost</code> 浮于真实网页视图之上毫秒级响应，支持即时检索环境、分组、页面动作与插件命令栏入口。</sub>
     </td>
   </tr>
 </table>
+
+<details>
+<summary><strong>更多实机截图：右侧互斥横幅、未启动引导页、Whistle 代理台、全局账号与设置 / Vault</strong></summary>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/08-devtools-right-exclusive.png">
+        <img src="./docs/screenshots/08-devtools-right-exclusive.png" alt="DevTools 右侧停靠互斥横幅与一键切换底部并行" width="100%" />
+      </a>
+      <br />
+      <strong>右侧停靠智能互斥 &amp; 一键改用底部停靠</strong>
+      <br />
+      <sub>右侧停靠 DevTools 时自动让位工作台抽屉，并在网页上方给出清楚提示与一键切到底部并行按钮。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/12-stopped-env-cta.png">
+        <img src="./docs/screenshots/12-stopped-env-cta.png" alt="未启动环境引导卡与独立代理出口徽标" width="100%" />
+      </a>
+      <br />
+      <strong>未启动环境引导页</strong>
+      <br />
+      <sub>清晰展示该环境配置的独立代理出口（<code>127.0.0.1:1080</code>）与默认启动页，支持按 <code>Enter</code> 或点击一键启动。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/13-global-accounts-page.png">
+        <img src="./docs/screenshots/13-global-accounts-page.png" alt="全局账号管理全屏工作台" width="100%" />
+      </a>
+      <br />
+      <strong>全局账号管理页（<code>com.warren.accounts</code>）</strong>
+      <br />
+      <sub>全局保活全屏插件页：支持标签筛选、含 2FA 筛选、域名匹配策略编辑以及显式的 Vault 加密迁移引导。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/14-global-whistle-page.png">
+        <img src="./docs/screenshots/14-global-whistle-page.png" alt="全局 Whistle 多实例代理管理页" width="100%" />
+      </a>
+      <br />
+      <strong>全局 Whistle 多实例代理台（<code>com.warren.whistle</code>）</strong>
+      <br />
+      <sub>为环境绑定独立 <code>whistle@2.10.15</code> 实例，实时管理 Mock / 故障注入规则组、语法校验、Diff 对比与 <code>ruleTest</code> 命中诊断。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/15-global-settings-general.png">
+        <img src="./docs/screenshots/15-global-settings-general.png" alt="全局设置：通用与外观主题预览" width="100%" />
+      </a>
+      <br />
+      <strong>设置中心 —— 通用与外观</strong>
+      <br />
+      <sub>4-seed 深色/浅色/跟随系统主题三卡预览（全壳层、DevTools、浮层同步），含紧凑顶栏与视图 <code>8px</code> 圆角开关。</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/screenshots/16-global-settings-vault.png">
+        <img src="./docs/screenshots/16-global-settings-vault.png" alt="全局设置：safeStorage 加密凭据 Vault 与安全边界" width="100%" />
+      </a>
+      <br />
+      <strong><code>safeStorage</code> 加密 Vault 与安全边界</strong>
+      <br />
+      <sub>本地密钥链加密落盘，仅向外部 Agent 与插件暴露不透明 <code>vault://...</code> 引用及脱敏账号提示，绝不回传明文。</sub>
+    </td>
+  </tr>
+</table>
+
+</details>
 
 ---
 
@@ -266,10 +374,10 @@ flowchart TB
 ### 关键架构设计
 
 - **两层极简桌面壳 + 全局保活页**：
-  - **Row 1 顶栏（`40px`）**：侧栏折叠（`⌘B`）、当前环境徽标、`我的 | Agent` Space 切换器、标签条、单一控制权胶囊、`⌘K` 命令面板入口与全局设置。
-  - **Row 2 地址栏（`40px`）**：导航控制、URL 拆层高亮与一键复制、Omnibox 历史联想、插件 `statusBadge` / `popover` 槽位、缩放、视口预设、下载、DevTools 与工作台检查器开关。
+  - **Row 1 顶栏（`40px`）**：侧栏折叠（`⌘B`）、当前环境徽标、`我的 | Agent` Space 切换器、标签条、单一控制权胶囊（交还控制权时保持原视角不变）、`⌘K` 命令面板入口与全局设置。
+  - **Row 2 地址栏（`40px`）**：导航控制、URL 拆层高亮与一键复制、Omnibox 历史联想、插件 `statusBadge` / `popover` 槽位、缩放、居中点阵画布与等比缩放模拟视口（`390×844` / `1280×800` / `1440×900`）、常驻下载列表按钮、DevTools 与工作台检查器开关。
   - 进入全屏设置或插件 `railPage` 时保留底层侧栏与网页保活，切回零重建。
-- **5 层固定原生视窗栈（[`layer-order.ts`](src/main/ui/layer-order.ts)）**：严格按照 `below → page → devtools → shield → overlay` 顺序管理子视图并统一 `8px` 圆角，从根源避免原生 Chromium `WebContentsView` 遮挡 `OverlayHost`（`⌘K` 与弹窗）、`PopoverHost`（地址栏联想与插件浮窗）或停靠式原生 `DevToolsHost`（`right` / `bottom` / `detach`）。
+- **5 层固定原生视窗栈（[`layer-order.ts`](src/main/ui/layer-order.ts)）**：严格按照 `below → page → devtools → shield → overlay` 顺序管理子视图并统一 `8px` 圆角，确保 `OverlayHost`（`⌘K` 与弹窗）、`PopoverHost`（地址栏联想、下载面板与插件浮窗）、三层 WebGL `InputShield` 以及支持拖拽调整分栏比例的停靠式原生 `DevToolsHost`（`right` / `bottom` / `detach`）互不遮挡。
 - **低检测面 CDP 与持久化遥测**：禁止长驻 `Runtime.enable` / `Network.enable`；Console 与 Network 日志全部走 Electron 原生 `console-message` 与 `webRequest` 事件并写入 WAL SQLite（`warren.db`，停机/休眠期间保留、仅 `env remove` 时清理）；CSS/XPath 解析一律跑在 `Page.createIsolatedWorld` 隔离世界内。
 - **右侧随行工作台 & 6+N 设置中心**：按需展开的 `360px` 检查器抽屉包含 6 个内置面板（`events`、`snapshot`、`console`、`network`、`rules`、`storage`）与插件 `inspectorTab`；可搜索设置中心包含 6 个内置分节（`general`、`browser`、`agent`、`vault`、`plugins`、`diagnostics`）与插件 `settingsSection`，配合 4-seed 深/浅（`#181b21`）主题体系。
 
@@ -348,7 +456,7 @@ warren/
 ├── packages/plugin-sdk/   @warren/plugin-sdk 类型声明与契约
 ├── plugins/               官方与示例插件 (whistle, account-manager, example-*)
 ├── skills/warren/         Warren 内置主 Skill 模板
-├── tests/                 Node 单元测试 (69 文件) + Vitest/happy-dom 无头 UI 测试 (tests/ui/)
+├── tests/                 Node 单元测试 (71 文件) + Vitest/happy-dom 无头 UI 测试 (tests/ui/)
 ├── scripts/               本地 fixture 服务、变更筛选测试脚本与回归套件
 └── docs/                  架构演进计划、产品 PRD、UI 设计规范与项目交接
 ```
