@@ -5,8 +5,8 @@
 /** 插件运行时。`sandbox` 是 vm 里的能力插件，`host` 是独立 Node 进程里的全权插件。 */
 export type PluginRuntime = 'sandbox' | 'host';
 
-/** 插件状态机。`needs-configuration` 由插件自己抛 NeedsConfiguration 触发。 */
-export type PluginStatus = 'disabled' | 'running' | 'error' | 'needs-configuration';
+/** 插件状态机。`starting` 表示后台激活中，`needs-configuration` 由插件自己抛 NeedsConfiguration 触发。 */
+export type PluginStatus = 'disabled' | 'starting' | 'running' | 'error' | 'needs-configuration';
 
 export type PluginSettingType = 'string' | 'number' | 'boolean' | 'select' | 'secret';
 

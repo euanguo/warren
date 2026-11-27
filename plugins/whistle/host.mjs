@@ -8,6 +8,7 @@ import {
   forkInstance,
   listInstances,
   openBound,
+  reconcileInstances,
   removeInstance,
   startInstance,
   stopInstance,
@@ -54,7 +55,7 @@ import {
   toCurl,
   traffic,
 } from './lib/traffic.mjs';
-import { enableMultipleChoice, readFrames, readRule, rulesView, statusOf } from './lib/w2-client.mjs';
+import { readFrames, readRule, rulesView, statusOf } from './lib/w2-client.mjs';
 import { fail } from './lib/shared.mjs';
 
 const withFallbackEnv = (ctx, input) => ({
@@ -124,22 +125,25 @@ const COMMANDS = {
   export: (host, input) => exportData(host, input),
 };
 
-/** @type {Record<string, any> & { activate: (ctx: any) => Promise<void>; rpc: Record<string, any> }} */
+let reconcileController = null;
+
+/** @type {Record<string, any> & { activate: (ctx: any) => Promise<void>; dispose: () => Promise<void>; rpc: Record<string, any> }} */
 const plugin = {
   async activate(ctx) {
     await ensurePresetSchema(ctx.host);
     const instances = await readInstances(ctx.host);
-    for (const instance of instances) {
-      if (!(await statusOf(instance.port))) continue;
-      try {
-        await enableMultipleChoice(instance.port);
-      } catch (error) {
-        await ctx.host.log.warn(
-          `实例 ${instance.storage} 打开多选规则失败：${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
+    // 端口探活与多选规则补开下沉为后台异步对账，不阻塞 activate() 就绪与首次 RPC
+    reconcileController?.abort();
+    reconcileController = new AbortController();
+    void reconcileInstances(ctx.host, {
+      instances,
+      signal: reconcileController.signal,
+    }).catch(() => undefined);
     await ctx.host.log.info(`whistle 插件已就绪，登记了 ${instances.length} 个实例`);
+  },
+  async dispose() {
+    reconcileController?.abort();
+    reconcileController = null;
   },
   rpc: {},
 };

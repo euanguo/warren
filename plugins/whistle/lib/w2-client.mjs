@@ -187,17 +187,20 @@ export function runW2(w2, args, env, timeoutMs = 12000) {
 // ── whistle 的 HTTP API（本地无鉴权） ─────────────────────────────────
 
 export async function call(port, pathname, options = {}) {
+  const { timeoutMs = PROBE_TIMEOUT_MS, signal, ...fetchOptions } = options;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
-    ...options,
-    signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    ...fetchOptions,
+    signal: combinedSignal,
   });
   return response;
 }
 
 /** 活着就回 `{storage, version}`，否则 null。这是「实例是否在跑」的唯一判据。 */
-export async function statusOf(port) {
+export async function statusOf(port, options = {}) {
   try {
-    const response = await call(port, '/cgi-bin/status');
+    const response = await call(port, '/cgi-bin/status', options);
     if (!response.ok) return null;
     const data = await response.json();
     return data && data.name === 'whistle' ? data : null;

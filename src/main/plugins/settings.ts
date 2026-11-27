@@ -7,7 +7,6 @@
  *
  * 和 `vault.fill` 是同一个思路：秘密只在一个方向上流动。
  */
-import { mkdir } from 'node:fs/promises';
 import type { DatabaseSync } from 'node:sqlite';
 import { tx } from '../db.ts';
 import type { PluginSettingDescriptor, PluginSettingValue } from '../../shared/types.ts';
@@ -49,7 +48,6 @@ function coerce(descriptor: PluginSettingDescriptor, raw: unknown): string | num
 }
 
 export class PluginSettings {
-  #dir: string;
   #pluginId: string;
   #vault: SettingsVault;
   #saveVault: () => Promise<void>;
@@ -57,13 +55,12 @@ export class PluginSettings {
   #values: Record<string, string | number | boolean> = {};
 
   constructor(options: {
-    dir: string;
+    dir?: string;
     pluginId: string;
     vault: SettingsVault;
     saveVault: () => Promise<void>;
     db: DatabaseSync;
   }) {
-    this.#dir = options.dir;
     this.#pluginId = options.pluginId;
     this.#vault = options.vault;
     this.#saveVault = options.saveVault;
@@ -75,7 +72,6 @@ export class PluginSettings {
   }
 
   async load(): Promise<void> {
-    await mkdir(this.#dir, { recursive: true });
     this.#values = this.#readSettings();
   }
 

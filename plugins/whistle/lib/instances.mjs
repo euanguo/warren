@@ -103,6 +103,65 @@ export function splitDuplicatePorts(instances, statuses) {
   return { live, stale };
 }
 
+/**
+ * 启动期后台对账：按端口去重、限流并发探活，仅为已运行的自有实例补开多选规则。
+ * 不阻塞 `activate()` 返回，支持通过 `AbortSignal` 在插件销毁时中止。
+ */
+export async function reconcileInstances(host, options = {}) {
+  const {
+    instances: provided,
+    concurrency = 6,
+    probeTimeoutMs = 500,
+    signal,
+    probe = statusOf,
+    enable = enableMultipleChoice,
+  } = options;
+  const list = Array.isArray(provided) ? provided : await readInstances(host);
+  const byPort = new Map();
+  for (const instance of list) {
+    let storages = byPort.get(instance.port);
+    if (!storages) {
+      storages = new Set();
+      byPort.set(instance.port, storages);
+    }
+    storages.add(instance.storage);
+  }
+  const entries = [...byPort.entries()];
+  if (entries.length === 0 || signal?.aborted) {
+    return { probedPorts: 0, alivePorts: 0, enabledPorts: 0 };
+  }
+
+  let cursor = 0;
+  let alivePorts = 0;
+  let enabledPorts = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, entries.length));
+
+  const worker = async () => {
+    while (!signal?.aborted) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= entries.length) break;
+      const [port, storages] = entries[index];
+      const status = await probe(port, { timeoutMs: probeTimeoutMs, signal });
+      if (signal?.aborted || !status) continue;
+      if (!storages.has(status.storage)) continue;
+      alivePorts += 1;
+      try {
+        await enable(port);
+        enabledPorts += 1;
+      } catch (error) {
+        if (signal?.aborted) return;
+        await host.log.warn(
+          `实例 ${status.storage}（:${port}）打开多选规则失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return { probedPorts: entries.length, alivePorts, enabledPorts };
+}
+
 export async function listInstances(host) {
   const environments = await host.environment.list();
   const settings = await host.settings.get();

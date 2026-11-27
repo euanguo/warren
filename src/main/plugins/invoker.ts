@@ -30,6 +30,7 @@ export interface InvokerDeps {
   statusOf: (id: string) => { status: PluginStatus; detail?: string };
   setStatus: (id: string, status: { status: PluginStatus; detail?: string }) => void;
   requirePermission: (id: string, permission: Permission) => void;
+  waitReady?: (id: string) => Promise<void>;
 }
 
 export class PluginInvoker {
@@ -37,6 +38,18 @@ export class PluginInvoker {
 
   constructor(deps: InvokerDeps) {
     this.#deps = deps;
+  }
+
+  async #ensureActive(id: string): Promise<ActivePlugin | undefined> {
+    const existing = this.#deps.activeOf(id);
+    if (existing) return existing;
+    await this.#deps.waitReady?.(id);
+    return this.#deps.activeOf(id);
+  }
+
+  #notActiveMessage(id: string): string {
+    const { status, detail } = this.#deps.statusOf(id);
+    return detail ? `插件 ${id} 没有激活（状态 ${status}: ${detail}）` : `插件 ${id} 没有激活（状态 ${status}）`;
   }
 
   async log(id: string, level: LogLevel, message: string): Promise<void> {
@@ -55,9 +68,10 @@ export class PluginInvoker {
   ): Promise<RunResult> {
     if (!this.#deps.getState().enabled.includes(id)) pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     await this.#deps.readPackage(id); // 顺带校验清单还在、没被改坏
-    const active = this.#deps.activeOf(id);
+    const active = await this.#ensureActive(id);
+    if (!this.#deps.getState().enabled.includes(id)) pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     if (!active) {
-      pluginError('PLUGIN_NOT_ACTIVE', `插件 ${id} 没有激活（状态 ${this.#deps.statusOf(id).status}）`);
+      pluginError('PLUGIN_NOT_ACTIVE', this.#notActiveMessage(id));
     }
 
     const environmentId = options.environmentId || undefined;
@@ -118,12 +132,15 @@ export class PluginInvoker {
         message: `${method} 不在清单声明的 rpc 白名单里`,
       };
     }
-    const active = this.#deps.activeOf(id);
+    const active = await this.#ensureActive(id);
+    if (!this.#deps.getState().enabled.includes(id)) {
+      return { ok: false, code: 'PLUGIN_DISABLED', message: `插件 ${id} 未启用` };
+    }
     if (!active) {
       return {
         ok: false,
         code: 'PLUGIN_NOT_ACTIVE',
-        message: `插件 ${id} 没有激活（状态 ${this.#deps.statusOf(id).status}）`,
+        message: this.#notActiveMessage(id),
       };
     }
     const environmentId =
@@ -163,11 +180,15 @@ export class PluginInvoker {
     if (!this.#deps.getState().enabled.includes(id)) {
       return { ok: false, code: 'PLUGIN_DISABLED', message: `插件 ${id} 未启用` };
     }
-    if (!this.#deps.activeOf(id)) {
+    const active = await this.#ensureActive(id);
+    if (!this.#deps.getState().enabled.includes(id)) {
+      return { ok: false, code: 'PLUGIN_DISABLED', message: `插件 ${id} 未启用` };
+    }
+    if (!active) {
       return {
         ok: false,
         code: 'PLUGIN_NOT_ACTIVE',
-        message: `插件 ${id} 没有激活（状态 ${this.#deps.statusOf(id).status}）`,
+        message: this.#notActiveMessage(id),
       };
     }
     try {

@@ -2,6 +2,7 @@
  * 插件生命周期管理：启停、热重载、激活/销毁、崩溃状态与指数退避重连、事件订阅强清理。
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { EnvironmentManager } from '../environments';
@@ -44,9 +45,18 @@ export function isNeedsConfiguration(error: unknown): boolean {
   return (error as { name?: string })?.name === 'NeedsConfigurationError';
 }
 
+class CancelledActivationError extends Error {
+  constructor() {
+    super('activation cancelled');
+    this.name = 'CancelledActivationError';
+  }
+}
+
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 3;
 const CRASH_RESET_WINDOW_MS = 60_000;
+const DEFAULT_ACTIVATE_CONCURRENCY = 4;
+const BATCH_NOTIFY_DEBOUNCE_MS = 80;
 
 export interface LifecycleDeps {
   root: string;
@@ -77,6 +87,14 @@ export class PluginLifecycle {
   #crashed = new Map<string, CrashRecord>();
   #crashHistory = new Map<string, { count: number; lastAt: number }>();
   #reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  #bootstrapsPromise?: Promise<void>;
+  #epoch = new Map<string, number>();
+  #activating = new Map<string, Promise<void>>();
+  #pendingQueue: string[] = [];
+  #pendingSet = new Set<string>();
+  #batchRunner?: (id: string) => Promise<void>;
+  #notifyTimer?: ReturnType<typeof setTimeout>;
+  #notifyDirty = false;
   #disposed = false;
 
   constructor(deps: LifecycleDeps) {
@@ -85,20 +103,138 @@ export class PluginLifecycle {
     this.#sandboxBootstrapPath = path.join(deps.root, '.runtime', 'sandbox-bootstrap.mjs');
   }
 
+  /** 进程内幂等写入两份 worker bootstrap，避免每个插件激活反复覆盖写盘。 */
   async ensureBootstraps(): Promise<void> {
-    await mkdir(path.dirname(this.#hostBootstrapPath), { recursive: true });
-    await writeFile(this.#hostBootstrapPath, HOST_BOOTSTRAP);
-    await writeFile(this.#sandboxBootstrapPath, SANDBOX_BOOTSTRAP);
+    if (!this.#bootstrapsPromise) {
+      this.#bootstrapsPromise = (async () => {
+        await mkdir(path.dirname(this.#hostBootstrapPath), { recursive: true });
+        await Promise.all([
+          writeFile(this.#hostBootstrapPath, HOST_BOOTSTRAP),
+          writeFile(this.#sandboxBootstrapPath, SANDBOX_BOOTSTRAP),
+        ]);
+      })().catch((error) => {
+        this.#bootstrapsPromise = undefined;
+        throw error;
+      });
+    }
+    return this.#bootstrapsPromise;
   }
 
-  async activateAll(enabledIds: string[]): Promise<void> {
-    // 开机时把「已启用」的插件重新激活一次：状态要反映现实，不能停在「已启用但没跑」
-    for (const id of [...enabledIds]) {
-      try {
-        await this.activate(await this.#deps.readPackage(id));
-      } catch (error) {
-        this.#status.set(id, { status: 'error', detail: (error as Error).message });
+  /** 注册表读完后先把已启用插件标为 starting，避免在后台激活完成前误显示为 disabled。 */
+  markStarting(enabledIds: string[]): void {
+    for (const id of enabledIds) {
+      if (!this.#active.has(id)) {
+        this.#status.set(id, { status: 'starting' });
       }
+    }
+  }
+
+  async activateAll(enabledIds: string[], options: { concurrency?: number; notify?: boolean } = {}): Promise<void> {
+    const enabledSet = new Set(this.#deps.getState().enabled);
+    const ids = [...new Set(enabledIds)].filter((id) => enabledSet.has(id) && !this.#active.has(id));
+    if (ids.length === 0 || this.#disposed) return;
+
+    this.markStarting(ids);
+    const notify = options.notify === true;
+    const cpuCount = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length || 4;
+    const requested = options.concurrency ?? DEFAULT_ACTIVATE_CONCURRENCY;
+    const concurrency = Math.max(1, Math.min(requested, cpuCount, ids.length));
+
+    for (const id of ids) {
+      if (!this.#activating.has(id) && !this.#pendingSet.has(id)) {
+        this.#pendingSet.add(id);
+        this.#pendingQueue.push(id);
+      }
+    }
+
+    const runOne = (id: string): Promise<void> => {
+      const existing = this.#activating.get(id);
+      if (existing) return existing;
+      this.#removeFromQueue(id);
+      if (this.#disposed || this.#active.has(id) || !this.#deps.getState().enabled.includes(id)) {
+        return Promise.resolve();
+      }
+      const epoch = this.#currentEpoch(id);
+      let task: Promise<void> | undefined;
+      task = (async () => {
+        try {
+          const pkg = await this.#deps.readPackage(id);
+          if (this.#disposed || this.#currentEpoch(id) !== epoch || !this.#deps.getState().enabled.includes(id)) {
+            return;
+          }
+          await this.#activateWithEpoch(pkg, epoch);
+        } catch (error) {
+          if (error instanceof CancelledActivationError) return;
+          if (!this.#disposed && this.#currentEpoch(id) === epoch && this.#deps.getState().enabled.includes(id)) {
+            this.#status.set(id, { status: 'error', detail: (error as Error).message });
+          }
+        } finally {
+          if (this.#activating.get(id) === task) this.#activating.delete(id);
+          if (notify && !this.#disposed && this.#deps.getState().enabled.includes(id)) {
+            this.#scheduleBatchNotify();
+          }
+        }
+      })();
+      this.#activating.set(id, task);
+      return task;
+    };
+
+    this.#batchRunner = runOne;
+    try {
+      const workers = Array.from({ length: concurrency }, async () => {
+        while (!this.#disposed) {
+          const nextId = this.#pendingQueue.shift();
+          if (!nextId) break;
+          this.#pendingSet.delete(nextId);
+          await runOne(nextId);
+        }
+      });
+      await Promise.allSettled(workers);
+      // 兜底等待被 waitReady() 提前插队拉起的同批次任务全部收尾
+      const remaining = ids.map((id) => this.#activating.get(id)).filter((p): p is Promise<void> => Boolean(p));
+      if (remaining.length > 0) await Promise.allSettled(remaining);
+    } finally {
+      if (this.#batchRunner === runOne) this.#batchRunner = undefined;
+      if (notify) this.#flushBatchNotify();
+    }
+  }
+
+  /** 若插件正在后台排队或激活中，等待其就绪；仍在队列里时立即插队拉起。 */
+  async waitReady(id: string): Promise<void> {
+    if (this.#disposed || this.#active.has(id)) return;
+    const inflight = this.#activating.get(id);
+    if (inflight) {
+      await inflight;
+      return;
+    }
+    if (this.#pendingSet.has(id) && this.#batchRunner) {
+      this.#removeFromQueue(id);
+      await this.#batchRunner(id);
+      return;
+    }
+    // 处于 loadState() 与 activateEnabled() 之间的极窄窗口：按需直接激活并登记到 #activating
+    if (this.#deps.getState().enabled.includes(id) && this.#status.get(id)?.status === 'starting') {
+      const epoch = this.#currentEpoch(id);
+      let task: Promise<void> | undefined;
+      task = (async () => {
+        try {
+          await this.ensureBootstraps();
+          const pkg = await this.#deps.readPackage(id);
+          if (this.#disposed || this.#currentEpoch(id) !== epoch || !this.#deps.getState().enabled.includes(id)) {
+            return;
+          }
+          await this.#activateWithEpoch(pkg, epoch);
+        } catch (error) {
+          if (error instanceof CancelledActivationError) return;
+          if (!this.#disposed && this.#currentEpoch(id) === epoch && this.#deps.getState().enabled.includes(id)) {
+            this.#status.set(id, { status: 'error', detail: (error as Error).message });
+          }
+        } finally {
+          if (this.#activating.get(id) === task) this.#activating.delete(id);
+        }
+      })();
+      this.#activating.set(id, task);
+      await task;
     }
   }
 
@@ -129,14 +265,20 @@ export class PluginLifecycle {
   }
 
   async enable(id: string): Promise<InstalledPlugin> {
+    const epoch = this.#bumpEpoch(id);
+    this.#removeFromQueue(id);
     this.#clearReconnectTimer(id);
     this.#crashed.delete(id);
     this.#crashHistory.delete(id);
+    const inflight = this.#activating.get(id);
+    if (inflight) await inflight.catch(() => undefined);
+    await this.deactivate(id);
     const pkg = await this.#deps.readPackage(id);
     const state = this.#deps.getState();
     if (!state.enabled.includes(id)) state.enabled.push(id);
     await this.#deps.saveState();
-    await this.activate(pkg);
+    this.#status.set(id, { status: 'starting' });
+    await this.#activateWithEpoch(pkg, epoch);
     this.#deps.onChange();
     this.#deps.store.record({
       id: crypto.randomUUID(),
@@ -149,14 +291,18 @@ export class PluginLifecycle {
   }
 
   async disable(id: string): Promise<void> {
+    this.#bumpEpoch(id);
+    this.#removeFromQueue(id);
     this.#clearReconnectTimer(id);
     this.#crashed.delete(id);
     this.#crashHistory.delete(id);
     this.#deps.eventBus.unsubscribePlugin(id);
-    await this.deactivate(id);
     const state = this.#deps.getState();
     state.enabled = state.enabled.filter((entry) => entry !== id);
     await this.#deps.saveState();
+    const inflight = this.#activating.get(id);
+    if (inflight) await inflight.catch(() => undefined);
+    await this.deactivate(id);
     if (this.#status.has(id)) this.#status.set(id, { status: 'disabled' });
     this.#deps.onChange();
   }
@@ -164,14 +310,21 @@ export class PluginLifecycle {
   /** 重载：候选先起，成功再替换；失败保留旧实例，同时保证旧实例全部事件订阅被彻底回收。 */
   async reload(id: string): Promise<InstalledPlugin> {
     this.#clearReconnectTimer(id);
+    const inflight = this.#activating.get(id);
+    if (inflight) await inflight.catch(() => undefined);
+    const epoch = this.#bumpEpoch(id);
+    this.#removeFromQueue(id);
     const pkg = await this.#deps.readPackage(id);
     const previous = this.#active.get(id);
     const candidateInstanceId = crypto.randomUUID();
     let candidate: ActivePlugin;
     try {
-      candidate = await this.#createActive(pkg, candidateInstanceId);
+      candidate = await this.#createActive(pkg, candidateInstanceId, epoch);
     } catch (error) {
       this.#deps.eventBus.unsubscribeInstance(id, candidateInstanceId);
+      if (error instanceof CancelledActivationError) {
+        return this.#deps.decorate(pkg, this.#deps.dirFor(id));
+      }
       const err = error as Error & { code?: string };
       this.#status.set(id, {
         status: previous ? 'running' : isNeedsConfiguration(error) ? 'needs-configuration' : 'error',
@@ -179,6 +332,12 @@ export class PluginLifecycle {
       });
       await this.#deps.log(id, 'error', `reload 失败${previous ? '，保留旧实例' : ''}: ${err.message}`);
       this.#deps.onChange();
+      return this.#deps.decorate(pkg, this.#deps.dirFor(id));
+    }
+
+    if (this.#disposed || this.#currentEpoch(id) !== epoch || !this.#deps.getState().enabled.includes(id)) {
+      this.#deps.eventBus.unsubscribeInstance(id, candidateInstanceId);
+      await this.#disposeActive(id, candidate);
       return this.#deps.decorate(pkg, this.#deps.dirFor(id));
     }
 
@@ -196,30 +355,53 @@ export class PluginLifecycle {
 
   /** 手动或退避重连已崩溃的插件。 */
   async reconnect(id: string): Promise<InstalledPlugin> {
+    const epoch = this.#bumpEpoch(id);
+    this.#removeFromQueue(id);
     this.#clearReconnectTimer(id);
     this.#crashed.delete(id);
     this.#crashHistory.delete(id);
+    const inflight = this.#activating.get(id);
+    if (inflight) await inflight.catch(() => undefined);
     const pkg = await this.#deps.readPackage(id);
     if (!this.#deps.getState().enabled.includes(id)) {
       pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     }
     await this.deactivate(id);
-    await this.activate(pkg);
+    this.#status.set(id, { status: 'starting' });
+    await this.#activateWithEpoch(pkg, epoch);
     this.#deps.onChange();
     return this.#deps.decorate(pkg, this.#deps.dirFor(id));
   }
 
   async activate(pkg: PluginPackage): Promise<void> {
+    await this.#activateWithEpoch(pkg, this.#currentEpoch(pkg.id));
+  }
+
+  async #activateWithEpoch(pkg: PluginPackage, expectedEpoch: number): Promise<void> {
     const id = pkg.id;
+    if (this.#disposed || this.#currentEpoch(id) !== expectedEpoch || !this.#deps.getState().enabled.includes(id)) {
+      return;
+    }
     const instanceId = crypto.randomUUID();
     try {
-      const active = await this.#createActive(pkg, instanceId);
+      const active = await this.#createActive(pkg, instanceId, expectedEpoch);
+      if (this.#disposed || this.#currentEpoch(id) !== expectedEpoch || !this.#deps.getState().enabled.includes(id)) {
+        this.#deps.eventBus.unsubscribeInstance(id, instanceId);
+        await this.#disposeActive(id, active);
+        return;
+      }
+      const previous = this.#active.get(id);
       this.#crashed.delete(id);
       this.#active.set(id, active);
       this.#status.set(id, { status: 'running' });
+      if (previous && previous !== active) await this.#disposeActive(id, previous);
       await this.#deps.log(id, 'info', `activated (runtime ${pkg.runtime})`);
     } catch (error) {
       this.#deps.eventBus.unsubscribeInstance(id, instanceId);
+      if (error instanceof CancelledActivationError) return;
+      if (this.#disposed || this.#currentEpoch(id) !== expectedEpoch || !this.#deps.getState().enabled.includes(id)) {
+        return;
+      }
       const err = error as Error & { code?: string };
       const needsConfiguration = isNeedsConfiguration(error);
       this.#status.set(id, {
@@ -248,19 +430,33 @@ export class PluginLifecycle {
 
   async dispose(): Promise<void> {
     this.#disposed = true;
+    this.#clearNotifyTimer();
+    this.#pendingQueue.length = 0;
+    this.#pendingSet.clear();
     for (const timer of this.#reconnectTimers.values()) clearTimeout(timer);
     this.#reconnectTimers.clear();
+    // 等待所有进行中的后台激活检测到 disposed 并销毁其刚起的子进程，杜绝孤儿进程泄漏
+    const inflight = [...this.#activating.values()];
+    if (inflight.length > 0) await Promise.allSettled(inflight);
     const ids = [...this.#active.keys()];
     await Promise.allSettled(ids.map((id) => this.deactivate(id)));
   }
 
-  async #createActive(pkg: PluginPackage, instanceId: string): Promise<ActivePlugin> {
+  async #createActive(pkg: PluginPackage, instanceId: string, expectedEpoch: number): Promise<ActivePlugin> {
     const id = pkg.id;
     const dir = this.#deps.dirFor(id);
     let storageToClose: PluginStorage | undefined;
+    let adapterToDispose: PluginRuntimeAdapter | undefined;
+    const assertAlive = (): void => {
+      if (this.#disposed || this.#currentEpoch(id) !== expectedEpoch || !this.#deps.getState().enabled.includes(id)) {
+        throw new CancelledActivationError();
+      }
+    };
     try {
+      assertAlive();
       const recorded = this.#deps.getState().installs[id]?.digest;
       const actual = await hashPluginDir(dir);
+      assertAlive();
       if (recorded && recorded !== actual) {
         throw Object.assign(new Error('插件目录内容与安装时不一致（摘要不符），请重新安装'), {
           code: 'PLUGIN_DIGEST_MISMATCH',
@@ -271,6 +467,7 @@ export class PluginLifecycle {
       storageToClose = storage;
       await storage.load();
       const settings = await this.#deps.settingsFor(id, pkg);
+      assertAlive();
 
       const handlers = createHandlers({
         pluginId: id,
@@ -352,12 +549,63 @@ export class PluginLifecycle {
         disposed: false,
       };
 
+      assertAlive();
+      adapterToDispose = adapter;
       await adapter.start();
+      assertAlive();
+      adapterToDispose = undefined;
       return activeRef;
     } catch (error) {
+      if (adapterToDispose) {
+        await adapterToDispose.dispose().catch(() => undefined);
+      }
       storageToClose?.close();
       throw error;
     }
+  }
+
+  #currentEpoch(id: string): number {
+    return this.#epoch.get(id) ?? 0;
+  }
+
+  #bumpEpoch(id: string): number {
+    const next = this.#currentEpoch(id) + 1;
+    this.#epoch.set(id, next);
+    return next;
+  }
+
+  #removeFromQueue(id: string): void {
+    if (!this.#pendingSet.delete(id)) return;
+    const index = this.#pendingQueue.indexOf(id);
+    if (index >= 0) this.#pendingQueue.splice(index, 1);
+  }
+
+  #scheduleBatchNotify(): void {
+    this.#notifyDirty = true;
+    if (this.#notifyTimer) return;
+    this.#notifyTimer = setTimeout(() => {
+      this.#notifyTimer = undefined;
+      this.#flushBatchNotify();
+    }, BATCH_NOTIFY_DEBOUNCE_MS);
+    this.#notifyTimer.unref();
+  }
+
+  #clearNotifyTimer(): void {
+    if (this.#notifyTimer) {
+      clearTimeout(this.#notifyTimer);
+      this.#notifyTimer = undefined;
+    }
+    this.#notifyDirty = false;
+  }
+
+  #flushBatchNotify(): void {
+    if (this.#notifyTimer) {
+      clearTimeout(this.#notifyTimer);
+      this.#notifyTimer = undefined;
+    }
+    if (!this.#notifyDirty || this.#disposed) return;
+    this.#notifyDirty = false;
+    this.#deps.onChange();
   }
 
   #handleCrash(id: string, instance: ActivePlugin, info: PluginCrashInfo): void {
@@ -401,10 +649,12 @@ export class PluginLifecycle {
   }
 
   async #autoReconnect(id: string): Promise<void> {
+    const epoch = this.#bumpEpoch(id);
     const pkg = await this.#deps.readPackage(id);
     if (!this.#deps.getState().enabled.includes(id)) return;
     await this.deactivate(id);
-    await this.activate(pkg);
+    this.#status.set(id, { status: 'starting' });
+    await this.#activateWithEpoch(pkg, epoch);
     this.#deps.onChange();
   }
 

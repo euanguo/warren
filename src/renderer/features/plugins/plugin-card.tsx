@@ -46,6 +46,7 @@ function tierBadge(permission: string, needsConfirm = true) {
 
 const STATUS_LABEL: Record<InstalledPlugin['status'], string> = {
   running: '运行中',
+  starting: '启动中',
   disabled: '已停用',
   error: '出错',
   'needs-configuration': '待配置',
@@ -58,6 +59,7 @@ const RUNTIME_HINT: Record<InstalledPlugin['runtime'], string> = {
 
 function statusTone(status: InstalledPlugin['status']): string {
   if (status === 'running') return 'border-[var(--success)]/50 text-[var(--success)]';
+  if (status === 'starting') return 'border-[var(--warning)]/50 text-[var(--warning)]';
   if (status === 'error') return 'border-destructive/50 text-destructive';
   if (status === 'needs-configuration') return 'border-[var(--warning)]/50 text-[var(--warning)]';
   return 'text-muted-foreground';

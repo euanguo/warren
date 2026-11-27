@@ -72,6 +72,7 @@ export async function refreshPluginsAndSettings(reloadPlugins = true): Promise<v
       reloadPlugins ? window.envApi.plugins() : Promise.resolve(state.plugins),
       window.envApi.settings(),
     ]);
+    if (!Array.isArray(plugins) || !settings) return;
     const registry = reloadPlugins ? await loadPluginApps(plugins) : state.registry;
     if (seq !== refreshSeq) return;
     syncTheme(settings);
@@ -82,8 +83,8 @@ export async function refreshPluginsAndSettings(reloadPlugins = true): Promise<v
       loaded: true,
     };
     emit();
-  } catch {
-    // 打包冷启动早期 IPC 可能尚未完成注册；等待主进程就绪后的 plugin:changed 广播自动重试
+  } catch (error) {
+    console.error('[plugin-store] 刷新插件状态失败:', error);
   }
 }
 

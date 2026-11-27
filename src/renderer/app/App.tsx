@@ -30,7 +30,7 @@ import type { NavigationAction, SpaceId } from '@shared/types';
 const SIDEBAR_WIDTH = { default: 248, min: 200, max: 420, collapsed: 0 };
 
 export function App() {
-  const { environments, groups, events, selected } = useEnvironmentState();
+  const { environments, groups, events, selected, ready: environmentsReady } = useEnvironmentState();
   const { plugins, settings, registry } = usePluginState();
   const { route, settingsSection, requestedPage, inspectorOpen, inspectorTab } = useNavigationState();
   const telemetry = useTelemetryState();
@@ -296,6 +296,7 @@ export function App() {
                       environments={environments}
                       groups={groups}
                       selected={selected}
+                      ready={environmentsReady}
                       onSelect={(id) => void environmentActions.select(id)}
                       onStart={(id) => void environmentActions.start(id)}
                       onStop={(id) => void environmentActions.stop(id)}

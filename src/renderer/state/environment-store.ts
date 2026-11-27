@@ -56,6 +56,8 @@ export async function refreshEnvironments(): Promise<void> {
       ready: true,
     };
     emit();
+  } catch (error) {
+    console.error('[environment-store] 刷新环境列表失败:', error);
   } finally {
     refreshing = false;
     if (pendingRefresh) {

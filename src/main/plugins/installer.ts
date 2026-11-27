@@ -38,23 +38,42 @@ export function pluginError(code: string, message: string): never {
   throw Object.assign(new Error(message), { code });
 }
 
+const HASH_READ_CONCURRENCY = 16;
+
 export async function hashPluginDir(dir: string): Promise<string> {
-  const hash = createHash('sha256');
-  const walk = async (current: string, prefix: string): Promise<void> => {
+  const files: Array<{ relative: string; fullPath: string }> = [];
+  const collect = async (current: string, prefix: string): Promise<void> => {
     const entries = (await readdir(current, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules') continue;
-        await walk(path.join(current, entry.name), relative);
+        await collect(path.join(current, entry.name), relative);
         continue;
       }
       if (isRuntimeFile(entry.name)) continue;
-      hash.update(relative);
-      hash.update(await readFile(path.join(current, entry.name)));
+      files.push({ relative, fullPath: path.join(current, entry.name) });
     }
   };
-  await walk(dir, '');
+  await collect(dir, '');
+
+  const buffers: Buffer[] = Array.from({ length: files.length });
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(HASH_READ_CONCURRENCY, files.length) }, async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= files.length) break;
+      buffers[index] = await readFile(files[index]!.fullPath);
+    }
+  });
+  await Promise.all(workers);
+
+  const hash = createHash('sha256');
+  for (let index = 0; index < files.length; index += 1) {
+    hash.update(files[index]!.relative);
+    hash.update(buffers[index]!);
+  }
   return hash.digest('hex');
 }
 
@@ -78,9 +97,35 @@ export interface InstallerDeps {
 
 export class PluginInstaller {
   #deps: InstallerDeps;
+  #skillCache = new Map<string, PluginSkillEntry>();
 
   constructor(deps: InstallerDeps) {
     this.#deps = deps;
+  }
+
+  #invalidateSkillCache(id?: string): void {
+    if (!id) {
+      this.#skillCache.clear();
+      return;
+    }
+    const prefix = `${id}\0`;
+    for (const key of this.#skillCache.keys()) {
+      if (key.startsWith(prefix)) this.#skillCache.delete(key);
+    }
+  }
+
+  async #loadSkillEntryCached(
+    dir: string,
+    pkg: PluginPackage,
+    options: { enabled: boolean; digest: string; skillExposed: boolean },
+  ): Promise<PluginSkillEntry> {
+    if (!options.digest) return loadPluginSkillEntry(dir, pkg, options);
+    const key = `${pkg.id}\0${options.digest}\0${options.enabled ? 1 : 0}\0${options.skillExposed ? 1 : 0}`;
+    const cached = this.#skillCache.get(key);
+    if (cached) return cached;
+    const entry = await loadPluginSkillEntry(dir, pkg, options);
+    this.#skillCache.set(key, entry);
+    return entry;
   }
 
   dirFor(id: string): string {
@@ -125,7 +170,7 @@ export class PluginInstaller {
     const status = this.#deps.statusOf(pkg.id);
     const enabled = state.enabled.includes(pkg.id);
     const skillExposed = state.skillExposed?.[pkg.id] !== false;
-    const skillEntry = await loadPluginSkillEntry(dir, pkg, { enabled, digest, skillExposed });
+    const skillEntry = await this.#loadSkillEntryCached(dir, pkg, { enabled, digest, skillExposed });
     return {
       id: pkg.id,
       packageName: pkg.packageName,
@@ -173,21 +218,24 @@ export class PluginInstaller {
     try {
       entries = (await readdir(this.#deps.root, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-        .map((entry) => entry.name);
+        .map((entry) => entry.name)
+        .sort((a, b) => a.localeCompare(b));
     } catch {
       return [];
     }
 
-    const plugins: InstalledPlugin[] = [];
-    for (const id of entries) {
-      try {
-        const pkg = await this.readPackage(id);
-        plugins.push(await this.decorate(pkg, this.dirFor(id)));
-      } catch {
-        // 目录存在但 pkg 坏了：跳过，不阻塞其它插件
-      }
-    }
-    return plugins;
+    const items = await Promise.all(
+      entries.map(async (id): Promise<InstalledPlugin | null> => {
+        try {
+          const pkg = await this.readPackage(id);
+          return await this.decorate(pkg, this.dirFor(id));
+        } catch {
+          // 目录存在但 pkg 坏了：跳过，不阻塞其它插件
+          return null;
+        }
+      }),
+    );
+    return items.filter((item): item is InstalledPlugin => item !== null);
   }
 
   async one(id: string): Promise<InstalledPlugin> {
@@ -274,6 +322,7 @@ export class PluginInstaller {
         }
 
         if (existed) await rm(backup, { recursive: true, force: true });
+        this.#invalidateSkillCache(id);
         this.#deps.onChange();
         this.#deps.store.record({
           id: crypto.randomUUID(),
@@ -302,6 +351,7 @@ export class PluginInstaller {
         state.enabled = state.enabled.filter((entry) => entry !== id);
         if (previousEnabled) state.enabled.push(id);
         await this.#deps.saveState();
+        this.#invalidateSkillCache(id);
         if (previousEnabled) {
           await this.#deps.activate(await this.readPackage(id)).catch(() => undefined);
         }
@@ -334,6 +384,7 @@ export class PluginInstaller {
     delete state.installs[id];
     if (state.skillExposed) delete state.skillExposed[id];
     this.#deps.deleteStatus(id);
+    this.#invalidateSkillCache(id);
     await this.#deps.saveState();
     this.#deps.onChange();
     this.#deps.store.record({
@@ -382,6 +433,7 @@ export class PluginInstaller {
     const state = this.#deps.getState();
     state.skillExposed ??= {};
     state.skillExposed[id] = Boolean(exposed);
+    this.#invalidateSkillCache(id);
     await this.#deps.saveState();
     this.#deps.onChange();
     return this.one(id);
@@ -394,7 +446,7 @@ export class PluginInstaller {
     const enabled = state.enabled.includes(id);
     const skillExposed = state.skillExposed?.[id] !== false;
     const digest = state.installs[id]?.digest ?? '';
-    const entry = await loadPluginSkillEntry(dir, pkg, { enabled, digest, skillExposed });
+    const entry = await this.#loadSkillEntryCached(dir, pkg, { enabled, digest, skillExposed });
     return {
       pluginId: pkg.id,
       pluginName: pkg.name,
@@ -416,23 +468,26 @@ export class PluginInstaller {
     try {
       entries = (await readdir(this.#deps.root, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-        .map((entry) => entry.name);
+        .map((entry) => entry.name)
+        .sort((a, b) => a.localeCompare(b));
     } catch {
       return [];
     }
     const state = this.#deps.getState();
-    const out: PluginSkillEntry[] = [];
-    for (const id of entries) {
-      try {
-        const pkg = await this.readPackage(id);
-        const enabled = state.enabled.includes(id);
-        const skillExposed = state.skillExposed?.[id] !== false;
-        const digest = state.installs[id]?.digest ?? '';
-        out.push(await loadPluginSkillEntry(this.dirFor(id), pkg, { enabled, digest, skillExposed }));
-      } catch {
-        // 损坏目录跳过，不影响其它插件 Skill 合成
-      }
-    }
-    return out;
+    const items = await Promise.all(
+      entries.map(async (id): Promise<PluginSkillEntry | null> => {
+        try {
+          const pkg = await this.readPackage(id);
+          const enabled = state.enabled.includes(id);
+          const skillExposed = state.skillExposed?.[id] !== false;
+          const digest = state.installs[id]?.digest ?? '';
+          return await this.#loadSkillEntryCached(this.dirFor(id), pkg, { enabled, digest, skillExposed });
+        } catch {
+          // 损坏目录跳过，不影响其它插件 Skill 合成
+          return null;
+        }
+      }),
+    );
+    return items.filter((item): item is PluginSkillEntry => item !== null);
   }
 }

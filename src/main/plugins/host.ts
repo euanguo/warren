@@ -114,14 +114,32 @@ export class PluginHost {
       statusOf: (id) => this.#lifecycle.statusOf(id),
       setStatus: (id, status) => this.#lifecycle.setStatus(id, status),
       requirePermission: (id, permission) => this.#lifecycle.requirePermission(id, permission),
+      waitReady: (id) => this.#lifecycle.waitReady(id),
     });
   }
 
-  async load(): Promise<void> {
+  /** 第一阶段（毫秒级）：准备目录、读注册表并把已启用插件标为 starting，不阻塞窗口或 IPC。 */
+  async loadState(): Promise<void> {
     await mkdir(this.#root, { recursive: true });
-    await this.#lifecycle.ensureBootstraps();
     this.#state = await loadPluginState(this.#db);
-    await this.#lifecycle.activateAll(this.#state.enabled);
+    this.#lifecycle.markStarting(this.#state.enabled);
+  }
+
+  /** 第二阶段：后台有界并发激活全部已启用插件。 */
+  async activateEnabled(options?: { concurrency?: number; notify?: boolean }): Promise<void> {
+    await this.#lifecycle.ensureBootstraps();
+    await this.#lifecycle.activateAll(this.#state.enabled, options);
+  }
+
+  /** 兼容同步入口（单测/CLI 测试）：两阶段串联完成全部已启用插件激活。 */
+  async load(): Promise<void> {
+    await this.loadState();
+    await this.activateEnabled({ notify: false });
+  }
+
+  /** 若指定插件正在后台激活中，等待（并在队列中优先插队）其激活完成。 */
+  async waitReady(id: string): Promise<void> {
+    await this.#lifecycle.waitReady(id);
   }
 
   async logs(id: string, limit = 200): Promise<PluginLogEntry[]> {

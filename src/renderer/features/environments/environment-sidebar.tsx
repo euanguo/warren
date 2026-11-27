@@ -10,6 +10,7 @@ import {
   SidebarHeader,
   SidebarInput,
 } from '@/components/ui/sidebar';
+import { Skeleton } from '@/components/ui/skeleton';
 import { disclosureInnerClassName, disclosureShellClassName } from '@/lib/disclosure-motion';
 import type { PluginBadgeSnapshot } from '@/lib/plugin-badges';
 import type { PluginEnvAction } from '@/lib/plugin-sdk-types';
@@ -22,6 +23,8 @@ interface Props {
   environments: Environment[];
   groups: Group[];
   selected?: string;
+  /** 首屏数据是否已从主进程拉回；false 时展示轻量占位而非误报「还没有环境」。 */
+  ready?: boolean;
   onSelect: (id: string) => void;
   onStart: (id: string) => void;
   onStop: (id: string) => void;
@@ -68,6 +71,7 @@ export function EnvironmentSidebar({
   environments,
   groups,
   selected,
+  ready = true,
   onSelect,
   onStart,
   onStop,
@@ -135,7 +139,15 @@ export function EnvironmentSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        {environments.length === 0 && (
+        {!ready && environments.length === 0 && (
+          <div data-slot="sidebar-loading" aria-busy="true" className="flex flex-col gap-1.5 px-2 py-2">
+            <Skeleton className="h-[var(--control-height-compact)] w-full opacity-60" />
+            <Skeleton className="h-[var(--control-height-compact)] w-5/6 opacity-45" />
+            <Skeleton className="h-[var(--control-height-compact)] w-2/3 opacity-30" />
+          </div>
+        )}
+
+        {ready && environments.length === 0 && (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">还没有环境。点上方「新建环境」开始。</p>
         )}
 
@@ -213,7 +225,9 @@ export function EnvironmentSidebar({
       <SidebarFooter>
         <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
           <span className="min-w-0 truncate tabular-nums">
-            {runningCount} 运行 / {environments.length} 环境
+            {!ready && environments.length === 0
+              ? '正在加载环境…'
+              : `${runningCount} 运行 / ${environments.length} 环境`}
           </span>
           <div className="ml-auto flex items-center gap-0.5">
             <IconButton

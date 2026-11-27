@@ -20,8 +20,10 @@ export interface OverlayHostOptions {
 export class OverlayHost {
   #window: BrowserWindow;
   #layers: WindowLayerManager;
-  #view: WebContentsView;
-  #ready: Promise<void>;
+  #preloadPath: string;
+  #loadUrl: OverlayHostOptions['loadUrl'];
+  #view?: WebContentsView;
+  #ready?: Promise<void>;
   #open = false;
   #currentRequest: OverlayRequest | null = null;
   #pendingResolve?: (value: unknown) => void;
@@ -30,32 +32,45 @@ export class OverlayHost {
   constructor(options: OverlayHostOptions) {
     this.#window = options.window;
     this.#layers = options.layers;
+    this.#preloadPath = options.preloadPath;
+    this.#loadUrl = options.loadUrl;
     this.#onResolved = options.onResolved;
-    this.#view = new WebContentsView({
+  }
+
+  /** 预热透明模态层；主窗口首绘完成后再调用，避免冷启动瞬间争抢渲染资源。 */
+  warmup(): void {
+    this.#ensureView();
+  }
+
+  #ensureView(): WebContentsView {
+    if (this.#view && !this.#view.webContents.isDestroyed()) return this.#view;
+    const view = new WebContentsView({
       webPreferences: {
-        preload: options.preloadPath,
+        preload: this.#preloadPath,
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
         backgroundThrottling: false,
       },
     });
-    this.#view.setBackgroundColor('#00000000');
-    const source = options.loadUrl('overlay');
+    view.setBackgroundColor('#00000000');
+    const source = this.#loadUrl('overlay');
     const loaded = source.devUrl
-      ? this.#view.webContents.loadURL(source.devUrl)
-      : this.#view.webContents.loadFile(source.filePath ?? path.resolve('index.html'), {
+      ? view.webContents.loadURL(source.devUrl)
+      : view.webContents.loadFile(source.filePath ?? path.resolve('index.html'), {
           search: 'surface=overlay',
         });
+    this.#view = view;
     this.#ready = loaded.catch(() => {});
-    this.#layers.setSlot('overlay', this.#view, {
+    this.#layers.setSlot('overlay', view, {
       visible: false,
       bounds: this.#fullBounds(),
     });
+    return view;
   }
 
   get webContents() {
-    return this.#view.webContents;
+    return this.#view && !this.#view.webContents.isDestroyed() ? this.#view.webContents : undefined;
   }
 
   get isOpen(): boolean {
@@ -67,11 +82,12 @@ export class OverlayHost {
   }
 
   syncBounds(): void {
-    if (!this.#open) return;
+    if (!this.#open || !this.#view) return;
     this.#layers.setBounds('overlay', this.#fullBounds());
   }
 
   async open<T = unknown>(request: OverlayRequest): Promise<T | null> {
+    const view = this.#ensureView();
     await this.#ready;
     if (this.#pendingResolve) {
       this.#pendingResolve(null);
@@ -82,10 +98,10 @@ export class OverlayHost {
     this.#layers.setBounds('overlay', this.#fullBounds());
     this.#layers.setVisible('overlay', true);
     this.#layers.restack();
-    this.#view.webContents.send('overlay:state', request);
-    if (!this.#view.webContents.isDestroyed()) this.#view.webContents.invalidate();
+    view.webContents.send('overlay:state', request);
+    if (!view.webContents.isDestroyed()) view.webContents.invalidate();
     if (!this.#window.isDestroyed() && this.#window.isFocused()) {
-      this.#view.webContents.focus();
+      view.webContents.focus();
     }
     return new Promise<T | null>((resolve) => {
       this.#pendingResolve = (val) => resolve((val as T | undefined) ?? null);
@@ -98,7 +114,9 @@ export class OverlayHost {
     this.#open = false;
     this.#currentRequest = null;
     this.#layers.setVisible('overlay', false);
-    this.#view.webContents.send('overlay:state', null);
+    if (this.#view && !this.#view.webContents.isDestroyed()) {
+      this.#view.webContents.send('overlay:state', null);
+    }
     done?.(result ?? null);
     this.#onResolved?.();
   }
@@ -110,7 +128,9 @@ export class OverlayHost {
     }
     this.#currentRequest = null;
     this.#layers.setSlot('overlay', undefined);
-    if (!this.#view.webContents.isDestroyed()) this.#view.webContents.close();
+    if (this.#view && !this.#view.webContents.isDestroyed()) this.#view.webContents.close();
+    this.#view = undefined;
+    this.#ready = undefined;
   }
 
   #fullBounds() {

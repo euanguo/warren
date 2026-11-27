@@ -291,6 +291,7 @@ async function loadBundle(plugin: InstalledPlugin): Promise<LoadedBundle> {
 export async function loadPluginApps(plugins: InstalledPlugin[]): Promise<PluginRegistry> {
   const registry = emptyRegistry();
   const activeBadgePlugins = new Set<string>();
+  const targets: InstalledPlugin[] = [];
 
   for (const plugin of plugins) {
     // 声明式的面不需要前端 bundle，但必须跟 plugin.enabled 一致；
@@ -325,11 +326,22 @@ export async function loadPluginApps(plugins: InstalledPlugin[]): Promise<Plugin
       registry.errors.push({ pluginId: plugin.id, message: '没有 ui.mount 权限，界面没有加载' });
       continue;
     }
+    targets.push(plugin);
+  }
+
+  // 并发拉取各插件前端 ESM bundle，随后按原始清单顺序注册，保持界面顺序确定
+  const loaded = await Promise.allSettled(targets.map((plugin) => loadBundle(plugin)));
+  for (let index = 0; index < targets.length; index += 1) {
+    const plugin = targets[index]!;
+    const settled = loaded[index]!;
+    if (settled.status === 'rejected') {
+      registry.errors.push({ pluginId: plugin.id, message: (settled.reason as Error).message });
+      continue;
+    }
     try {
       const generation = beginPluginLoad(plugin.id, plugin.digest || plugin.version);
       activeBadgePlugins.add(plugin.id);
-      const bundle = await loadBundle(plugin);
-      bundle.register(createApi(plugin, registry, generation));
+      settled.value.register(createApi(plugin, registry, generation));
     } catch (error) {
       activeBadgePlugins.delete(plugin.id);
       registry.errors.push({ pluginId: plugin.id, message: (error as Error).message });

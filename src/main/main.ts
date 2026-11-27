@@ -88,15 +88,16 @@ let popoverHost: PopoverHost | undefined;
 let tray: Tray | undefined;
 let quitting = false;
 let suspensionBlocker: number | undefined;
+let surfaceWarmupTimer: ReturnType<typeof setTimeout> | undefined;
 
 function broadcast(channel: string, payload?: unknown): void {
   if (payload === undefined) {
     window?.webContents.send(channel);
-    overlayHost?.webContents.send(channel);
+    overlayHost?.webContents?.send(channel);
     popoverHost?.broadcast(channel);
   } else {
     window?.webContents.send(channel, payload);
-    overlayHost?.webContents.send(channel, payload);
+    overlayHost?.webContents?.send(channel, payload);
     popoverHost?.broadcast(channel, payload);
   }
 }
@@ -125,7 +126,8 @@ function resolveProxyCredential(host: string): { username: string; password: str
   }
 }
 
-function createWindow(): BrowserWindow {
+/** 仅创建主窗对象与原生事件监听，暂不加载渲染层；待 IPC 路由就绪后再调用 `loadMainWindow`。 */
+function createMainWindow(): BrowserWindow {
   const startBackground = process.env.WARREN_BACKGROUND === '1';
   const startInactive = startBackground || process.env.WARREN_START_INACTIVE === '1';
   const win = new BrowserWindow({
@@ -155,12 +157,6 @@ function createWindow(): BrowserWindow {
     });
   }
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  } else {
-    win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
-  }
-
   win.webContents.on('before-input-event', (event, input) => {
     const shortcut = browserShortcut(input);
     if (!shortcut) return;
@@ -185,6 +181,14 @@ function createWindow(): BrowserWindow {
   });
 
   return win;
+}
+
+function loadMainWindow(win: BrowserWindow): void {
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    void win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+  } else {
+    void win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+  }
 }
 
 function installMenu(): void {
@@ -302,7 +306,7 @@ app.whenReady().then(async () => {
   });
 
   const initialSettings = store.appSettings();
-  window = createWindow();
+  window = createMainWindow();
   layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 8);
   const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -332,7 +336,6 @@ app.whenReady().then(async () => {
       window?.webContents.send('popover:dismissed', payload);
     },
   });
-  popoverHost.warmup();
 
   installTray();
   installMenu();
@@ -357,6 +360,18 @@ app.whenReady().then(async () => {
     },
   );
   manager.applySettings(initialSettings, { respectEnvOverrides: true });
+  manager.setShieldTheme(
+    initialSettings.theme === 'light'
+      ? 'light'
+      : initialSettings.theme === 'system' && !nativeTheme.shouldUseDarkColors
+        ? 'light'
+        : 'dark',
+  );
+  nativeTheme.on('updated', () => {
+    if (store.appSettings().theme === 'system') {
+      manager?.setShieldTheme(nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+    }
+  });
 
   let skillSyncTimer: ReturnType<typeof setTimeout> | undefined;
   const scheduleSkillSync = (): void => {
@@ -389,18 +404,11 @@ app.whenReady().then(async () => {
       scheduleSkillSync();
     },
   });
-  await plugins.load();
+  // 第一阶段轻加载（仅读注册表并标记 starting），不阻塞主窗加载与 IPC 注册
+  await plugins.loadState();
   pluginProtocol.invalidate();
-  scheduleSkillSync();
 
-  rpc = new RpcServer(manager, store, {
-    vault,
-    saveVault,
-    plugins,
-    skillSourceDir: skillSourceDir(),
-    homeDir: os.homedir(),
-  });
-  await rpc.listen();
+  // IPC 路由必须在主窗口 loadURL/loadFile 之前注册，结构性消除冷启动 No handler registered 竞态
   registerIpcRoutes({
     getWindow: () => window,
     getOverlayHost: () => overlayHost,
@@ -418,23 +426,42 @@ app.whenReady().then(async () => {
   });
   syncPowerSaveBlocker();
 
-  store.record(makeEvent('core.ready', `core ready on pid ${process.pid}`));
-  manager.setShieldTheme(
-    initialSettings.theme === 'light'
-      ? 'light'
-      : initialSettings.theme === 'system' && !nativeTheme.shouldUseDarkColors
-        ? 'light'
-        : 'dark',
-  );
-  nativeTheme.on('updated', () => {
-    if (store.appSettings().theme === 'system') {
-      manager?.setShieldTheme(nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
-    }
-  });
-  broadcastPluginChanged('plugins');
+  loadMainWindow(window);
+
+  // 主窗口首绘完成后再预热 Overlay 与 Popover，避免冷启动瞬间 4 个渲染进程互抢资源
   window.webContents.once('did-finish-load', () => {
-    broadcastPluginChanged('plugins');
+    if (quitting) return;
+    surfaceWarmupTimer = setTimeout(() => {
+      surfaceWarmupTimer = undefined;
+      if (quitting || !window || window.isDestroyed()) return;
+      overlayHost?.warmup();
+      popoverHost?.warmup();
+    }, 150);
+    surfaceWarmupTimer.unref();
   });
+
+  rpc = new RpcServer(manager, store, {
+    vault,
+    saveVault,
+    plugins,
+    skillSourceDir: skillSourceDir(),
+    homeDir: os.homedir(),
+  });
+  await rpc.listen();
+
+  store.record(makeEvent('core.ready', `core ready on pid ${process.pid}`));
+  scheduleSkillSync();
+
+  // 第二阶段：后台有界并发激活已启用插件，期间任何 plugin:rpc / run 均通过 waitReady 透明衔接
+  void plugins
+    .activateEnabled({ notify: true })
+    .then(() => {
+      pluginProtocol.invalidate();
+      scheduleSkillSync();
+    })
+    .catch((error) => {
+      console.error('[plugins] 后台激活异常:', error);
+    });
 
   void restoreRunningEnvironments();
 });
@@ -459,6 +486,10 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  if (surfaceWarmupTimer) {
+    clearTimeout(surfaceWarmupTimer);
+    surfaceWarmupTimer = undefined;
+  }
   overlayHost?.destroy();
   popoverHost?.destroy();
   void plugins?.dispose();

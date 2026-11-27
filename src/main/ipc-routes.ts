@@ -55,7 +55,7 @@ export function isAuthorizedShellSender(
   popoverHost: PopoverHost | undefined,
 ): boolean {
   if (sender === window?.webContents) return true;
-  if (sender === overlayHost?.webContents) return true;
+  if (overlayHost?.webContents && sender === overlayHost.webContents) return true;
   if (popoverHost?.isOwnedWebContents(sender)) return true;
   return false;
 }

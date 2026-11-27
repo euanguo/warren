@@ -1,6 +1,6 @@
 {
   "name": "warren-plugin-whistle",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "为每个环境托管独立的 Whistle 实例：代理、规则、预设与抓包面板。",
   "type": "module",
   "files": [
