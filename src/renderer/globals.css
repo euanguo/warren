@@ -207,37 +207,47 @@ html.panel-resizing * {
 }
 
 /* ============================================================================
- * 顶栏凹角无界滑动标签背景（OpenBot TabShape 流体拖拽回弹）
+ * 顶栏凹角无界滑动标签背景（OpenBot TabShape 流体拖拽回弹 + 1px 发丝闭合描边）
  * ============================================================================ */
 .warren-tab-shape {
-  --tab-fillet: 10px;
-  --tab-top-radius: 10px;
-  --tab-dur: 210ms;
-  --tab-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --tab-left-delay: 0ms;
-  --tab-right-delay: 0ms;
+  --tab-shape-curve: var(--radius-md);
+  --tab-shape-fill: var(--bg-canvas);
+  --tab-shape-start-delay: 0ms;
+  --tab-shape-end-delay: 0ms;
   position: absolute;
-  top: var(--tab-shape-top, 4px);
-  bottom: 0;
+  z-index: 0;
+  top: var(--tab-shape-top, 5px);
   left: var(--tab-shape-left, 0px);
   right: var(--tab-shape-right, 100%);
-  border-radius: var(--tab-top-radius) var(--tab-top-radius) 0 0;
-  background-color: var(--bg-canvas);
+  height: var(--tab-shape-height, 0px);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-start-start-radius: var(--tab-shape-curve);
+  border-start-end-radius: var(--tab-shape-curve);
+  background-color: var(--tab-shape-fill);
   pointer-events: none;
-  z-index: 0;
+  -webkit-app-region: initial;
   transition:
-    left var(--tab-dur) var(--tab-ease) var(--tab-left-delay),
-    right var(--tab-dur) var(--tab-ease) var(--tab-right-delay),
-    opacity 120ms ease;
+    left var(--duration-panel) var(--ease-out) var(--tab-shape-start-delay),
+    right var(--duration-panel) var(--ease-out) var(--tab-shape-end-delay),
+    top var(--duration-panel) var(--ease-out),
+    height var(--duration-panel) var(--ease-out);
 }
 
-.warren-tab-shape[data-ready='false'] {
-  opacity: 0;
+[data-compact-topbar='true'] .warren-tab-shape {
+  --tab-shape-curve: 7px;
+}
+
+.warren-tab-shape:is([data-hidden='true'], [data-ready='false'], [data-instant='true']) {
   transition: none;
 }
 
-.warren-tab-shape[data-instant='true'] {
-  transition: none;
+.warren-tab-shape:is([data-hidden='true'], [data-ready='false']) {
+  visibility: hidden;
+}
+
+[data-compact-topbar='true'] [data-slot='app-header'] {
+  --control-height-icon: 26px;
 }
 
 .warren-tab-shape::before,
@@ -245,27 +255,175 @@ html.panel-resizing * {
   content: '';
   position: absolute;
   bottom: 0;
-  width: var(--tab-fillet);
-  height: var(--tab-fillet);
+  width: calc(var(--tab-shape-curve) + 1px);
+  height: calc(var(--tab-shape-curve) + 1px);
   pointer-events: none;
 }
 
 .warren-tab-shape::before {
-  left: calc(var(--tab-fillet) * -1);
-  background: radial-gradient(
-    circle at 0 0,
-    transparent calc(var(--tab-fillet) - 0.5px),
-    var(--bg-canvas) calc(var(--tab-fillet) + 0.25px)
-  );
+  left: calc(-1 * var(--tab-shape-curve) - 1px);
+  background:
+    radial-gradient(
+      circle at 0 0,
+      transparent calc(var(--tab-shape-curve) - 0.15px),
+      var(--border) calc(var(--tab-shape-curve) + 0.1px),
+      var(--border) calc(var(--tab-shape-curve) + 0.85px),
+      transparent calc(var(--tab-shape-curve) + 1.1px)
+    ),
+    radial-gradient(
+      circle at 0 0,
+      transparent calc(var(--tab-shape-curve) - 0.25px),
+      var(--tab-shape-fill) var(--tab-shape-curve)
+    );
 }
 
 .warren-tab-shape::after {
-  right: calc(var(--tab-fillet) * -1);
-  background: radial-gradient(
-    circle at 100% 0,
-    transparent calc(var(--tab-fillet) - 0.5px),
-    var(--bg-canvas) calc(var(--tab-fillet) + 0.25px)
-  );
+  right: calc(-1 * var(--tab-shape-curve) - 1px);
+  background:
+    radial-gradient(
+      circle at 100% 0,
+      transparent calc(var(--tab-shape-curve) - 0.15px),
+      var(--border) calc(var(--tab-shape-curve) + 0.1px),
+      var(--border) calc(var(--tab-shape-curve) + 0.85px),
+      transparent calc(var(--tab-shape-curve) + 1.1px)
+    ),
+    radial-gradient(
+      circle at 100% 0,
+      transparent calc(var(--tab-shape-curve) - 0.25px),
+      var(--tab-shape-fill) var(--tab-shape-curve)
+    );
+}
+
+.warren-tab-shape[data-clip-start='true'] {
+  border-start-start-radius: 0;
+  border-inline-start-color: transparent;
+}
+
+.warren-tab-shape[data-clip-start='true']::before {
+  display: none;
+}
+
+.warren-tab-shape[data-clip-end='true'] {
+  border-start-end-radius: 0;
+  border-inline-end-color: transparent;
+}
+
+.warren-tab-shape[data-clip-end='true']::after {
+  display: none;
+}
+
+/* ============================================================================
+ * 顶栏浏览器标签条（OpenBot 弹性均宽、双向分隔线隐去、关闭冻结与指针拖拽）
+ * ============================================================================ */
+.warren-chrome-strip {
+  --chrome-tab-max: 180px;
+  --chrome-tab-min: 96px;
+  --chrome-tab-floor: 72px;
+  --chrome-tab-gap: 4px;
+  --chrome-tab-height: var(--control-height-compact);
+  gap: var(--chrome-tab-gap);
+  padding-inline: 10px;
+  scroll-padding-inline: 28px;
+}
+
+[data-compact-topbar='true'] .warren-chrome-strip {
+  --chrome-tab-height: 26px;
+}
+
+@keyframes warren-chrome-tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+.warren-chrome-tab-item {
+  position: relative;
+  display: flex;
+  width: var(--chrome-tab-max);
+  flex: 0 1 var(--chrome-tab-max);
+  min-width: min(var(--chrome-tab-min), 100%);
+  max-width: var(--chrome-tab-max);
+  align-items: center;
+  animation: warren-chrome-tab-in var(--duration-normal) var(--ease-out);
+  transition:
+    flex-basis var(--duration-normal) var(--ease-out),
+    transform var(--duration-normal) var(--ease-out);
+}
+
+/* 顶栏未激活标签悬停：浅色下沉于外框、暗色介于外框与主画布之间，避免抢夺激活标签焦点 */
+.warren-chrome-tab-idle:hover {
+  background-color: var(--surface-hover);
+  color: var(--foreground);
+}
+
+:root.dark .warren-chrome-tab-idle:hover,
+:root[data-theme='dark'] .warren-chrome-tab-idle:hover {
+  background-color: color-mix(in srgb, var(--bg-canvas) 62%, var(--bg-frame));
+  color: var(--text-secondary);
+}
+
+@supports (min-width: calc-size(max-content, size)) {
+  .warren-chrome-tab-item {
+    min-width: calc-size(max-content, max(var(--chrome-tab-floor), min(var(--chrome-tab-min), 100%, size)));
+  }
+}
+
+/* 标题超出标签最大宽度时的右侧渐隐蒙层（alpha mask 自动适配任意深浅/皮肤/悬停底色） */
+.warren-chrome-tab-label[data-overflow='true'] {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 20px), transparent 100%);
+}
+
+/* 连续关闭标签时冻结剩余标签宽度，鼠标移出标签条后再平滑展开 */
+.warren-chrome-strip[data-frozen='true'] > .warren-chrome-tab-item {
+  flex: 0 0 var(--chrome-tab-frozen-width);
+  transition-property: transform;
+}
+
+/* 双向相邻分隔线：激活、悬停或聚焦任意标签时，同时隐去其左右两侧分隔线 */
+.warren-chrome-tab-item + .warren-chrome-tab-item::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  inset-inline-start: calc(var(--chrome-tab-gap) / -2 - 0.5px);
+  width: 1px;
+  height: 14px;
+  translate: 0 -50%;
+  background-color: var(--border-strong);
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.warren-chrome-tab-item:is([data-active='true'], :hover, :focus-within)::before,
+.warren-chrome-tab-item:is([data-active='true'], :hover, :focus-within) + .warren-chrome-tab-item::before,
+.warren-chrome-strip[data-dragging='true'] > .warren-chrome-tab-item::before {
+  opacity: 0;
+}
+
+/* 指针拖拽排序态：被拖标签浮起接管实色胶囊，邻近标签平滑让位，拖拽时隐藏关闭叉号 */
+.warren-chrome-strip[data-dragging='true'] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.warren-chrome-strip[data-dragging='true'] > .warren-chrome-tab-item[data-dragged='true'] {
+  z-index: 3;
+  transition: none;
+}
+
+.warren-chrome-strip[data-dragging='true'] > .warren-chrome-tab-item[data-dragged='true'] [data-slot='surface-tab'] {
+  border-color: var(--border-strong);
+  background-color: var(--bg-control-active);
+  color: var(--foreground);
+}
+
+.warren-chrome-strip[data-dragging='true'] [data-surface-tab-icon] {
+  opacity: 0.85 !important;
+}
+
+.warren-chrome-strip[data-dragging='true'] [data-surface-tab-close-glyph] {
+  opacity: 0 !important;
 }
 
 /* ============================================================================
@@ -427,6 +585,8 @@ html[data-theme-sweep='active']::view-transition-old(root) {
   .warren-menu-enter,
   .warren-side-panel-enter,
   .warren-tab-shape,
+  .warren-chrome-tab-item,
+  .warren-chrome-tab-item + .warren-chrome-tab-item::before,
   .warren-sliding-pill {
     animation: none !important;
     transition: none !important;

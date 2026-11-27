@@ -365,11 +365,12 @@ export function AppTitlebar({
         )}
       </div>
 
-      <div className="flex h-full min-w-0 flex-1 items-end overflow-hidden">
+      <div className="-ml-0.5 flex h-full min-w-0 flex-1 items-center overflow-hidden">
         {environment && running ? (
           <EnvironmentTabstrip
             tabs={tabs}
             activeTabId={activeTabId}
+            scopeKey={`${environment.id}:${activeSpaceId}`}
             disabled={!running}
             locked={locked}
             canReload={canNavigate}
