@@ -519,6 +519,10 @@ export const browserRpcEndpoints: RpcDomainTable = {
             ? (afterId) => ctx.deps.manager.networkEntriesSince(id, afterId)
             : undefined,
         prepareInput: (fn) => ctx.runWithInput(id, () => fn()),
+        prepareScreenshot: (fn) =>
+          typeof ctx.deps.manager.withScreenshotContext === 'function'
+            ? ctx.deps.manager.withScreenshotContext(id, ctx.space, fn)
+            : fn(),
       });
     },
   },
@@ -665,12 +669,16 @@ export const browserRpcEndpoints: RpcDomainTable = {
     handler: async (ctx) => {
       const id = ctx.str('id');
       const controller = ctx.controller(id);
+      const run = () => controller.screenshot(asScreenshotOptions(ctx.params));
+      if (typeof ctx.deps.manager.withScreenshotContext === 'function') {
+        return ctx.deps.manager.withScreenshotContext(id, ctx.space, run);
+      }
       const temporary = ctx.deps.manager.ensureOperable(id, ctx.space);
       let emulatedViewport = false;
       try {
-        await ctx.deps.manager.ensureRenderFocus(id, ctx.space);
+        await ctx.deps.manager.ensureRenderFocus?.(id, ctx.space);
         if (temporary) emulatedViewport = await ctx.deps.manager.prepareBackgroundInput(id, ctx.space);
-        return await controller.screenshot(asScreenshotOptions(ctx.params));
+        return await run();
       } finally {
         if (emulatedViewport) await ctx.deps.manager.clearBackgroundInput(id, ctx.space);
         if (temporary) ctx.deps.manager.detachOperable(id, ctx.space);

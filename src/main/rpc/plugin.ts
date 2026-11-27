@@ -2,7 +2,7 @@
  * 插件管理与 Skill 合成/同步域 RPC 端点。
  */
 import type { Permission } from '../../shared/permissions.ts';
-import { composeSkill, installSkill, refreshSkills, skillStatus } from '../agent-integration.ts';
+import { AGENT_TARGETS, composeSkill, installSkill, refreshSkills, skillStatus } from '../agent-integration.ts';
 import type { RpcDomainTable } from './types.ts';
 import { RpcError } from './types.ts';
 
@@ -22,16 +22,22 @@ export const pluginRpcEndpoints: RpcDomainTable = {
   'plugin.install': {
     kind: 'change',
     summary: '从本地路径或包源安装插件',
-    params: ['source'],
+    params: ['source', 'displaySource?'],
     gate: 'none',
-    handler: (ctx) => ctx.deps.plugins.install(ctx.str('source')),
+    handler: (ctx) =>
+      ctx.deps.plugins.install(ctx.str('source'), {
+        displaySource: ctx.optStr('displaySource'),
+      }),
   },
   'plugin.update': {
     kind: 'change',
     summary: '更新已安装插件',
-    params: ['id'],
+    params: ['id', 'stagedSource?'],
     gate: 'none',
-    handler: (ctx) => ctx.deps.plugins.update(ctx.str('id')),
+    handler: (ctx) =>
+      ctx.deps.plugins.update(ctx.str('id'), {
+        stagedSource: ctx.optStr('stagedSource'),
+      }),
   },
   'plugin.enable': {
     kind: 'change',
@@ -189,7 +195,7 @@ export const pluginRpcEndpoints: RpcDomainTable = {
       const entries = await ctx.deps.plugins.skillEntries();
       if (target === 'all') {
         const out = [];
-        for (const tid of ['agents', 'claude', 'codex']) {
+        for (const tid of AGENT_TARGETS.map((item) => item.id)) {
           out.push({ id: tid, ...(await installSkill(home, sourceDir, tid, entries)) });
         }
         return out;

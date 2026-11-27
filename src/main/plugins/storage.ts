@@ -161,6 +161,11 @@ export class PluginStorage {
     this.#kv = this.#readKv();
   }
 
+  /** 从 SQLite 重新同步 KV 内存视图（用于热重载旧实例 dispose 落盘后的缓存一致）。 */
+  refreshKv(): void {
+    this.#kv = this.#readKv();
+  }
+
   async #migrateLegacyDbIfNeeded(): Promise<void> {
     if (path.resolve(this.#dataDir) === path.resolve(this.#dir)) return;
     const legacyDb = path.join(this.#dir, 'data.db');

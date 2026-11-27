@@ -130,3 +130,21 @@ test('仓库不内置真实预设，preset 命令与表结构全部面向用户�
   });
   assert.deepEqual(listed.presets, []);
 });
+
+test('whistle host.mjs：compose 走 Agent 强制脱敏、长耗时命令声明 timeoutMs，且 reload/update 不误杀运行中实例', async () => {
+  const hostSource = await readFile(path.join(ROOT, 'plugins', 'whistle', 'host.mjs'), 'utf8');
+  assert.match(
+    hostSource,
+    /compose:\s*\(host,\s*input,\s*ctx\)\s*=>\s*compose\(host,\s*sanitizeTrafficInput\(ctx,\s*input\)\)/,
+  );
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')).warren;
+  const cmdTimeout = new Map(
+    manifest.contributes.commands.map((item: { name: string; timeoutMs?: number }) => [item.name, item.timeoutMs]),
+  );
+  for (const name of ['fork', 'start', 'bind', 'presetApply']) {
+    assert.equal(cmdTimeout.get(name), 90_000, `${name} 应声明 90000ms 超时`);
+  }
+  // reload / update 路径直接返回，不会尝试调 w2 stop
+  await (hostPlugin.dispose as (ctx?: unknown) => Promise<void>)({ reason: 'reload', host: makeMockHost([]) });
+  await (hostPlugin.dispose as (ctx?: unknown) => Promise<void>)({ reason: 'update', host: makeMockHost([]) });
+});

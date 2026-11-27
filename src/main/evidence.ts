@@ -75,7 +75,11 @@ export async function captureEvidence(
   const netHits = manager.netHits(environmentId, 100);
   let screenshotPath: string | undefined;
   if (options.screenshot !== false) {
-    const result = await controller.screenshot({ path: path.join(dir, 'screenshot.png') });
+    const capture = () => controller.screenshot({ path: path.join(dir, 'screenshot.png') });
+    const result =
+      typeof manager.withScreenshotContext === 'function'
+        ? await manager.withScreenshotContext(environmentId, 'agent', capture)
+        : await capture();
     screenshotPath = result.path;
     if (result.path) {
       files.push({ path: result.path, bytes: result.bytes, sha256: result.sha256 });

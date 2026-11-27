@@ -78,4 +78,14 @@ test('shouldEmulateRenderFocus：仅前台聚焦且为当前显示 Space 时不�
     shouldEmulateRenderFocus({ windowVisible: true, windowFocused: true, isSelected: true, isActiveSpace: false }),
     true,
   );
+  assert.equal(
+    shouldEmulateRenderFocus({
+      windowVisible: true,
+      windowFocused: true,
+      isSelected: true,
+      isActiveSpace: true,
+      mountedInHiddenHost: true,
+    }),
+    true,
+  );
 });

@@ -21,7 +21,7 @@ import { HOST_BOOTSTRAP, HostRuntime } from './runtime-host.ts';
 import { SANDBOX_BOOTSTRAP, SandboxRuntime } from './runtime-sandbox.ts';
 import type { PluginSettings } from './settings.ts';
 import { PluginStorage } from './storage.ts';
-import type { InstalledPlugin, PluginStatus } from '../../shared/types.ts';
+import type { InstalledPlugin, PluginDisposeReason, PluginStatus } from '../../shared/types.ts';
 
 export interface ActivePlugin {
   instanceId: string;
@@ -277,7 +277,7 @@ export class PluginLifecycle {
     this.#crashHistory.delete(id);
     const inflight = this.#activating.get(id);
     if (inflight) await inflight.catch(() => undefined);
-    await this.deactivate(id);
+    await this.deactivate(id, 'reload');
     const pkg = await this.#deps.readPackage(id);
     const state = this.#deps.getState();
     if (!state.enabled.includes(id)) state.enabled.push(id);
@@ -295,7 +295,7 @@ export class PluginLifecycle {
     return this.#deps.decorate(pkg, this.#deps.dirFor(id));
   }
 
-  async disable(id: string): Promise<void> {
+  async disable(id: string, reason: PluginDisposeReason = 'disable'): Promise<void> {
     this.#bumpEpoch(id);
     this.#removeFromQueue(id);
     this.#clearReconnectTimer(id);
@@ -307,7 +307,7 @@ export class PluginLifecycle {
     await this.#deps.saveState();
     const inflight = this.#activating.get(id);
     if (inflight) await inflight.catch(() => undefined);
-    await this.deactivate(id);
+    await this.deactivate(id, reason);
     if (this.#status.has(id)) this.#status.set(id, { status: 'disabled' });
     this.#deps.onChange();
   }
@@ -342,7 +342,7 @@ export class PluginLifecycle {
 
     if (this.#disposed || this.#currentEpoch(id) !== epoch || !this.#deps.getState().enabled.includes(id)) {
       this.#deps.eventBus.unsubscribeInstance(id, candidateInstanceId);
-      await this.#disposeActive(id, candidate);
+      await this.#disposeActive(id, candidate, this.#disposed ? 'shutdown' : 'reload');
       return this.#deps.decorate(pkg, this.#deps.dirFor(id));
     }
 
@@ -352,7 +352,10 @@ export class PluginLifecycle {
     this.#status.set(id, { status: 'running' });
     // 强不变量：清除旧实例/历史遗留的全部订阅，仅保留本次重载成功后的新实例订阅
     this.#deps.eventBus.clearExceptInstance(id, candidate.instanceId);
-    if (previous) await this.#disposeActive(id, previous);
+    if (previous) {
+      await this.#disposeActive(id, previous, 'reload');
+      if (this.#active.get(id) === candidate) candidate.storage.refreshKv();
+    }
     await this.#deps.log(id, 'info', `reloaded (runtime ${pkg.runtime})`);
     this.#deps.onChange();
     return this.#deps.decorate(pkg, this.#deps.dirFor(id));
@@ -371,7 +374,7 @@ export class PluginLifecycle {
     if (!this.#deps.getState().enabled.includes(id)) {
       pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     }
-    await this.deactivate(id);
+    await this.deactivate(id, 'reload');
     this.#status.set(id, { status: 'starting' });
     await this.#activateWithEpoch(pkg, epoch);
     this.#deps.onChange();
@@ -392,14 +395,14 @@ export class PluginLifecycle {
       const active = await this.#createActive(pkg, instanceId, expectedEpoch);
       if (this.#disposed || this.#currentEpoch(id) !== expectedEpoch || !this.#deps.getState().enabled.includes(id)) {
         this.#deps.eventBus.unsubscribeInstance(id, instanceId);
-        await this.#disposeActive(id, active);
+        await this.#disposeActive(id, active, this.#disposed ? 'shutdown' : 'reload');
         return;
       }
       const previous = this.#active.get(id);
       this.#crashed.delete(id);
       this.#active.set(id, active);
       this.#status.set(id, { status: 'running' });
-      if (previous && previous !== active) await this.#disposeActive(id, previous);
+      if (previous && previous !== active) await this.#disposeActive(id, previous, 'reload');
       await this.#deps.log(id, 'info', `activated (runtime ${pkg.runtime})`);
     } catch (error) {
       this.#deps.eventBus.unsubscribeInstance(id, instanceId);
@@ -424,13 +427,13 @@ export class PluginLifecycle {
     }
   }
 
-  async deactivate(id: string): Promise<void> {
+  async deactivate(id: string, reason: PluginDisposeReason = 'disable'): Promise<void> {
     this.#clearReconnectTimer(id);
     this.#deps.eventBus.unsubscribePlugin(id);
     const active = this.#active.get(id);
     if (!active) return;
     this.#active.delete(id);
-    await this.#disposeActive(id, active);
+    await this.#disposeActive(id, active, reason);
   }
 
   async dispose(): Promise<void> {
@@ -444,7 +447,7 @@ export class PluginLifecycle {
     const inflight = [...this.#activating.values()];
     if (inflight.length > 0) await Promise.allSettled(inflight);
     const ids = [...this.#active.keys()];
-    await Promise.allSettled(ids.map((id) => this.deactivate(id)));
+    await Promise.allSettled(ids.map((id) => this.deactivate(id, 'shutdown')));
   }
 
   async #createActive(pkg: PluginPackage, instanceId: string, expectedEpoch: number): Promise<ActivePlugin> {
@@ -564,7 +567,7 @@ export class PluginLifecycle {
       return activeRef;
     } catch (error) {
       if (adapterToDispose) {
-        await adapterToDispose.dispose().catch(() => undefined);
+        await adapterToDispose.dispose('error').catch(() => undefined);
       }
       storageToClose?.close();
       throw error;
@@ -659,7 +662,7 @@ export class PluginLifecycle {
     const epoch = this.#bumpEpoch(id);
     const pkg = await this.#deps.readPackage(id);
     if (!this.#deps.getState().enabled.includes(id)) return;
-    await this.deactivate(id);
+    await this.deactivate(id, 'reload');
     this.#status.set(id, { status: 'starting' });
     await this.#activateWithEpoch(pkg, epoch);
     this.#deps.onChange();
@@ -672,10 +675,10 @@ export class PluginLifecycle {
     this.#reconnectTimers.delete(id);
   }
 
-  async #disposeActive(id: string, active: ActivePlugin): Promise<void> {
+  async #disposeActive(id: string, active: ActivePlugin, reason: PluginDisposeReason): Promise<void> {
     active.disposed = true;
     try {
-      await active.adapter.dispose();
+      await active.adapter.dispose(reason);
     } catch (error) {
       await this.#deps.log(id, 'warn', `dispose 失败: ${(error as Error).message}`);
     }

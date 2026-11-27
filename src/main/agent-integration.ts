@@ -33,6 +33,7 @@ export const AGENT_TARGETS: readonly AgentTarget[] = [
   { id: 'agents', label: '通用（~/.agents）', skillsDir: '.agents/skills' },
   { id: 'claude', label: 'Claude Code（~/.claude）', skillsDir: '.claude/skills' },
   { id: 'codex', label: 'Codex（~/.codex）', skillsDir: '.codex/skills' },
+  { id: 'cursor', label: 'Cursor（~/.cursor）', skillsDir: '.cursor/skills' },
 ];
 
 export const SKILL_NAME = 'warren';

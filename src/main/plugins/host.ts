@@ -16,6 +16,7 @@ import { loadPluginState, savePluginState, type PluginState } from './registry.t
 import type { PluginSkillEntry } from '../skills/composer.ts';
 import type {
   InstalledPlugin,
+  PluginDisposeReason,
   PluginLogEntry,
   PluginRpcCaller,
   PluginRpcResponse,
@@ -73,7 +74,7 @@ export class PluginHost {
       statusOf: (id) => this.#lifecycle.statusOf(id),
       setStatus: (id, status) => this.#lifecycle.setStatus(id, status),
       deleteStatus: (id) => this.#lifecycle.deleteStatus(id),
-      disable: (id) => this.disable(id),
+      disable: (id, reason) => this.disable(id, reason),
       activate: (pkg) => this.#lifecycle.activate(pkg),
       reload: (id) => this.reload(id),
       onChange,
@@ -145,13 +146,13 @@ export class PluginHost {
   }
 
   /** 安装一个 path / npm / git 包。默认 disabled，必须显式 enable。 */
-  async install(source: string): Promise<InstalledPlugin> {
-    return this.#installer.install(source);
+  async install(source: string, options?: { displaySource?: string }): Promise<InstalledPlugin> {
+    return this.#installer.install(source, options);
   }
 
   /** 按安装时记录的来源重新解析、安装；启用中的插件失败会回滚到旧版本。 */
-  async update(id: string): Promise<InstalledPlugin> {
-    return this.#installer.update(id);
+  async update(id: string, options?: { stagedSource?: string }): Promise<InstalledPlugin> {
+    return this.#installer.update(id, options);
   }
 
   async uninstall(id: string): Promise<void> {
@@ -162,8 +163,8 @@ export class PluginHost {
     return this.#lifecycle.enable(id);
   }
 
-  async disable(id: string): Promise<void> {
-    return this.#lifecycle.disable(id);
+  async disable(id: string, reason?: PluginDisposeReason): Promise<void> {
+    return this.#lifecycle.disable(id, reason);
   }
 
   /** 重载：候选先起，成功再替换；失败保留旧实例。 */

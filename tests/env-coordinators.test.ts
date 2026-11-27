@@ -92,6 +92,7 @@ function makeFakeTabManager(
     tabs: [makeTabState('t1', space, 'https://example.test/')],
     belowAttached: 0,
     belowDetached: 0,
+    attachedBelowNow: false,
   };
   return {
     get showing() {
@@ -99,6 +100,9 @@ function makeFakeTabManager(
     },
     get viewVisible() {
       return state.viewVisible;
+    },
+    get attachedBelow() {
+      return state.attachedBelowNow;
     },
     setViewVisible(visible: boolean) {
       state.viewVisible = visible;
@@ -123,10 +127,12 @@ function makeFakeTabManager(
     },
     attachBelow() {
       state.belowAttached += 1;
+      state.attachedBelowNow = true;
       return true;
     },
     detachBelow() {
       state.belowDetached += 1;
+      state.attachedBelowNow = false;
     },
     resolveRef(ref) {
       if (typeof ref === 'number') return state.tabs[ref - 1]?.id;
@@ -354,6 +360,75 @@ test('LeaseCoordinator：ensureOperable / assertInputOnScreen / assertActiveTab 
   // 非激活标签禁止输入操作
   assert.throws(() => coordinator.assertActiveTab('back', 2, 'agent'), { code: 'TAB_NOT_VISIBLE' });
   coordinator.assertActiveTab('back', 1, 'agent');
+});
+
+test('LeaseCoordinator：启用永久隐藏宿主窗时消除浮层/插件页触发的 ENV_NOT_VISIBLE，且 withScreenshotContext 统一唤醒与回收', async () => {
+  const frontTabs = makeFakeTabManager('agent', { showing: true, viewVisible: false });
+  const backTabs = makeFakeTabManager('agent', { showing: false, viewVisible: false });
+  let restoredFocus = 0;
+  const renderFocusCalls: Array<{ id: string; space: SpaceId }> = [];
+
+  const coordinator = new LeaseCoordinator({
+    getEnvironment: () => undefined,
+    getConfig: () => undefined,
+    getControlPolicy: () => 'ask',
+    getSpaceManager: (id) => {
+      if (id === 'front') return frontTabs;
+      if (id === 'back') return backTabs;
+      return undefined;
+    },
+    getSelectedId: () => 'front',
+    getActiveSpace: () => 'agent',
+    getViewVisible: () => false,
+    getPageBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    getViewportSize: () => ({ width: 800, height: 600 }),
+    selectSpaceView: () => {},
+    restoreDisplayedFocus: () => {
+      restoredFocus += 1;
+    },
+    touch: () => {},
+    recordEvent: () => {},
+    onChange: () => {},
+    emitBusEvent: () => {},
+    createShield: () => makeFakeShield(),
+    attachAndRaiseShield: () => {},
+    detachShield: () => {},
+    hasBackgroundHost: () => true,
+    ensureRenderFocus: async (id, space) => {
+      renderFocusCalls.push({ id, space });
+    },
+  });
+
+  // 即使前台正开着设置页/插件全屏页（viewVisible=false），后台环境也直接挂入隐藏宿主窗，不报 ENV_NOT_VISIBLE 且不惊动主窗口焦点
+  assert.equal(coordinator.ensureOperable('back', 'agent'), true);
+  assert.equal(backTabs.belowAttached, 1);
+  assert.equal(restoredFocus, 0);
+  coordinator.assertInputOnScreen('back', 'agent');
+  coordinator.detachOperable('back', 'agent');
+  assert.equal(backTabs.belowDetached, 1);
+
+  // 前台当前 Space 被浮层让开时，也可借挂到隐藏宿主窗完成输入与截图，并在结束后归还
+  const shot = await coordinator.withScreenshotContext('front', 'agent', async () => {
+    assert.equal(frontTabs.attachedBelow, true);
+    coordinator.assertInputOnScreen('front', 'agent');
+    return 'captured';
+  });
+  assert.equal(shot, 'captured');
+  assert.equal(frontTabs.attachedBelow, false);
+  assert.equal(frontTabs.belowAttached, 1);
+  assert.equal(frontTabs.belowDetached, 1);
+  assert.deepEqual(renderFocusCalls, [{ id: 'front', space: 'agent' }]);
+
+  // 回调抛错也必须释放隐藏宿主窗借挂
+  await assert.rejects(
+    () =>
+      coordinator.withScreenshotContext('back', 'agent', async () => {
+        assert.equal(backTabs.attachedBelow, true);
+        throw new Error('shot-fail');
+      }),
+    /shot-fail/,
+  );
+  assert.equal(backTabs.attachedBelow, false);
 });
 
 // ── EnvLifecycle 单测 ─────────────────────────────────────────────────────────

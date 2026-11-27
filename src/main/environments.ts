@@ -110,6 +110,8 @@ export class EnvironmentManager {
       },
       detachShield: (shield) => (shield as InputShield).detach(this.#window),
       focusForInput: (id, space) => this.#views.focusForInput(id, space),
+      ensureRenderFocus: (id, space) => this.#views.ensureRenderFocus(id, space),
+      hasBackgroundHost: () => this.#views.hasBackgroundHost(),
       onLeaseStateChanged: (id, active) => this.#lifecycle.setLeaseActive(id, active),
     });
 
@@ -524,6 +526,9 @@ export class EnvironmentManager {
   }
   withInputContext<T>(id: string, space: SpaceId, tab: TabRef | undefined, fn: () => Promise<T>): Promise<T> {
     return this.#leases.withInputContext(id, space, tab, fn);
+  }
+  withScreenshotContext<T>(id: string, space: SpaceId = 'agent', fn: () => Promise<T>): Promise<T> {
+    return this.#leases.withScreenshotContext(id, space, fn);
   }
   assertWritable(id: string, leaseId?: string, space: SpaceId = 'agent'): LeaseHandle {
     return this.#leases.assertWritable(id, leaseId, space);

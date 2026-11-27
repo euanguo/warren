@@ -6,7 +6,7 @@
  * 不会混进受管插件目录。
  */
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import os from 'node:os';
@@ -60,6 +60,38 @@ export function parsePluginSource(input: string): PluginSourceSpec {
   return { kind: 'path', value: raw, raw: `path:${raw}` };
 }
 
+/**
+ * 为受管子命令构建稳定的环境变量：
+ * macOS 打包版 `.app` 经 Finder/LaunchServices 启动时 `PATH` 只有 `/usr/bin:/bin:/usr/sbin:/sbin`，
+ * 即使 `resolveTool('npm')` 通过回退路径找到了 `/opt/homebrew/bin/npm`，其 `#!/usr/bin/env node` 仍会因
+ * PATH 缺同级 `node` 失败。此处将可执行文件及真实路径所在目录前置到 PATH 并去重。
+ */
+export function buildToolEnv(executable: string, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const dirs: string[] = [];
+  const pushDir = (dir: string | undefined) => {
+    if (dir && !dirs.includes(dir)) dirs.push(dir);
+  };
+  pushDir(path.dirname(executable));
+  try {
+    pushDir(path.dirname(realpathSync(executable)));
+  } catch {
+    // 软链目标不可解析时保留原始目录即可
+  }
+  for (const dir of String(baseEnv.PATH || '').split(path.delimiter)) {
+    pushDir(dir);
+  }
+  for (const fallback of ['/opt/homebrew/bin', '/usr/local/bin']) {
+    if (existsSync(fallback)) pushDir(fallback);
+  }
+  return {
+    ...baseEnv,
+    PATH: dirs.join(path.delimiter),
+    npm_config_cache: NPM_CACHE,
+    npm_config_logs_dir: path.join(NPM_CACHE, '_logs'),
+    npm_config_ignore_scripts: 'true',
+  };
+}
+
 async function run(file: string, args: string[], cwd?: string): Promise<string> {
   const executable = resolveTool(file);
   try {
@@ -67,12 +99,7 @@ async function run(file: string, args: string[], cwd?: string): Promise<string> 
       cwd,
       timeout: COMMAND_TIMEOUT_MS,
       maxBuffer: 16 * 1024 * 1024,
-      env: {
-        ...process.env,
-        npm_config_cache: NPM_CACHE,
-        npm_config_logs_dir: path.join(NPM_CACHE, '_logs'),
-        npm_config_ignore_scripts: 'true',
-      },
+      env: buildToolEnv(executable),
     });
     return String(result.stdout);
   } catch (error) {
@@ -187,12 +214,16 @@ async function prepareFromPack(
   await mkdir(work, { recursive: true });
 
   if (spec.kind === 'path') {
-    const sourceDir = path.resolve(spec.value);
-    const info = await stat(sourceDir).catch(() => null);
-    if (!info?.isDirectory()) throw sourceError('PLUGIN_SOURCE_NOT_FOUND', `插件目录不存在: ${sourceDir}`);
-    const packed = await npmPack(sourceDir, work);
+    const sourcePath = path.resolve(spec.value);
+    const info = await stat(sourcePath).catch(() => null);
+    if (info?.isFile() && /\.(?:tgz|tar\.gz)$/i.test(sourcePath)) {
+      const packageDir = await extractArchive(sourcePath, path.join(stage, 'unpacked'));
+      return { packageDir, resolved: sourcePath, cleanup: stage };
+    }
+    if (!info?.isDirectory()) throw sourceError('PLUGIN_SOURCE_NOT_FOUND', `插件目录不存在: ${sourcePath}`);
+    const packed = await npmPack(sourcePath, work);
     const packageDir = await extractArchive(packed.archive, path.join(stage, 'unpacked'));
-    return { packageDir, resolved: sourceDir, cleanup: stage };
+    return { packageDir, resolved: sourcePath, cleanup: stage };
   }
 
   if (spec.kind === 'git') {

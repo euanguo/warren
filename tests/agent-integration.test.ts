@@ -23,13 +23,21 @@ async function fixtures(markdown = '# warren\n') {
   return { root, home, source, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
-test('三个候选目录都列出来，初始都是未安装', async () => {
+test('四个候选目录（含 ~/.cursor/skills）都列出来，初始都是未安装', async () => {
   const f = await fixtures();
   try {
     const list = await skillStatus(f.home, f.source);
     assert.equal(list.length, AGENT_TARGETS.length);
+    assert.ok(
+      list.some(
+        (item) => item.id === 'cursor' && item.path.endsWith(path.join('.cursor', 'skills', 'warren', 'SKILL.md')),
+      ),
+    );
     assert.ok(list.every((item) => item.installed === false));
     assert.ok(list.every((item) => path.isAbsolute(item.path)));
+
+    const written = await installSkill(f.home, f.source, 'cursor');
+    assert.equal(written.path, targetSkillPath(f.home, { id: 'cursor', label: '', skillsDir: '.cursor/skills' }));
   } finally {
     await f.cleanup();
   }

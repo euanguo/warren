@@ -6,7 +6,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { PluginRpcCaller } from '../../shared/types.ts';
+import type { PluginDisposeReason, PluginRpcCaller } from '../../shared/types.ts';
 import { buildSandboxEnv, forkWorkerProcess, type WorkerProcess } from './worker-process.ts';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -17,15 +17,19 @@ export interface PluginCrashInfo {
   message: string;
 }
 
+export interface PluginCallOptions {
+  timeoutMs?: number;
+}
+
 export interface PluginRuntimeAdapter {
   readonly kind: 'sandbox' | 'host';
   readonly pid?: number;
   readonly crashed?: boolean;
   start(): Promise<void>;
-  command(name: string, ctx: unknown): Promise<unknown>;
-  rpc(method: string, input: unknown, ctx: unknown): Promise<unknown>;
+  command(name: string, ctx: unknown, options?: PluginCallOptions): Promise<unknown>;
+  rpc(method: string, input: unknown, ctx: unknown, options?: PluginCallOptions): Promise<unknown>;
   notifyEvent?(subscriptionId: string, event: unknown): void;
-  dispose(): Promise<void>;
+  dispose(reason?: PluginDisposeReason): Promise<void>;
 }
 
 /** 一次插件调用的上下文；运行时靠它把子进程的 host-call 关联回正确的调用。 */
@@ -582,7 +586,7 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     }
   }
 
-  #invoke(payload: Record<string, unknown>): Promise<unknown> {
+  #invoke(payload: Record<string, unknown>, timeoutOverrideMs?: number): Promise<unknown> {
     const child = this.#child;
     if (!child || this.#exited || !this.#started) {
       return Promise.reject(
@@ -592,7 +596,10 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
       );
     }
     const id = crypto.randomUUID();
-    const ms = callTimeoutMs();
+    const ms =
+      typeof timeoutOverrideMs === 'number' && Number.isFinite(timeoutOverrideMs) && timeoutOverrideMs > 0
+        ? Math.floor(timeoutOverrideMs)
+        : callTimeoutMs();
     return new Promise((resolve, reject) => {
       let settled = false;
       const timer = setTimeout(() => {
@@ -642,12 +649,12 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     });
   }
 
-  command(name: string, ctx: unknown): Promise<unknown> {
-    return this.#invoke({ t: 'invoke', kind: 'command', name, ctx });
+  command(name: string, ctx: unknown, options?: PluginCallOptions): Promise<unknown> {
+    return this.#invoke({ t: 'invoke', kind: 'command', name, ctx }, options?.timeoutMs);
   }
 
-  rpc(method: string, input: unknown, ctx: unknown): Promise<unknown> {
-    return this.#invoke({ t: 'invoke', kind: 'rpc', name: method, input, ctx });
+  rpc(method: string, input: unknown, ctx: unknown, options?: PluginCallOptions): Promise<unknown> {
+    return this.#invoke({ t: 'invoke', kind: 'rpc', name: method, input, ctx }, options?.timeoutMs);
   }
 
   notifyEvent(subscriptionId: string, event: unknown): void {
@@ -656,13 +663,13 @@ export abstract class BaseWorkerRuntime implements PluginRuntimeAdapter {
     child.postMessage({ t: 'event', subscriptionId, event });
   }
 
-  async dispose(): Promise<void> {
+  async dispose(reason: PluginDisposeReason = 'shutdown'): Promise<void> {
     this.#disposing = true;
     this.#started = false;
     const child = this.#child;
     if (child && !this.#exited) {
       const disposeMs = Math.min(DISPOSE_GRACE_MAX_MS, Math.max(200, callTimeoutMs()));
-      child.postMessage({ t: 'dispose', ctx: this.#context() });
+      child.postMessage({ t: 'dispose', ctx: this.#context({ reason }) });
       await new Promise<void>((resolve) => {
         let settled = false;
         const done = () => {

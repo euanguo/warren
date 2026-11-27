@@ -4,7 +4,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { cleanupPreparedPlugin, parsePluginSource, preparePluginSource } from '../src/main/plugins/source.ts';
+import {
+  buildToolEnv,
+  cleanupPreparedPlugin,
+  parsePluginSource,
+  preparePluginSource,
+} from '../src/main/plugins/source.ts';
 
 test('安装源只认 path / npm / git 三种协议；裸目录按 path 处理', () => {
   assert.deepEqual(parsePluginSource('path:plugins/account-manager'), {
@@ -105,5 +110,39 @@ test('git 来源会 clone、pack 并记录 commit', async () => {
     }
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('buildToolEnv 将工具所在目录前置进 PATH（避免 macOS 打包版 env: node 失败），并支持直接解包预打包 .tgz', async () => {
+  const env = buildToolEnv('/opt/custom-node/bin/npm', { PATH: '/usr/bin:/bin' });
+  const segments = String(env.PATH || '').split(path.delimiter);
+  assert.equal(segments[0], '/opt/custom-node/bin');
+  assert.ok(segments.includes('/usr/bin'));
+
+  const staging = await mkdtemp(path.join(tmpdir(), 'warren-source-tgz-'));
+  try {
+    const out = execFileSync(
+      'npm',
+      [
+        'pack',
+        '--json',
+        '--pack-destination',
+        staging,
+        '--ignore-scripts',
+        '--',
+        path.resolve('plugins/account-manager'),
+      ],
+      { encoding: 'utf8' },
+    );
+    const filename = (JSON.parse(out) as Array<{ filename: string }>)[0]!.filename;
+    const tarball = path.join(staging, filename);
+    const prepared = await preparePluginSource(`path:${tarball}`, path.join(staging, 'unpack'));
+    try {
+      assert.equal(prepared.package.id, 'com.warren.accounts');
+    } finally {
+      await cleanupPreparedPlugin(prepared);
+    }
+  } finally {
+    await rm(staging, { recursive: true, force: true });
   }
 });

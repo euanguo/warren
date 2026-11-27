@@ -168,3 +168,47 @@ test('PluginInstaller：启用态 update 失败自动回滚到旧版本；engine
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('PluginLifecycle / Installer：reload / update / disable / shutdown 向 dispose(ctx) 传递准确 reason，且 stagedSource 保留原始 displaySource', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'warren-dispose-reason-'));
+  const pluginSrc = path.join(root, 'src-v1');
+  const { host, cleanup } = createTestPluginHost(root);
+
+  try {
+    await writeTestPlugin(pluginSrc, {
+      id: 'com.test.reason',
+      version: '1.0.0',
+      permissions: ['storage.write'],
+      serverCode: `module.exports = {
+        async ping(ctx) {
+          return { reasons: (await ctx.host.storage.kv.get('reasons')) || [] };
+        },
+        async dispose(ctx) {
+          const prev = (await ctx.host.storage.kv.get('reasons')) || [];
+          prev.push(String(ctx.reason || 'missing'));
+          await ctx.host.storage.kv.set('reasons', prev);
+        },
+      };`,
+    });
+    await host.load();
+    await host.install(`path:${pluginSrc}`, { displaySource: 'path:/original/plugin/dir' });
+    const installed = (await host.list()).find((item) => item.id === 'com.test.reason')!;
+    assert.equal(installed.source, 'path:/original/plugin/dir');
+
+    await host.enable('com.test.reason');
+    await host.reload('com.test.reason');
+    await host.update('com.test.reason', { stagedSource: `path:${pluginSrc}` });
+    const afterUpdate = (await host.list()).find((item) => item.id === 'com.test.reason')!;
+    assert.equal(afterUpdate.source, 'path:/original/plugin/dir');
+
+    await host.disable('com.test.reason');
+    await host.enable('com.test.reason');
+    const res = (await host.run('com.test.reason', 'ping', { environmentId: '' })) as {
+      result: { reasons: string[] };
+    };
+    assert.deepEqual(res.result.reasons, ['reload', 'update', 'disable']);
+  } finally {
+    await cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});

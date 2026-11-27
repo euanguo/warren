@@ -116,7 +116,20 @@ function normalizeCommands(raw: unknown, errors: string[]): PluginCommandDecl[] 
     }
     const summary = typeof value.summary === 'string' ? value.summary.trim() : '';
     if (!summary) errors.push(`命令 ${name} 缺少 summary`);
-    commands.push({ name, summary: summary || name });
+    let timeoutMs: number | undefined;
+    if (value.timeoutMs !== undefined) {
+      if (
+        typeof value.timeoutMs !== 'number' ||
+        !Number.isInteger(value.timeoutMs) ||
+        value.timeoutMs < 1_000 ||
+        value.timeoutMs > 300_000
+      ) {
+        errors.push(`命令 ${name} 的 timeoutMs 必须是 1000..300000 之间的整数`);
+      } else {
+        timeoutMs = value.timeoutMs;
+      }
+    }
+    commands.push({ name, summary: summary || name, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
   }
   return commands;
 }

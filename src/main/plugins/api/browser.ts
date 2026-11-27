@@ -121,9 +121,18 @@ export const browserCapabilities: Record<string, CapabilitySpec> = {
     nodes: await c.snapshot(),
   })),
   'browser.highlight': cdpRead('browser.dom.read', (c, [target]) => c.highlight(asOptionalTargetInput(target))),
-  'browser.screenshot': cdpRead('browser.screenshot', async (c, [options]) =>
-    c.screenshot(asScreenshotOptions(options)),
-  ),
+  'browser.screenshot': {
+    permission: 'browser.screenshot',
+    handler: (ctx, options) => {
+      const id = ctx.env();
+      const space = resolvePluginSpace(ctx, id, optionSpaceOf(options));
+      const controller = ctx.deps.manager.controllerFor(id, undefined, space);
+      const capture = () => controller.screenshot(asScreenshotOptions(options));
+      return typeof ctx.deps.manager.withScreenshotContext === 'function'
+        ? ctx.deps.manager.withScreenshotContext(id, space, capture)
+        : capture();
+    },
+  },
 
   // ── 读：等待 ────────────────────────────────────────────────────
   'browser.waitFor': cdpRead('browser.dom.read', (c, [p, o]) => c.waitFor(asWaitPredicate(p), asWaitOptions(o))),

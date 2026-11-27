@@ -39,6 +39,7 @@ export type TabManagerLike = Pick<
   TabManager,
   'showing' | 'viewVisible' | 'activeId' | 'attachBelow' | 'detachBelow' | 'resolveRef' | 'controller' | 'active'
 > & {
+  attachedBelow?: boolean;
   peekActive?: TabManager['peekActive'];
   peekController?: TabManager['peekController'];
 };
@@ -71,6 +72,9 @@ export interface LeaseCoordinatorDeps {
   attachAndRaiseShield: (shield: ShieldLike, bounds: ViewportRect) => void;
   detachShield: (shield: ShieldLike) => void;
   focusForInput?: (id: string, space: SpaceId) => Promise<void>;
+  ensureRenderFocus?: (id: string, space: SpaceId) => Promise<void>;
+  /** 是否启用了独立的永久隐藏宿主窗（`BackgroundHostWindow`）：启用后后台/被浮层让开的视图挂载到隐藏宿主窗，不再触发 `ENV_NOT_VISIBLE`。 */
+  hasBackgroundHost?: () => boolean;
   onLeaseStateChanged?: (id: string, active: boolean) => void;
   leaseTtlMs?: () => number;
   now?: () => number;
@@ -504,9 +508,8 @@ export class LeaseCoordinator {
         code: 'ENV_NOT_RUNNING',
       });
     }
-    // 后台环境不看这个标志：它的含义是「**显示中的那个**被让开了」，
-    // 后台环境的这个值可能是它当初被让开时留下的（切走时不会复位）
-    if (!tabs.showing) return;
+    // 后台环境或当前已借挂到永久隐藏宿主窗（attachedBelow）时，视图落在真实合成器表面上，放行输入
+    if (!tabs.showing || tabs.attachedBelow) return;
     if (!tabs.viewVisible) {
       throw Object.assign(
         new Error(
@@ -520,9 +523,9 @@ export class LeaseCoordinator {
   /**
    * 让这个环境**此刻收得到输入**。返回 `true` = 是临时挂上去的，调用方用完要 `detachOperable`。
    *
-   * 两条不能忘：
-   * 1. 附上去会**抢走 webContents 焦点**，必须立刻把焦点还给显示中的那个；
-   * 2. 上面那个视图此刻**被让开**（`viewVisible=false`）时**不许挂**。
+   * - 启用永久隐藏宿主窗（`hasBackgroundHost()`）时：后台视图与被浮层/插件页让开的前台视图都挂到隐藏宿主窗，
+   *   不碰主窗口内容区、不抢焦点、不再因设置页/插件全屏页/隐藏态浮层报 `ENV_NOT_VISIBLE`。
+   * - 未启用隐藏宿主窗（单测桩 / 旧主窗 `'below'` 槽模式）时：保持原双护栏语义。
    */
   ensureOperable(id: string, space: SpaceId = 'agent'): boolean {
     const tabs = this.#deps.getSpaceManager(id, space);
@@ -531,7 +534,20 @@ export class LeaseCoordinator {
         code: 'ENV_NOT_RUNNING',
       });
     }
-    if (tabs.showing) return false; // 正常路径：它的视图就是显示中的那个
+    const usesBackgroundHost = Boolean(this.#deps.hasBackgroundHost?.());
+    if (tabs.showing) {
+      if (!usesBackgroundHost || tabs.viewVisible) return false;
+      // 主窗口当前页正被浮层/设置页/插件全屏页让开：临时借挂到隐藏宿主窗执行，不惊动主窗口
+      if (!tabs.attachBelow()) return false;
+      this.#deps.recordEvent('input.backgroundAttach', `${id} 临时借挂到隐藏宿主窗以绕过界面让开`, 'system', id);
+      return true;
+    }
+
+    if (usesBackgroundHost) {
+      if (!tabs.attachBelow()) return false;
+      this.#deps.recordEvent('input.backgroundAttach', `${id} 临时挂到隐藏宿主窗以便接收输入`, 'system', id);
+      return true;
+    }
 
     const selectedId = this.#deps.getSelectedId();
     const selected = selectedId ? this.#deps.getSpaceManager(selectedId) : undefined;
@@ -595,6 +611,23 @@ export class LeaseCoordinator {
       this.assertActiveTab(id, tab, space);
       if (options.focusForInput) await options.focusForInput();
       else if (this.#deps.focusForInput) await this.#deps.focusForInput(id, space);
+      if (temporary) emulatedViewport = await this.prepareBackgroundInput(id, space);
+      return await fn();
+    } finally {
+      if (emulatedViewport) await this.clearBackgroundInput(id, space);
+      if (temporary) this.detachOperable(id, space);
+    }
+  }
+
+  /**
+   * 统一截图上下文协作者（供 RPC screenshot / batch / evidence / 插件 browser.screenshot 复用）：
+   * 后台或隐藏态临时挂载 → 唤醒焦点仿真合成器 → 必要时补齐临时视口 → 截图并确保回收。
+   */
+  async withScreenshotContext<T>(id: string, space: SpaceId = 'agent', fn: () => Promise<T>): Promise<T> {
+    const temporary = this.ensureOperable(id, space);
+    let emulatedViewport = false;
+    try {
+      await this.#deps.ensureRenderFocus?.(id, space);
       if (temporary) emulatedViewport = await this.prepareBackgroundInput(id, space);
       return await fn();
     } finally {

@@ -133,7 +133,7 @@ const COMMANDS = {
   mapLocal: (host, input) => mapLocal(host, input),
   clearIntents: (host, input) => clearIntents(host, input),
   traffic: (host, input, ctx) => traffic(host, sanitizeTrafficInput(ctx, input)),
-  compose: (host, input) => compose(host, input),
+  compose: (host, input, ctx) => compose(host, sanitizeTrafficInput(ctx, input)),
   replay: (host, input, ctx) => replay(host, sanitizeTrafficInput(ctx, input)),
   toCurl: (host, input, ctx) => toCurl(host, sanitizeTrafficInput(ctx, input)),
   captureLink: (host, input, ctx) => captureLink(host, withFallbackEnv(ctx, input)),
@@ -172,6 +172,13 @@ const plugin = {
   async dispose(ctx) {
     reconcileController?.abort();
     reconcileController = null;
+    const reason = ctx?.reason;
+    // 热重载或插件升级时保留正在运行的 Whistle 代理实例，避免正在调试的环境连接中断
+    if (reason === 'reload' || reason === 'update') {
+      managedStorages.clear();
+      activeHost = null;
+      return;
+    }
     const host = ctx?.host ?? activeHost;
     if (host && managedStorages.size > 0) {
       const storages = [...managedStorages];
@@ -179,7 +186,8 @@ const plugin = {
       try {
         const w2 = await resolveW2(host);
         const env = await whistleEnv(host);
-        await Promise.allSettled(storages.map((storage) => runW2(w2, ['stop', '-S', storage], env, 2500)));
+        // 预算对齐宿主 DISPOSE_GRACE_MAX_MS（1500ms），避免强杀前未完成收尾
+        await Promise.allSettled(storages.map((storage) => runW2(w2, ['stop', '-S', storage], env, 1200)));
       } catch {
         // 退出清理尽力而为，不阻塞进程退出
       }

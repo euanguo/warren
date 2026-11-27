@@ -1,10 +1,69 @@
 /**
  * 插件管理、脚手架创建与跨插件命令/RPC 调用 CLI 命令组。
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { usageOf } from '../commands.mjs';
 import { formatPluginCommandLine, formatPluginLine, formatPluginLogLine, parseJsonArg, print } from '../formatters.mjs';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * 将本地目录来源在 CLI 侧先行 `npm pack` 暂存到 `~/.warren/tmp/`（受管数据目录）：
+ * 打包版 macOS `.app` 主进程受 TCC 约束无法直接读取 `~/Documents/` / `~/Desktop/`，
+ * 而终端里的 CLI 进程同时拥有终端 TCC 权限与完整 shell PATH。
+ */
+async function stageLocalPluginSource(rawSource) {
+  const trimmed = String(rawSource || '').trim();
+  if (!trimmed || trimmed.startsWith('npm:') || trimmed.startsWith('git:')) return null;
+  const rawPath = trimmed.startsWith('path:') ? trimmed.slice(5).trim() : trimmed;
+  if (!rawPath) return null;
+  const absPath = path.resolve(rawPath);
+  let info;
+  try {
+    info = statSync(absPath);
+  } catch {
+    return null;
+  }
+  if (!info.isDirectory() || !existsSync(path.join(absPath, 'package.json'))) return null;
+
+  const warrenHome = process.env.WARREN_HOME || path.join(os.homedir(), '.warren');
+  const stageDir = path.join(warrenHome, 'tmp', `cli-stage-${randomUUID()}`);
+  mkdirSync(stageDir, { recursive: true });
+  try {
+    const npmCache = path.join(os.tmpdir(), 'warren-npm-cache');
+    const { stdout } = await execFileAsync(
+      'npm',
+      ['pack', '--json', '--pack-destination', stageDir, '--ignore-scripts', '--', absPath],
+      {
+        cwd: stageDir,
+        timeout: 180_000,
+        maxBuffer: 16 * 1024 * 1024,
+        env: {
+          ...process.env,
+          npm_config_cache: npmCache,
+          npm_config_logs_dir: path.join(npmCache, '_logs'),
+          npm_config_ignore_scripts: 'true',
+        },
+      },
+    );
+    const parsed = JSON.parse(String(stdout));
+    const filename = Array.isArray(parsed) && typeof parsed[0]?.filename === 'string' ? parsed[0].filename : '';
+    if (!filename) throw new Error('npm pack 未返回归档文件名');
+    return {
+      stagedSource: `path:${path.join(stageDir, filename)}`,
+      displaySource: `path:${absPath}`,
+      cleanup: () => rmSync(stageDir, { recursive: true, force: true }),
+    };
+  } catch {
+    rmSync(stageDir, { recursive: true, force: true });
+    return null;
+  }
+}
 
 function scaffoldPlugin(id, name) {
   const packageName = `warren-plugin-${String(id).split('.').at(-1)}`;
@@ -144,16 +203,40 @@ export async function runPluginCommand({ args, flags, asJson, call }) {
     case 'list':
       print(await call('plugin.list'), asJson, formatPluginLine);
       return 0;
-    case 'install':
+    case 'install': {
       if (!args[2]) {
         console.error('用法: warren plugin install <path:目录|npm:包名[@版本]|git:仓库#ref>');
         return 1;
       }
-      print(await call('plugin.install', { source: args[2] }), asJson);
+      const staged = await stageLocalPluginSource(args[2]);
+      try {
+        const params = staged
+          ? { source: staged.stagedSource, displaySource: staged.displaySource }
+          : { source: args[2] };
+        print(await call('plugin.install', params), asJson);
+      } finally {
+        staged?.cleanup();
+      }
       return 0;
-    case 'update':
-      print(await call('plugin.update', { id: args[2] }), asJson);
+    }
+    case 'update': {
+      const id = args[2];
+      let staged = null;
+      if (id) {
+        const list = await call('plugin.list').catch(() => []);
+        const current = Array.isArray(list) ? list.find((item) => item?.id === id) : null;
+        if (current && typeof current.source === 'string' && current.source.startsWith('path:')) {
+          staged = await stageLocalPluginSource(current.source);
+        }
+      }
+      try {
+        const params = staged ? { id, stagedSource: staged.stagedSource } : { id };
+        print(await call('plugin.update', params), asJson);
+      } finally {
+        staged?.cleanup();
+      }
       return 0;
+    }
     case 'create': {
       const id = args[2];
       if (!id || !/^[a-z0-9][a-z0-9.-]*$/.test(id)) {

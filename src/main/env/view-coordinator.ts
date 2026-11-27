@@ -21,6 +21,7 @@ import { makeEvent } from '../domain/environment.ts';
 import { nextViewTransition } from '../environment-view-state.ts';
 import type { Store } from '../store.ts';
 import { TabManager, newTabUrl, type Tab, type TabListItem } from '../tabs.ts';
+import { BackgroundHostWindow, type BackgroundHostLike } from '../ui/background-host.ts';
 import { DevToolsHost, type DevToolsSplitterInput } from '../ui/devtools-host.ts';
 import { WindowLayerManager } from '../ui/layer-manager.ts';
 import { popupNativeMenu } from '../ui/native-menu.ts';
@@ -47,6 +48,7 @@ import type { LeaseCoordinator, TabManagerLike } from './lease-coordinator.ts';
 export interface ViewCoordinatorDeps {
   window: BrowserWindow;
   layers?: WindowLayerManager;
+  backgroundHost?: BackgroundHostLike;
   store: Pick<Store, 'domainPref' | 'setDomainPref' | 'record' | 'recordUrlHistory'>;
   sessions: Pick<
     EnvSessionFactory,
@@ -99,6 +101,7 @@ export class EnvViewCoordinator {
   #deps: ViewCoordinatorDeps;
   #window: BrowserWindow;
   #layers: WindowLayerManager;
+  #backgroundHost: BackgroundHostLike;
   #devtools: DevToolsHost;
   #selected?: string;
   #presets = new Map<string, ViewportPresetId>();
@@ -109,6 +112,7 @@ export class EnvViewCoordinator {
     this.#deps = deps;
     this.#window = deps.window;
     this.#layers = deps.layers ?? new WindowLayerManager(deps.window);
+    this.#backgroundHost = deps.backgroundHost ?? new BackgroundHostWindow();
     this.#devtools = new DevToolsHost(
       this.#layers,
       () => this.#syncAfterDevToolsChange(),
@@ -175,6 +179,10 @@ export class EnvViewCoordinator {
     return this.#layers;
   }
 
+  hasBackgroundHost(): boolean {
+    return Boolean(this.#backgroundHost);
+  }
+
   get selected(): string | undefined {
     return this.#selected;
   }
@@ -239,6 +247,7 @@ export class EnvViewCoordinator {
       space,
       window: this.#window,
       layers: this.#layers,
+      backgroundHost: this.#backgroundHost,
       getViewport: () => this.#layoutFor(id, space).bounds,
       isViewportReady: () => this.#layers.isViewportReady(),
       session: ses,
@@ -600,6 +609,7 @@ export class EnvViewCoordinator {
     this.#disposeWindowListeners?.();
     this.#disposeWindowListeners = undefined;
     this.#devtools.destroyAll();
+    this.#backgroundHost.destroy();
   }
 
   openDevTools(id: string, space: SpaceId = 'agent', dock?: DevToolsDockMode): void {
@@ -937,6 +947,7 @@ export class EnvViewCoordinator {
       windowFocused: !this.#window.isDestroyed() && this.#window.isFocused(),
       isSelected: id === this.#selected,
       isActiveSpace: space === this.#deps.getLifecycle().activeSpaceOf(id),
+      mountedInHiddenHost: tabs.attachedBelow,
     });
     if (!emulate) {
       void controller.clearEmulatedFocus().catch(() => {});
@@ -956,6 +967,7 @@ export class EnvViewCoordinator {
       windowFocused: !this.#window.isDestroyed() && this.#window.isFocused(),
       isSelected: id === this.#selected,
       isActiveSpace: space === this.#deps.getLifecycle().activeSpaceOf(id),
+      mountedInHiddenHost: tabs.attachedBelow,
     });
     if (!emulate) return;
     await controller.emulateFocus().catch(() => {});

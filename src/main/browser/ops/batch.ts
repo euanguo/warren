@@ -446,6 +446,7 @@ async function runBatchStep(
   step: BatchStep,
   options: { controller: BatchClient; store?: BatchNoteStore },
   runInput: <T>(fn: () => Promise<T>) => Promise<T>,
+  runScreenshot: <T>(fn: () => Promise<T>) => Promise<T>,
 ): Promise<unknown> {
   const { controller } = options;
   switch (step.cmd) {
@@ -531,7 +532,9 @@ async function runBatchStep(
       return controller.evaluate(`() => (${step.expr})`);
     case 'screenshot':
       if (!controller.screenshot) throw Object.assign(new Error('screenshot 不可用'), { code: 'INTERNAL' });
-      return controller.screenshot({ path: step.path, fullPage: step.fullPage, annotate: step.annotate });
+      return runScreenshot(() =>
+        controller.screenshot!({ path: step.path, fullPage: step.fullPage, annotate: step.annotate }),
+      );
     case 'snapshot': {
       const nodes = await controller.snapshotWithRefs({
         interactiveOnly: step.interactive,
@@ -589,10 +592,12 @@ export async function executeBatch(options: {
   networkEntries?: () => NetworkEntry[];
   networkEntriesSince?: (afterId: number) => NetworkEntry[];
   prepareInput?: <T>(fn: () => Promise<T>) => Promise<T>;
+  prepareScreenshot?: <T>(fn: () => Promise<T>) => Promise<T>;
   settleMs?: number;
 }): Promise<{ ok: boolean; abortedAt?: number; results: BatchStepResult[]; delta: BatchDeltaReceipt }> {
   const bail = Boolean(options.bail);
   const runInput = options.prepareInput ?? ((fn) => fn());
+  const runScreenshot = options.prepareScreenshot ?? ((fn) => fn());
   const netBefore = options.networkEntries ? options.networkEntries() : [];
   const beforeLastNetId =
     netBefore.length > 0 && typeof netBefore[netBefore.length - 1]!.id === 'number'
@@ -612,7 +617,7 @@ export async function executeBatch(options: {
   for (let i = 0; i < options.steps.length; i += 1) {
     const step = options.steps[i]!;
     try {
-      const out = await runBatchStep(step, options, runInput);
+      const out = await runBatchStep(step, options, runInput, runScreenshot);
       results.push({ step: i + 1, cmd: step.cmd, ok: true, result: out });
     } catch (error) {
       ok = false;

@@ -14,6 +14,7 @@ const SKILL_TARGET_DIRS = [
   { id: 'agents', label: '通用（~/.agents）', skillsDir: '.agents/skills' },
   { id: 'claude', label: 'Claude Code（~/.claude）', skillsDir: '.claude/skills' },
   { id: 'codex', label: 'Codex（~/.codex）', skillsDir: '.codex/skills' },
+  { id: 'cursor', label: 'Cursor（~/.cursor）', skillsDir: '.cursor/skills' },
 ];
 
 function resolveBundledSkillPath() {
@@ -54,7 +55,7 @@ function installLocalSkill(targetId) {
   const sha256 = skillSha256(markdown);
   const targets = targetId === 'all' ? SKILL_TARGET_DIRS : SKILL_TARGET_DIRS.filter((item) => item.id === targetId);
   if (targets.length === 0) {
-    throw Object.assign(new Error(`未知 Skill 目标：${targetId}（可选 agents | claude | codex | all）`), {
+    throw Object.assign(new Error(`未知 Skill 目标：${targetId}（可选 agents | claude | codex | cursor | all）`), {
       code: 'BAD_REQUEST',
     });
   }

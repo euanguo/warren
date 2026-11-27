@@ -586,3 +586,60 @@ test('buildForkEnv 未传返回 undefined，传入时剔除非字符串键以免
   assert.equal(buildForkEnv(undefined), undefined);
   assert.deepEqual(buildForkEnv({ FOO: 'bar', UNDEF: undefined, NUM: 123 as unknown as string }), { FOO: 'bar' });
 });
+
+test('命令声明支持可选 timeoutMs 校验，且 HostRuntime 支持单命令超时覆盖与 dispose(reason)', async () => {
+  const valid = validatePluginPackage({
+    ...pluginPackage,
+    warren: {
+      ...pluginPackage.warren,
+      contributes: {
+        ...pluginPackage.warren.contributes,
+        commands: [{ name: 'slowCmd', summary: '慢命令', timeoutMs: 90_000 }],
+      },
+    },
+  });
+  assert.equal(valid.ok, true, valid.errors.join('; '));
+  assert.deepEqual(valid.package?.contributes.commands, [{ name: 'slowCmd', summary: '慢命令', timeoutMs: 90_000 }]);
+
+  const badLow = validatePluginPackage({
+    ...pluginPackage,
+    warren: {
+      ...pluginPackage.warren,
+      contributes: { commands: [{ name: 'slowCmd', summary: '慢命令', timeoutMs: 500 }] },
+    },
+  });
+  assert.equal(badLow.ok, false);
+  assert.match(badLow.errors.join(' '), /timeoutMs/);
+
+  const dir = await mkdtemp(path.join(tmpdir(), 'warren-host-dispose-'));
+  const entry = path.join(dir, 'host.mjs');
+  const reasonFile = path.join(dir, 'reason.txt');
+  await writeFile(
+    entry,
+    `import { writeFileSync } from 'node:fs';
+    export default {
+      async slow() {
+        await new Promise((r) => setTimeout(r, 120));
+        return { ok: true };
+      },
+      async dispose(ctx) {
+        writeFileSync(${JSON.stringify(reasonFile)}, String(ctx?.reason ?? 'none'));
+      },
+    };`,
+  );
+  const rt = new HostRuntime({
+    pluginId: 'com.example.timeout-dispose',
+    entryPath: entry,
+    log: () => undefined,
+  });
+  try {
+    await rt.start();
+    // 使用较宽裕单命令超时覆盖能成功完成
+    const res = (await rt.command('slow', {}, { timeoutMs: 2000 })) as { ok: boolean };
+    assert.equal(res.ok, true);
+    await rt.dispose('reload');
+    assert.equal(await readFile(reasonFile, 'utf8'), 'reload');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

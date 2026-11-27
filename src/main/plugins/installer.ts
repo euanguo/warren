@@ -21,6 +21,7 @@ import { cleanupPreparedPlugin, movePreparedPlugin, preparePluginSource } from '
 import { loadPluginSkillEntry, type PluginSkillEntry } from '../skills/composer.ts';
 import type {
   InstalledPlugin,
+  PluginDisposeReason,
   PluginSettingDescriptor,
   PluginSkillDocument,
   PluginStatus,
@@ -86,7 +87,7 @@ export interface InstallerDeps {
   statusOf: (id: string) => { status: PluginStatus; detail?: string };
   setStatus: (id: string, status: { status: PluginStatus; detail?: string }) => void;
   deleteStatus: (id: string) => void;
-  disable: (id: string) => Promise<void>;
+  disable: (id: string, reason?: PluginDisposeReason) => Promise<void>;
   activate: (pkg: PluginPackage) => Promise<void>;
   reload: (id: string) => Promise<InstalledPlugin>;
   onChange: () => void;
@@ -263,17 +264,22 @@ export class PluginInstaller {
   }
 
   /** 安装一个 path / npm / git 包。默认 disabled，必须显式 enable。 */
-  async install(source: string): Promise<InstalledPlugin> {
-    return this.#installFromSource(source, { keepEnabled: false });
+  async install(source: string, options: { displaySource?: string } = {}): Promise<InstalledPlugin> {
+    return this.#installFromSource(source, { keepEnabled: false, displaySource: options.displaySource });
   }
 
   /** 按安装时记录的来源重新解析、安装；启用中的插件失败会回滚到旧版本。 */
-  async update(id: string): Promise<InstalledPlugin> {
+  async update(id: string, options: { stagedSource?: string } = {}): Promise<InstalledPlugin> {
     const install = this.#deps.getState().installs[id];
     if (!install?.source) {
       pluginError('PLUGIN_SOURCE_MISSING', `插件 ${id} 没有可更新的安装源`);
     }
-    return this.#installFromSource(install.source, { keepEnabled: true, expectedId: id });
+    const sourceToPrepare = options.stagedSource || install.source;
+    return this.#installFromSource(sourceToPrepare, {
+      keepEnabled: true,
+      expectedId: id,
+      displaySource: options.stagedSource ? install.source : undefined,
+    });
   }
 
   async #copyRuntimeData(from: string, to: string): Promise<void> {
@@ -284,7 +290,7 @@ export class PluginInstaller {
 
   async #installFromSource(
     source: string,
-    options: { keepEnabled: boolean; expectedId?: string },
+    options: { keepEnabled: boolean; expectedId?: string; displaySource?: string },
   ): Promise<InstalledPlugin> {
     const prepared = await preparePluginSource(source, path.join(this.#deps.root, '.staging'));
     try {
@@ -309,7 +315,7 @@ export class PluginInstaller {
       const previousRuntime = existed ? (await this.readPackage(id).catch(() => null))?.runtime : undefined;
       const runtimeEscalated = previousRuntime === 'sandbox' && pkg.runtime === 'host';
 
-      await this.#deps.disable(id).catch(() => undefined);
+      await this.#deps.disable(id, existed ? 'update' : 'disable').catch(() => undefined);
       await mkdir(backupRoot, { recursive: true });
       if (existed) await rename(target, backup);
 
@@ -324,13 +330,18 @@ export class PluginInstaller {
         const keepEnabled = options.keepEnabled && previousEnabled && !runtimeEscalated;
         state.enabled = state.enabled.filter((entry) => entry !== id);
         if (keepEnabled) state.enabled.push(id);
+        const recordedSource = options.displaySource || prepared.source;
+        const recordedResolved =
+          options.displaySource && options.displaySource.startsWith('path:')
+            ? path.resolve(options.displaySource.slice(5))
+            : prepared.resolved;
         state.installs[id] = {
           installedAt: new Date().toISOString(),
           digest: await hashPluginDir(target),
           version: pkg.version,
           packageName: pkg.packageName,
-          source: prepared.source,
-          resolved: prepared.resolved,
+          source: recordedSource,
+          resolved: recordedResolved,
         };
         await this.#deps.saveState();
         this.#deps.setStatus(id, { status: 'disabled' });

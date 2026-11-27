@@ -59,6 +59,14 @@ export function shouldEmulateRenderFocus(ctx: {
   windowFocused: boolean;
   isSelected: boolean;
   isActiveSpace: boolean;
+  /** 目标视图当前挂在永久隐藏宿主窗（BackgroundHostWindow）时，一律走焦点仿真，绝不抢主窗口焦点。 */
+  mountedInHiddenHost?: boolean;
 }): boolean {
-  return !ctx.windowVisible || !ctx.windowFocused || !ctx.isSelected || !ctx.isActiveSpace;
+  return (
+    Boolean(ctx.mountedInHiddenHost) ||
+    !ctx.windowVisible ||
+    !ctx.windowFocused ||
+    !ctx.isSelected ||
+    !ctx.isActiveSpace
+  );
 }

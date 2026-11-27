@@ -70,11 +70,13 @@
         },
         {
           "name": "fork",
-          "summary": "起一个新实例：--input='{\"storage\":\"a\",\"hostPattern\":\"app.example.com/static/\",\"targetPort\":5199}'"
+          "summary": "起一个新实例：--input='{\"storage\":\"a\",\"hostPattern\":\"app.example.com/static/\",\"targetPort\":5199}'",
+          "timeoutMs": 90000
         },
         {
           "name": "start",
-          "summary": "把 list 里 alive:false 的已登记实例按原端口原 storage 拉起：--input='{\"storage\":\"a\"}'"
+          "summary": "把 list 里 alive:false 的已登记实例按原端口原 storage 拉起：--input='{\"storage\":\"a\"}'",
+          "timeoutMs": 90000
         },
         {
           "name": "stop",
@@ -86,7 +88,8 @@
         },
         {
           "name": "bind",
-          "summary": "把实例绑到环境（写 proxy + 信任它的根证书，环境在跑就重启）：--env=<环境> --input='{\"storage\":\"a\"}'"
+          "summary": "把实例绑到环境（写 proxy + 信任它的根证书，环境在跑就重启）：--env=<环境> --input='{\"storage\":\"a\"}'",
+          "timeoutMs": 90000
         },
         {
           "name": "unbind",
@@ -110,7 +113,8 @@
         },
         {
           "name": "presetApply",
-          "summary": "按 scenario 组合应用预设；expectedHash 防覆盖，失败自动回滚"
+          "summary": "按 scenario 组合应用预设；expectedHash 防覆盖，失败自动回滚",
+          "timeoutMs": 90000
         },
         {
           "name": "presetSave",

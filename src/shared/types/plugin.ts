@@ -59,7 +59,12 @@ export interface PluginSurfaceDecl {
 export interface PluginCommandDecl {
   name: string;
   summary: string;
+  /** 可选单命令超时毫秒数（1000..300000；省略时使用宿主默认超时）。 */
+  timeoutMs?: number;
 }
+
+/** 插件卸载/销毁原因，透传给插件 `dispose(ctx)` 供其区分热重载/升级与真正关闭/停用。 */
+export type PluginDisposeReason = 'shutdown' | 'reload' | 'update' | 'disable' | 'error';
 
 export interface PluginContributes {
   commands: PluginCommandDecl[];

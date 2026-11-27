@@ -29,10 +29,11 @@ warren plugin run com.warren.whistle clearIntents --input='{"storage":"feat-a","
 - 临时 Mock、延迟/限速故障与本地端口目录映射，统一用 **`quickMock` (`warren-mock`)**、**`injectFault` (`warren-fault`)**、**`mapLocal` (`warren-local`)**；同 `pattern` 幂等替换，绝不污染用户 `Default` 或业务规则组。
 - 直接编辑持久化规则组或预设时（`ruleSet` / `presetApply`），必须先读取最新正文 `hash` 并传 `expectedHash` 防覆盖；写入后插件会自动校验正文 hash 与 `selected: true`，失败时回滚旧规则。
 
-## 安全脱敏边界
+## 安全脱敏边界与导出限制
 
 - `traffic` 条目默认不返回 `requestBodyRaw` / `responseBodyRaw`；`valueList` 默认 `includeValues: false`（仅返回摘要与 120 字符 `preview`）。
-- `traffic`、`compose`、`replay`、`toCurl` 默认将敏感请求头、敏感 JSON 键与敏感 URL query 参数脱敏为 `[REDACTED]`；`replay` 在服务端从原始抓包合并改写项发出。除用户明确确认外不传 `"includeSensitive": true`，且严禁将敏感原值写入摘要或笔记。
+- `traffic`、`compose`、`replay`、`toCurl`、`agent`、`export` 在 **Agent 通道强制脱敏**（即便传入 `"includeSensitive": true` 也会被宿主收口为 `false`），敏感请求头、敏感 JSON 键与敏感 URL query 参数统一替换为 `[REDACTED]`；`replay` 在服务端从原始抓包合并改写项发出。若排查确需未脱敏 Cookie / HAR，只能由用户在 Warren 桌面端 Whistle 界面手动查看或导出。
+- `export` 写入文件路径受限于受管目录（`~/.warren/artifacts/` 或系统临时目录），禁止写入其它任意磁盘路径。
 
 ## 按需查阅详细参数与全量命令
 

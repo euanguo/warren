@@ -68,7 +68,8 @@ export class PluginInvoker {
   ): Promise<RunResult> {
     if (!this.#deps.getState().enabled.includes(id)) pluginError('PLUGIN_DISABLED', `插件 ${id} 未启用`);
     const pkg = await this.#deps.readPackage(id); // 顺带校验清单还在、没被改坏
-    if (!pkg.contributes.commands.some((item) => item.name === command)) {
+    const commandDecl = pkg.contributes.commands.find((item) => item.name === command);
+    if (!commandDecl) {
       pluginError('PLUGIN_COMMAND_UNKNOWN', `${command} 不在清单声明的 commands 白名单里`);
     }
     const active = await this.#ensureActive(id);
@@ -89,7 +90,11 @@ export class PluginInvoker {
     };
     try {
       const result = await runWithPluginContext({ pluginId: id, environmentId, leaseId: options.leaseId, caller }, () =>
-        active.adapter.command(command, ctx),
+        active.adapter.command(
+          command,
+          ctx,
+          commandDecl.timeoutMs !== undefined ? { timeoutMs: commandDecl.timeoutMs } : undefined,
+        ),
       );
       this.#deps.store.record({
         id: crypto.randomUUID(),
@@ -151,15 +156,21 @@ export class PluginInvoker {
       (typeof (input as { environmentId?: unknown })?.environmentId === 'string'
         ? (input as { environmentId: string }).environmentId
         : undefined);
+    const commandDecl = pkg.contributes.commands.find((item) => item.name === method);
     return runWithPluginContext({ pluginId: id, environmentId, leaseId, caller }, async () => {
       try {
-        const result = await active.adapter.rpc(method, input ?? null, {
-          pluginId: id,
-          environmentId,
-          input,
-          leaseId,
-          caller,
-        });
+        const result = await active.adapter.rpc(
+          method,
+          input ?? null,
+          {
+            pluginId: id,
+            environmentId,
+            input,
+            leaseId,
+            caller,
+          },
+          commandDecl?.timeoutMs !== undefined ? { timeoutMs: commandDecl.timeoutMs } : undefined,
+        );
         return { ok: true, result: toJson(result) };
       } catch (error) {
         const err = error as Error & { code?: string };

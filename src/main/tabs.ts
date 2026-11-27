@@ -5,6 +5,7 @@ import { TabList, closeSet } from './domain/tabs.ts';
 import { leafSignedByCa } from './domain/trusted-ca.ts';
 import { browserShortcut } from './browser-shortcuts';
 import type { BrowserController } from './browser/controller.ts';
+import type { BackgroundHostLike } from './ui/background-host.ts';
 import type { WindowLayerManager } from './ui/layer-manager.ts';
 import type { SpaceId, TabRef, TabState, ViewportRect } from '../shared/types';
 
@@ -221,6 +222,8 @@ export interface TabManagerOptions {
   onFoundInPage?: (result: Electron.Result) => void;
   /** 是否允许对后台不可见且无 Agent 租约的标签启用降频（默认 true）。 */
   throttleBackgroundTabs?: boolean;
+  /** 永久隐藏宿主窗：提供后 `attachBelow()` 改挂到隐藏宿主窗，彻底不碰主窗口 `'below'` 槽与用户浮层。 */
+  backgroundHost?: BackgroundHostLike;
   now?: () => number;
 }
 
@@ -455,7 +458,7 @@ export class TabManager {
     this.#controllers.get(id)?.detach();
     this.#controllers.delete(id);
     this.#options.onTabDestroyed(id);
-    if (this.#below === tab.view) this.detachBelow();
+    if (this.#below === tab.view) this.detachBelow({ restorePage: false });
     tab.destroy();
     this.#notify();
     return true;
@@ -639,23 +642,51 @@ export class TabManager {
   attachBelow(): boolean {
     const tab = this.active();
     if (!tab) return false;
-    if (this.#attached === tab.view) return false; // 已经挂着了（就是被显示的那个）
     const view = tab.view;
+    if (this.#below === view) return false;
     const bounds = this.#effectiveViewport();
     this.#viewport = bounds;
+    if (this.#options.backgroundHost) {
+      // 当前视图正挂在主窗口 'page' 槽：仅在被浮层/插件页让开（viewVisible=false）时临时借挂到隐藏宿主窗
+      if (this.#attached === view) {
+        if (this.#viewVisible) return false;
+        if (this.#options.layers.slotView('page') === view) {
+          this.#options.layers.setSlot('page', undefined);
+        }
+        this.#attached = undefined;
+      }
+      this.#options.backgroundHost.attach(view, bounds);
+      this.#below = view;
+      this.#syncThrottling();
+      return true;
+    }
+    if (this.#attached === view) return false; // 已经挂着了（就是被显示的那个）
     this.#options.layers.setSlot('below', view, { visible: true, bounds });
     this.#below = view;
     this.#syncThrottling();
     return true;
   }
 
-  /** 摘掉 `attachBelow` 挂上去的那个视图（只摘它，不动正在显示的那个）。 */
-  detachBelow(): void {
+  /** 摘掉 `attachBelow` 挂上去的那个视图；若属于当前显示中的 Space 且被浮层让开时借走的，用完归还主窗口 `'page'` 槽。 */
+  detachBelow(options?: { restorePage?: boolean }): void {
     if (!this.#below) return;
-    if (this.#options.layers.slotView('below') === this.#below) {
+    const detached = this.#below;
+    this.#below = undefined;
+    if (this.#options.backgroundHost) {
+      this.#options.backgroundHost.detach(detached);
+      if (this.#visible && !this.#attached && options?.restorePage !== false) {
+        const activeTab = this.#peekActive();
+        if (activeTab && activeTab.view === detached) {
+          const bounds = this.#effectiveViewport();
+          this.#viewport = bounds;
+          const visible = this.#viewVisible && this.#viewportReady();
+          this.#attached = detached;
+          this.#options.layers.setSlot('page', detached, { visible, bounds });
+        }
+      }
+    } else if (this.#options.layers.slotView('below') === detached) {
       this.#options.layers.setSlot('below', undefined);
     }
-    this.#below = undefined;
     this.#syncThrottling();
   }
 
@@ -672,7 +703,11 @@ export class TabManager {
       this.#options.layers.setVisible('page', visible);
     }
     if (this.#below) {
-      this.#options.layers.setBounds('below', bounds);
+      if (this.#options.backgroundHost) {
+        this.#options.backgroundHost.setSize(this.#below, bounds);
+      } else {
+        this.#options.layers.setBounds('below', bounds);
+      }
     }
   }
 
@@ -682,6 +717,11 @@ export class TabManager {
    */
   setViewVisible(visible: boolean): void {
     this.#viewVisible = visible;
+    if (visible && this.#visible && !this.#attached && this.#below) {
+      // 用户关闭浮层/插件页时立刻收回正在隐藏宿主窗借挂的前台视图，避免页面短暂空白
+      this.detachBelow({ restorePage: true });
+      return;
+    }
     if (!this.#attached) return;
     const effective = visible && this.#viewportReady();
     if (this.#options.layers.slotView('page') === this.#attached) {
@@ -693,7 +733,7 @@ export class TabManager {
   attach(): void {
     // 从 attachBelow 的临时宿主升级成显示中的视图时，先清掉底层引用，
     // 否则之后 detachBelow 会把刚提到顶层的同一个视图再摘掉。
-    this.detachBelow();
+    this.detachBelow({ restorePage: false });
     this.#visible = true;
     this.#showActive();
     this.#syncThrottling();
@@ -704,7 +744,7 @@ export class TabManager {
     // 切走之后「被界面让开」这个状态就没意义了：下次再挂上来应当从不让开开始
     // （不复位的话，后台环境会因为一个陈旧的 false 被 assertInputOnScreen 拒绝）
     this.#viewVisible = true;
-    this.detachBelow();
+    this.detachBelow({ restorePage: false });
     if (this.#attached) {
       if (this.#options.layers.slotView('page') === this.#attached) {
         this.#options.layers.setSlot('page', undefined);
@@ -897,7 +937,7 @@ export class TabManager {
       }
       this.#attached = undefined;
     }
-    if (tab && this.#below === tab.view) this.detachBelow();
+    if (tab && this.#below === tab.view) this.detachBelow({ restorePage: false });
     if (tab && destroyWebContents) tab.destroy();
 
     if (options.silent) return;
@@ -950,6 +990,9 @@ export class TabManager {
 
     const tab = this.active();
     if (!tab) return;
+
+    // 防止同一 WebContentsView 同时挂在隐藏宿主窗与主窗口
+    if (this.#below === tab.view) this.detachBelow({ restorePage: false });
 
     const bounds = this.#effectiveViewport();
     this.#viewport = bounds;

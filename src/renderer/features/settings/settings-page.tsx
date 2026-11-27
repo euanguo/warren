@@ -72,7 +72,7 @@ const BUILTIN_SECTIONS: SectionDescriptor[] = [
     title: 'Agent 与审批',
     subtitle: '配置控制权审批门控、Lease 租约时长、页面防误触提示与内置 Skill 安装。',
     icon: 'Robot',
-    keywords: 'agent 审批 控制权 租约 lease ttl 胶囊 skill claude codex opencode cli',
+    keywords: 'agent 审批 控制权 租约 lease ttl 胶囊 skill claude codex cursor opencode cli',
     render: ({ environments }) => (
       <div className="flex flex-col gap-5">
         <ApprovalPanel environments={environments} />
