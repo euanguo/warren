@@ -327,10 +327,10 @@ npm run check                                     # lint + format:check + typech
 
 > 依赖版本约束与定期升级节奏见 `docs/DEPENDENCY-POLICY.md`。
 
-- **全量真机 GUI 回归脚本（默认已禁用）**：
-  `scripts/regress/run-all.sh` 默认直接拒绝运行（不作为日常改动步骤，也不在 CI push/PR 自动运行），UI 回归已迁移至无头 `tests/ui/`（Vitest + happy-dom）。仅在跨多域大改造或发版前确需真机全量验证时，手动执行 `bash scripts/regress/run-all.sh --allow-full`（或在 GitHub Actions 手动 `workflow_dispatch` 触发 `gui-regression`）。
+- **全量真机 GUI 回归脚本（默认仅本地按需触发，已从 CI 移除）**：
+  `scripts/regress/run-all.sh` 默认直接拒绝运行（不作为日常改动步骤，CI 也不再运行 `gui-regression`），UI 回归已迁移至无头 `tests/ui/`（Vitest + happy-dom）。仅在跨多域大改造或发版前确需真机全量验证时，手动在本地执行 `bash scripts/regress/run-all.sh --allow-full`。
 
-这几条无头门禁也是 CI（`.github/workflows/ci.yml`）`static-gates` job 在 push / PR 上自动跑的内容。
+这几条无头门禁对应 CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）的 `static-gates` job；push 到 `main`、`v*` tag 或手动触发时还会运行 `package-macos` 产出 `.dmg` / `.zip` 安装包。
 
 **lint 说明**：用 `oxlint` 而不是 eslint——`typescript-eslint` 硬拒绝本项目的
 TypeScript 7.0.2（原生预览版），装不上。规则与忽略清单在 `.oxlintrc.json`，

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 批次 2 验收：去掉焦点守卫 + 回归进 CI（`docs/EXECUTION-PLAN-2026-10-17.md` §批次 2）。
+ * 批次 2 验收：去掉焦点守卫 + CI 静态门与打包流水线校验（`docs/EXECUTION-PLAN-2026-10-17.md` §批次 2）。
  *
  * 最要紧的一条：**窗口离屏、未抢前台时，带 `document.hasFocus()` 守卫的真实站点也要能点得动**。
  * 以前会被 `assertInputFocus` 拦下（WINDOW_NOT_FOCUSED），现在既没有守卫，
@@ -20,14 +20,14 @@ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 const windowChecks = process.env.WARREN_REGRESS_WINDOW === '1';
 const bad = [];
 
-// ---------- 静态：守卫真的没了 + CI job 在 ----------
+// ---------- 静态：守卫真的没了 + CI 流水线在位 ----------
 const envSrc = readFileSync(path.join(ROOT, 'src/main/environments.ts'), 'utf8');
 if (/assertInputFocus\(\)\s*:\s*void\s*\{[\s\S]*?WINDOW_NOT_FOCUSED/.test(envSrc)) {
   bad.push('environments.ts 里 assertInputFocus 还在');
 }
 const ci = readFileSync(path.join(ROOT, '.github/workflows/ci.yml'), 'utf8');
-if (!/gui-regression:/.test(ci)) bad.push('ci.yml 里没有 gui-regression job');
-if (!/run-all\.sh/.test(ci)) bad.push('ci.yml 的 gui job 没跑 run-all.sh');
+if (!/static-gates:/.test(ci)) bad.push('ci.yml 里没有 static-gates job');
+if (!/package-macos:/.test(ci)) bad.push('ci.yml 里没有 package-macos job');
 const runAll = readFileSync(path.join(ROOT, 'scripts/regress/run-all.sh'), 'utf8');
 if (/窗口不在前台.*exit 1/.test(runAll)) bad.push('run-all.sh 还在因为窗口不在前台直接退出');
 

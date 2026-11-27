@@ -1,14 +1,22 @@
-# 静态门：无头执行（lint / format / typecheck / 全部无头单测+UI 测试 / 渲染层构建）。
+# 静态门与 macOS 构建分发：
+# - static-gates：每次 push / PR 在 Ubuntu 上无头执行（lint / format:check / typecheck / 全部无头单测+UI 测试 / 渲染层构建）。
+# - package-macos：push 到 main、推送 v* tag 或手动触发时在 macos-latest 构建并校验 `.dmg` / `.zip` 产物；
+#   默认产出 ad-hoc 未签名安装包（配置 Apple 签名环境变量 Secrets 时自动启用签名与公证）。
+# - release：仅推送 `refs/tags/v*` 时自动创建/更新 GitHub Release 并附带 `.dmg`、`.zip` 与 `SHA256SUMS.txt`。
 #
-# **全量真机 GUI 回归**：已默认禁用自动触发，改为仅 `workflow_dispatch` 手动按需执行，
-# 避免每次 push/PR 启动 Electron 窗口拖慢反馈；日常 UI 与交互回归已迁移至无头 Vitest（happy-dom）。
+# 全量真机 GUI 回归已从 CI 断舍离（日常 UI 与交互回归已在 static-gates 的无头 Vitest 中稳定覆盖）；
+# 本机如需真机全量回归可按需执行 `bash scripts/regress/run-all.sh --allow-full`。
 name: CI
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   static-gates:
@@ -28,14 +36,15 @@ jobs:
       - run: npm test
       - run: npx vite build --config vite.renderer.config.mjs
 
-  gui-regression:
-    # 仅在手动触发 workflow_dispatch（重大改造/发版前）时执行，不在日常 push/PR 自动运行。
-    if: github.event_name == 'workflow_dispatch'
+  package-macos:
+    needs: static-gates
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      WARREN_ALLOW_FULL_REGRESS: '1'
-      WARREN_REGRESS_GUARD: '0'
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -46,27 +55,55 @@ jobs:
       - run: npm ci --omit=dev --ignore-scripts
         working-directory: plugins/whistle
 
-      - name: 起 fixture（8899）
+      - name: Build macOS packages (.dmg & .zip)
+        run: npm run make
+
+      - name: Collect & checksum installers
+        shell: bash
         run: |
-          nohup node scripts/serve-fixture.mjs 8899 > /tmp/fixture.log 2>&1 &
-          for i in $(seq 30); do
-            [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8899/cap/form.html)" = "200" ] && exit 0
-            sleep 1
-          done
-          echo "fixture 没起来"; cat /tmp/fixture.log; exit 1
+          set -euo pipefail
+          rm -rf dist-macos
+          mkdir -p dist-macos
+          shopt -s nullglob
+          dmgs=(out/make/dmg/*/*.dmg)
+          zips=(out/make/zip/darwin/*/*.zip)
+          if [ ${#dmgs[@]} -eq 0 ] || [ ${#zips[@]} -eq 0 ]; then
+            echo "Expected both .dmg and .zip installers under out/make/"
+            find out -maxdepth 4 2>/dev/null || true
+            exit 1
+          fi
+          cp "${dmgs[@]}" "${zips[@]}" dist-macos/
+          (cd dist-macos && shasum -a 256 *.dmg *.zip > SHA256SUMS.txt)
+          ls -lh dist-macos
+          cat dist-macos/SHA256SUMS.txt
 
-      - name: 起 Warren（非 TTY）
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warren-macos-arm64
+          path: dist-macos
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    needs: package-macos
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: warren-macos-arm64
+          path: dist-macos
+      - name: Publish GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          nohup npm start < /dev/null > /tmp/warren.log 2>&1 &
-          for i in $(seq 60); do
-            [ -S "$HOME/.warren/runtime/envd.sock" ] && exit 0
-            sleep 2
-          done
-          echo "应用没起来"; tail -40 /tmp/warren.log; exit 1
-
-      - name: 全量回归
-        run: bash scripts/regress/run-all.sh
-
-      - name: 失败时留下日志
-        if: failure()
-        run: tail -80 /tmp/warren.log /tmp/fixture.log || true
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist-macos/* --clobber
+          else
+            gh release create "$tag" dist-macos/* --verify-tag --generate-notes
+          fi

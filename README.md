@@ -93,12 +93,41 @@ When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield
 
 ## Quick Start
 
-### Prerequisites
+### 1. Install macOS App (Unsigned / Ad-Hoc Build)
 
-- **macOS** (primary desktop target; built & verified on Apple Silicon)
-- **Node.js `24+`** and `npm`
+Download `Warren-<version>-arm64.dmg` or `Warren-darwin-arm64-<version>.zip` from [GitHub Releases](https://github.com/euanguo/warren/releases) or the `warren-macos-arm64` artifact on the latest passing [`CI` workflow run](https://github.com/euanguo/warren/actions/workflows/ci.yml) (Apple Silicon / macOS).
 
-### 1. Run Desktop Core + CLI
+> [!IMPORTANT]
+> **Unsigned macOS packages trigger Gatekeeper**
+>
+> Prebuilt installers currently use **ad-hoc signing** without an Apple Developer ID signature or notarization. Because browsers attach `com.apple.quarantine` to downloaded files, double-clicking `Warren.app` directly will make macOS show **`"Warren" is damaged and can't be opened`** (or `"Apple could not verify Warren"`). Clear the quarantine attribute once before opening:
+
+**Option A — Install from `.dmg`:**
+
+1. Open `Warren-0.1.0-arm64.dmg` and drag `Warren.app` into `/Applications` (if Gatekeeper warns before dragging, do not move to Trash).
+2. Run in Terminal:
+
+```bash
+xattr -cr /Applications/Warren.app
+open -a Warren
+```
+
+**Option B — Install from `.zip`:**
+
+Extract with `ditto` into `/Applications` (preserves Electron bundle symlinks and permissions), clear quarantine, and launch:
+
+```bash
+ditto -xk Warren-darwin-arm64-0.1.0.zip /Applications
+xattr -cr /Applications/Warren.app
+open -a Warren
+```
+
+- If macOS still restricts execution, run `sudo xattr -rd com.apple.quarantine /Applications/Warren.app` (and optionally verify checksums with `shasum -a 256 -c SHA256SUMS.txt`).
+- Installing `.dmg` / `.zip` gives you the Desktop App (`Warren.app`, which exposes `~/.warren/runtime/envd.sock` on launch). To expose the `warren` CLI globally on `PATH`, link it from a cloned checkout below.
+
+### 2. Run from Source & Expose `warren` CLI
+
+Prerequisites: **macOS** (Apple Silicon) + **Node.js `24+`** and `npm`.
 
 ```bash
 git clone https://github.com/euanguo/warren.git
@@ -115,7 +144,7 @@ warren env list
 warren help
 ```
 
-### 2. First Agent Loop
+### 3. First Agent Loop
 
 Every mutation explicitly names `<env>`—selecting a row in the sidebar never grants implicit write access.
 
@@ -140,7 +169,7 @@ warren env release dev --lease=<leaseId>
 ```
 
 <details>
-<summary><strong>Build & Package macOS Desktop Bundle (<code>Warren.app</code> / <code>.dmg</code> / <code>.zip</code>)</strong></summary>
+<summary><strong>Build & Package macOS Desktop Bundle Locally (<code>Warren.app</code> / <code>.dmg</code> / <code>.zip</code>)</strong></summary>
 
 Make sure `npm start` is stopped before packaging so Vite build outputs in `.vite/` do not collide (see [docs/RELEASE.md](./docs/RELEASE.md)):
 
@@ -151,7 +180,7 @@ npm run make
 #   out/make/zip/darwin/arm64/Warren-darwin-arm64-0.1.0.zip
 ```
 
-Optional Apple signing & notarization (credentials are read exclusively from environment variables):
+Optional Apple signing & notarization (credentials are read exclusively from environment variables; when omitted, builds remain ad-hoc signed so recipients must run `xattr -cr /Applications/Warren.app` after download):
 
 ```bash
 APPLE_ID=you@example.com \

@@ -93,12 +93,41 @@
 
 ## 快速开始
 
-### 运行环境
+### 1. 安装 macOS 客户端（未签名包必读）
 
-- **macOS**（桌面端主平台，已在 Apple Silicon 实机验证）
-- **Node.js `24+`** 与 `npm`
+前往 [GitHub Releases](https://github.com/euanguo/warren/releases) 或最新一次通过的 [`CI` 工作流运行记录](https://github.com/euanguo/warren/actions/workflows/ci.yml) 页面底部的 `warren-macos-arm64` 构建产物（Artifacts），下载 `Warren-<version>-arm64.dmg` 或 `Warren-darwin-arm64-<version>.zip`（Apple Silicon / macOS）。
 
-### 1. 启动桌面端与本地 RPC
+> [!IMPORTANT]
+> **未签名包在 macOS 上会触发 Gatekeeper 拦截，必须先执行去隔离命令**
+>
+> 当前安装包仅使用 **ad-hoc 签名**，尚未进行 Apple Developer ID 签名与公证（Notarization）。从浏览器下载后系统会附带 `com.apple.quarantine` 隔离属性，直接双击打开会报错 **“Warren”已损坏，无法打开** 或 **无法验证开发者**。安装后请在终端执行一次以下命令即可正常启动：
+
+**方式 A：从 `.dmg` 安装**
+
+1. 打开 `Warren-0.1.0-arm64.dmg`，将 `Warren.app` 拖入 `/Applications`（若系统提示警告，先关闭弹窗，不要移到废纸篓）。
+2. 在终端运行：
+
+```bash
+xattr -cr /Applications/Warren.app
+open -a Warren
+```
+
+**方式 B：从 `.zip` 命令行安装**
+
+建议使用 `ditto` 直接解压进 `/Applications`（完整保留 Electron 包内符号链接与权限），清除隔离属性后启动：
+
+```bash
+ditto -xk Warren-darwin-arm64-0.1.0.zip /Applications
+xattr -cr /Applications/Warren.app
+open -a Warren
+```
+
+- 若系统安全策略仍拦截，可执行显式清除隔离属性命令：`sudo xattr -rd com.apple.quarantine /Applications/Warren.app`（也可用 `shasum -a 256 -c SHA256SUMS.txt` 校验安装包完整性）。
+- 安装 `.dmg` / `.zip` 提供桌面端 `Warren.app`（启动后自动提供 `~/.warren/runtime/envd.sock`）。若还需在终端全局使用 `warren` CLI，按下方第 2 步从仓库执行 `npm link`。
+
+### 2. 从源码运行与安装全局 CLI
+
+运行环境：**macOS**（Apple Silicon）+ **Node.js `24+`** 与 `npm`。
 
 ```bash
 git clone https://github.com/euanguo/warren.git
@@ -115,7 +144,7 @@ warren env list
 warren help
 ```
 
-### 2. 第一条 Agent 操作闭环
+### 3. 第一条 Agent 操作闭环
 
 每次写入都必须显式传入 `<env>`——在左侧列表选中环境不会隐式授予写权限。
 
@@ -140,7 +169,7 @@ warren env release dev --lease=<leaseId>
 ```
 
 <details>
-<summary><strong>构建并打包 macOS 安装包（<code>Warren.app</code> / <code>.dmg</code> / <code>.zip</code>）</strong></summary>
+<summary><strong>从源码本地打包 macOS 安装包（<code>Warren.app</code> / <code>.dmg</code> / <code>.zip</code>）</strong></summary>
 
 打包前请确保已停止 `npm start`，避免两套 Vite 进程同时写入 `.vite/` 目录（详见 [docs/RELEASE.md](./docs/RELEASE.md)）：
 
@@ -151,7 +180,7 @@ npm run make
 #   out/make/zip/darwin/arm64/Warren-darwin-arm64-0.1.0.zip
 ```
 
-如需启用 Apple 签名与公证（凭据仅从环境变量读取，不落仓库）：
+如需启用 Apple 签名与公证（凭据仅从环境变量读取，不落仓库；未配置时打出的是未签名包，分发给他人时需提醒对方在安装后执行上文 `xattr -cr /Applications/Warren.app`）：
 
 ```bash
 APPLE_ID=you@example.com \
