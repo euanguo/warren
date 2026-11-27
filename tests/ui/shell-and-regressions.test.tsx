@@ -11,6 +11,9 @@ import { SurfaceTab } from '@/components/ui/surface-tab';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { EnvironmentAddressBar } from '@/features/environments/environment-address-bar';
+import { DevToolsResizeHandle } from '@/features/environments/devtools-resize-handle';
+import { SimulatedViewportBackdrop } from '@/features/environments/stage-overlays';
+import { computeSimulatedPageBounds } from '@shared/viewport-presets';
 import { EnvironmentSidebar } from '@/features/environments/environment-sidebar';
 import { EnvironmentSpaceSwitcher } from '@/features/environments/environment-space-switcher';
 import { SidebarEnvRow } from '@/features/environments/sidebar-env-row';
@@ -502,5 +505,131 @@ describe('图六：SurfaceTab 左右光学对称与全库均匀边框（无双�
     expect(thumb?.className).not.toContain('--shadow-raised');
     expect(outlineBtn.className).toContain('--shadow-chip');
     expect(outlineBtn.className).not.toContain('--shadow-raised');
+  });
+});
+
+describe('DevTools 停靠分栏手柄：无障碍属性、键盘微调、双击重置与拖拽回调', () => {
+  it('右侧与底部停靠分别支持方向键、Shift 步进、Enter/双击重置及指针拖拽', () => {
+    const onResize = vi.fn();
+    const onReset = vi.fn();
+    const viewport = { x: 0, y: 0, width: 1200, height: 800 };
+    const { rerender } = render(
+      <DevToolsResizeHandle
+        dock="right"
+        size={420}
+        viewport={viewport}
+        gap={{ x: 774, y: 0, width: 6, height: 800 }}
+        onResize={onResize}
+        onReset={onReset}
+      />,
+    );
+
+    const handle = screen.getByRole('separator', { name: '调整右侧 DevTools 宽度' });
+    expect(handle.getAttribute('aria-orientation')).toBe('vertical');
+    expect(handle.getAttribute('aria-valuenow')).toBe('420');
+    expect(handle.style.left).toBe('774px');
+    expect(handle.style.width).toBe('6px');
+
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(onResize).toHaveBeenLastCalledWith('right', 436);
+    fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+    expect(onResize).toHaveBeenLastCalledWith('right', 380);
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    expect(onReset).toHaveBeenCalledWith('right');
+
+    fireEvent.pointerDown(handle, { button: 0, clientX: 777, clientY: 200 });
+    fireEvent.pointerMove(window, { clientX: 717, clientY: 200 });
+    fireEvent.pointerUp(window, { clientX: 717, clientY: 200 });
+    expect(onResize).toHaveBeenLastCalledWith('right', 480);
+
+    fireEvent.doubleClick(handle);
+    expect(onResize).toHaveBeenLastCalledWith('right', 420);
+
+    rerender(
+      <DevToolsResizeHandle
+        dock="bottom"
+        size={300}
+        viewport={viewport}
+        gap={{ x: 0, y: 494, width: 1200, height: 6 }}
+        onResize={onResize}
+        onReset={onReset}
+      />,
+    );
+    const bottomHandle = screen.getByRole('separator', { name: '调整底部 DevTools 高度' });
+    expect(bottomHandle.getAttribute('aria-orientation')).toBe('horizontal');
+    fireEvent.keyDown(bottomHandle, { key: 'ArrowUp' });
+    expect(onResize).toHaveBeenLastCalledWith('bottom', 316);
+  });
+});
+
+describe('地址栏下载按钮直接露出与模拟视口居中画布', () => {
+  it('无进行中下载时也直接渲染下载记录按钮，有进行中下载时才显示脉冲红点', () => {
+    const mocks = installMockEnvApi();
+    const baseProps = {
+      envId: 'cap',
+      spaceId: 'person' as const,
+      url: 'https://example.com',
+      loading: false,
+      editable: true,
+      running: true,
+      canGoBack: false,
+      canGoForward: false,
+      inspectorOpen: false,
+      devToolsOpen: false,
+      devToolsDock: 'right' as const,
+      zoomFactor: 1,
+      viewportPreset: 'auto' as const,
+      pluginPopovers: [],
+      pluginStatusBadges: [],
+      pluginInspectorTabs: [],
+      pluginRailPages: [],
+      onToggleInspector: vi.fn(),
+      onToggleDevTools: vi.fn(),
+      onChangeDevToolsDock: vi.fn(),
+      onResetZoom: vi.fn(),
+      onOpenFind: vi.fn(),
+      onNavigate: vi.fn(),
+    };
+
+    const { rerender } = render(
+      <TooltipProvider>
+        <EnvironmentAddressBar {...baseProps} hasActiveDownload={false} />
+      </TooltipProvider>,
+    );
+
+    const downloadBtn = screen.getByRole('button', { name: '下载记录' });
+    expect(document.querySelector('[data-slot="downloads-active-dot"]')).toBeNull();
+    fireEvent.click(downloadBtn);
+    expect(mocks.openPopover).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'downloads', props: { envId: 'cap' } }),
+    );
+
+    rerender(
+      <TooltipProvider>
+        <EnvironmentAddressBar {...baseProps} hasActiveDownload />
+      </TooltipProvider>,
+    );
+    expect(document.querySelector('[data-slot="downloads-active-dot"]')).not.toBeNull();
+  });
+
+  it('非 auto 模拟视口使用独立画布背景与居中设备框，并展示尺寸标签与一键还原按钮', () => {
+    const container = { x: 0, y: 0, width: 1000, height: 800 };
+    const layout = computeSimulatedPageBounds(container, 'desktop-1440');
+    const onReset = vi.fn();
+
+    render(<SimulatedViewportBackdrop container={container} layout={layout} onReset={onReset} />);
+
+    const canvas = document.querySelector<HTMLElement>('[data-slot="viewport-canvas"]');
+    const frame = document.querySelector<HTMLElement>('[data-slot="viewport-frame"]');
+    const pill = document.querySelector<HTMLElement>('[data-slot="viewport-pill"]');
+    expect(canvas?.className).toContain('bg-surface-recessed');
+    expect(frame?.className).toContain('bg-background');
+    expect(frame?.style.left).toBe(`${layout.bounds.x}px`);
+    expect(frame?.style.width).toBe(`${layout.bounds.width}px`);
+    expect(pill?.textContent).toContain('1440 × 900');
+    expect(document.querySelector('[data-slot="viewport-scale"]')?.textContent).toContain('%');
+
+    fireEvent.click(screen.getByRole('button', { name: '还原自适应视口' }));
+    expect(onReset).toHaveBeenCalledTimes(1);
   });
 });

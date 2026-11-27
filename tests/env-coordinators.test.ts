@@ -276,15 +276,18 @@ test('LeaseCoordinator：acquire / renew / release / takeover 完整流转与 bu
     true,
   );
 
-  // human release 时若当前正看 agent space，切回 person space；agent release 不切空间
+  // agent release 与 human release 都保持当前所在视图（不强行跳回 person space），并重挂空闲遮罩
   coordinator.release('alpha', autoTaken.leaseId, 'agent');
   assert.equal(busEvents.at(-1)?.payload.owner, 'none');
   assert.equal(busEvents.at(-1)?.payload.space, 'agent');
   assert.equal(activeSpace, 'agent');
+  assert.equal(shield?.attached, true);
 
   const humanLease = coordinator.takeover('alpha', 'human', 'agent');
+  assert.equal(shield?.attached, false);
   coordinator.release('alpha', humanLease.leaseId, 'human');
-  assert.equal(activeSpace, 'person');
+  assert.equal(activeSpace, 'agent');
+  assert.equal(shield?.attached, true);
 });
 
 test('LeaseCoordinator：ensureOperable / assertInputOnScreen / assertActiveTab 护栏', () => {

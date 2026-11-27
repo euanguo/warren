@@ -1,12 +1,12 @@
 import type { ViewportRect } from '../../shared/types.ts';
 
 /**
- * 窗口子视图的固定 5 层 Z-Order 栈（从底到顶）。
+ * 窗口子视图的固定 6 层 Z-Order 栈（从底到顶）。
  *
  * 任何视图切换与挂载都必须经由这一张表重排，禁止业务模块直接调 `addChildView`
  * 去猜当前排在谁上面（历史事故：切 Tab 后新页把 InputShield 盖掉、attachBelow 残影）。
  */
-export const LAYER_SLOTS = ['below', 'page', 'devtools', 'shield', 'overlay'] as const;
+export const LAYER_SLOTS = ['below', 'page', 'devtools', 'shield', 'splitter', 'overlay'] as const;
 
 export type LayerSlot = (typeof LAYER_SLOTS)[number];
 
@@ -25,6 +25,7 @@ export class LayerOrderModel<T> {
     page: { visible: true },
     devtools: { visible: false },
     shield: { visible: false },
+    splitter: { visible: false },
     overlay: { visible: false },
   };
 
@@ -96,6 +97,11 @@ export class LayerOrderModel<T> {
         attached: this.#slots.shield.view !== undefined,
         visible: this.#slots.shield.visible && this.#slots.shield.view !== undefined,
         bounds: this.#slots.shield.bounds,
+      },
+      splitter: {
+        attached: this.#slots.splitter.view !== undefined,
+        visible: this.#slots.splitter.visible && this.#slots.splitter.view !== undefined,
+        bounds: this.#slots.splitter.bounds,
       },
       overlay: {
         attached: this.#slots.overlay.view !== undefined,

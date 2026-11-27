@@ -59,6 +59,8 @@ test('扩展设置键支持读写归一化且数值被边界夹紧', () => {
     pageBorderRadius: 'false',
     devtoolsDefaultDock: 'bottom',
     devtoolsDefaultViewport: 'mobile-390',
+    devtoolsRightSize: '560',
+    devtoolsBottomSize: '120',
     maxRunning: '999',
     idleHibernateMinutes: '-5',
     leaseTtlMs: '5000',
@@ -69,6 +71,8 @@ test('扩展设置键支持读写归一化且数值被边界夹紧', () => {
   assert.equal(parsed.pageBorderRadius, false);
   assert.equal(parsed.devtoolsDefaultDock, 'bottom');
   assert.equal(parsed.devtoolsDefaultViewport, 'mobile-390');
+  assert.equal(parsed.devtoolsRightSize, 560);
+  assert.equal(parsed.devtoolsBottomSize, 180);
   assert.equal(parsed.maxRunning, 32);
   assert.equal(parsed.idleHibernateMinutes, 0);
   assert.equal(parsed.leaseTtlMs, 30_000);

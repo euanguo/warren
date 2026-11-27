@@ -2,6 +2,7 @@ import {
   app,
   clipboard,
   dialog,
+  ipcMain,
   screen,
   shell,
   webContents,
@@ -10,6 +11,7 @@ import {
   type Session,
 } from 'electron';
 import type { X509Certificate } from 'node:crypto';
+import path from 'node:path';
 import { buildPageContextMenu } from '../browser-context-menu.ts';
 import { BrowserController } from '../browser/controller.ts';
 import { getDownloadPath, listDownloads } from '../browser/downloads.ts';
@@ -19,7 +21,7 @@ import { makeEvent } from '../domain/environment.ts';
 import { nextViewTransition } from '../environment-view-state.ts';
 import type { Store } from '../store.ts';
 import { TabManager, newTabUrl, type Tab, type TabListItem } from '../tabs.ts';
-import { DevToolsHost } from '../ui/devtools-host.ts';
+import { DevToolsHost, type DevToolsSplitterInput } from '../ui/devtools-host.ts';
 import { WindowLayerManager } from '../ui/layer-manager.ts';
 import { popupNativeMenu } from '../ui/native-menu.ts';
 import type {
@@ -36,6 +38,7 @@ import type {
   ViewportPresetId,
   ViewportRect,
 } from '../../shared/types.ts';
+import { computeSimulatedPageBounds, type SimulatedPageLayout } from '../../shared/viewport-presets.ts';
 import type { EnvSessionFactory } from './session-factory.ts';
 import { SPACE_IDS, type EnvironmentSpaces, type EnvLifecycle } from './lifecycle.ts';
 import type { LeaseCoordinator, TabManagerLike } from './lease-coordinator.ts';
@@ -81,6 +84,7 @@ export interface ViewCoordinatorDeps {
   onChange: () => void;
   onTargetUrl?: (payload: { envId: string; url: string }) => void;
   onFindResult?: (result: FindInPageResult) => void;
+  onDevToolsSizeCommitted?: (mode: 'right' | 'bottom', size: number) => void;
   emitBusEvent: (type: PluginBusEventType, environmentId: string, payload: Record<string, unknown>) => void;
 }
 
@@ -98,6 +102,7 @@ export class EnvViewCoordinator {
   #selected?: string;
   #presets = new Map<string, ViewportPresetId>();
   #defaultViewport: ViewportPresetId = 'auto';
+  #disposeSplitterIpc?: () => void;
 
   constructor(deps: ViewCoordinatorDeps) {
     this.#deps = deps;
@@ -116,7 +121,41 @@ export class EnvViewCoordinator {
           },
         }),
       () => !this.#window.isDestroyed() && this.#window.isFocused(),
+      {
+        createSplitterView: () =>
+          new WebContentsView({
+            webPreferences: {
+              preload: path.join(__dirname, 'splitter-preload.cjs'),
+              contextIsolation: true,
+              sandbox: true,
+              nodeIntegration: false,
+              backgroundThrottling: false,
+            },
+          }),
+        onLayoutChanged: () => {
+          if (this.#selected) this.reapplySplitBounds(this.#selected, { syncEmulation: false });
+        },
+        onSizeCommitted: (mode, size) => {
+          if (this.#selected) this.reapplySplitBounds(this.#selected);
+          this.#deps.onDevToolsSizeCommitted?.(mode, size);
+        },
+      },
     );
+    const onSplitterMessage = (event: Electron.IpcMainEvent, raw: unknown) => {
+      const splitterWc = this.#devtools.splitterWebContents();
+      if (!splitterWc || event.sender !== splitterWc) return;
+      const parsed = parseSplitterInput(raw);
+      if (parsed) this.#devtools.handleSplitterInput(parsed);
+    };
+    const onWindowBlur = () => {
+      this.#devtools.cancelDrag();
+    };
+    ipcMain?.on('devtools:splitter', onSplitterMessage);
+    this.#window.on?.('blur', onWindowBlur);
+    this.#disposeSplitterIpc = () => {
+      ipcMain?.removeListener('devtools:splitter', onSplitterMessage);
+      this.#window.removeListener?.('blur', onWindowBlur);
+    };
   }
 
   get layers(): WindowLayerManager {
@@ -135,7 +174,7 @@ export class EnvViewCoordinator {
     return this.#layers.viewport();
   }
 
-  pageBounds(): ViewportRect {
+  #splitPageContainer(): ViewportRect {
     if (!this.#layers.isViewportReady()) {
       const [winW, winH] = this.#window.isDestroyed() ? [1440, 920] : this.#window.getContentSize();
       const x = Math.min(318, Math.max(0, Math.floor(winW * 0.25)));
@@ -148,6 +187,26 @@ export class EnvViewCoordinator {
       };
     }
     return this.#devtools.computeSplitBounds().page;
+  }
+
+  #layoutForContainer(id: string, space: SpaceId, container: ViewportRect): SimulatedPageLayout {
+    const preset = this.getViewportPreset(id, space).preset;
+    return computeSimulatedPageBounds(container, preset);
+  }
+
+  #layoutFor(id: string, space?: SpaceId): SimulatedPageLayout {
+    const targetSpace = space ?? this.#deps.getLifecycle().activeSpaceOf(id);
+    return this.#layoutForContainer(id, targetSpace, this.#splitPageContainer());
+  }
+
+  #syncControllerViewport(id: string, space: SpaceId, layout: SimulatedPageLayout): void {
+    const controller = this.#deps.getLifecycle().spaceManager(id, space)?.controller();
+    if (controller) void controller.setViewportPreset(layout.preset, layout.scale).catch(() => {});
+  }
+
+  pageBounds(): ViewportRect {
+    if (this.#selected) return this.#layoutFor(this.#selected).bounds;
+    return this.#splitPageContainer();
   }
 
   clearSelectedIf(id: string): void {
@@ -167,7 +226,7 @@ export class EnvViewCoordinator {
       space,
       window: this.#window,
       layers: this.#layers,
-      getViewport: () => this.pageBounds(),
+      getViewport: () => this.#layoutFor(id, space).bounds,
       isViewportReady: () => this.#layers.isViewportReady(),
       session: ses,
       trustedCa,
@@ -398,14 +457,12 @@ export class EnvViewCoordinator {
     spaces.active = space;
     if (this.#selected === id) {
       this.#devtools.activateTab(spaces[space].activeId);
-      const split = this.#devtools.computeSplitBounds();
-      spaces[space].setViewport(split.page);
+      const layout = this.#layoutFor(id, space);
+      spaces[space].setViewport(layout.bounds);
       spaces[space].setViewVisible(this.#layers.viewVisible());
       spaces[space].attach();
-      this.#layers.setVisible(
-        'devtools',
-        this.#layers.viewVisible() && this.#layers.isViewportReady() && this.#devtools.isOpen(),
-      );
+      this.#syncControllerViewport(id, space, layout);
+      this.#devtools.syncVisibility();
       this.#deps.getLeases().syncShield(id);
     }
     this.#deps.emitBusEvent('space.switched', id, {
@@ -441,14 +498,12 @@ export class EnvViewCoordinator {
     }
 
     this.#devtools.activateTab(target.activeId);
-    const split = this.#devtools.computeSplitBounds();
-    target.setViewport(split.page);
+    const layout = this.#layoutFor(id, spaces.active);
+    target.setViewport(layout.bounds);
     target.setViewVisible(this.#layers.viewVisible());
     target.attach();
-    this.#layers.setVisible(
-      'devtools',
-      this.#layers.viewVisible() && this.#layers.isViewportReady() && this.#devtools.isOpen(),
-    );
+    this.#syncControllerViewport(id, spaces.active, layout);
+    this.#devtools.syncVisibility();
 
     this.#deps.getLeases().syncShield(id, { createIfMissing: true });
     this.#deps.onChange();
@@ -460,19 +515,20 @@ export class EnvViewCoordinator {
     this.#devtools.setViewport(viewport);
     const split = this.#devtools.computeSplitBounds();
     // 同步全部运行中环境的双 Space 视口，确保后台/非激活 Space attachBelow 绝不回退到 0,0,800,600
-    for (const [, spaces] of this.#deps.getLifecycle().allSpacesEntries()) {
+    for (const [envId, spaces] of this.#deps.getLifecycle().allSpacesEntries()) {
       for (const space of SPACE_IDS) {
-        spaces[space].setViewport(split.page);
+        const layout = this.#layoutForContainer(envId, space, split.page);
+        spaces[space].setViewport(layout.bounds);
       }
     }
-    if (this.#layers.slotView('below')) {
-      this.#layers.setBounds('below', split.page);
-    }
     if (this.#selected) {
-      this.#deps.getLifecycle().spaceManager(this.#selected)?.setViewVisible(this.#layers.viewVisible());
-      this.#deps.getLeases().repositionShield(this.#selected, split.page);
-      this.#layers.setVisible('devtools', this.#layers.viewVisible() && this.#devtools.isOpen());
+      const activeSpace = this.#deps.getLifecycle().activeSpaceOf(this.#selected);
+      const selectedLayout = this.#layoutForContainer(this.#selected, activeSpace, split.page);
+      this.#deps.getLifecycle().spaceManager(this.#selected, activeSpace)?.setViewVisible(this.#layers.viewVisible());
+      this.#deps.getLeases().repositionShield(this.#selected, selectedLayout.bounds);
+      this.#syncControllerViewport(this.#selected, activeSpace, selectedLayout);
     }
+    this.#devtools.syncVisibility();
   }
 
   setViewVisible(visible: boolean): void {
@@ -481,17 +537,19 @@ export class EnvViewCoordinator {
       this.#deps.getLifecycle().spaceManager(this.#selected)?.setViewVisible(visible);
       this.#deps.getLeases().setShieldVisible(this.#selected, visible);
     }
-    this.#layers.setVisible('devtools', visible && this.#layers.isViewportReady() && this.#devtools.isOpen());
+    this.#devtools.syncVisibility();
   }
 
-  reapplySplitBounds(id: string): void {
+  reapplySplitBounds(id: string, options: { syncEmulation?: boolean } = {}): void {
     if (this.#selected !== id) return;
     const split = this.#devtools.computeSplitBounds();
-    this.#deps.getLifecycle().spaceManager(id)?.setViewport(split.page);
-    if (this.#layers.slotView('below')) {
-      this.#layers.setBounds('below', split.page);
+    const activeSpace = this.#deps.getLifecycle().activeSpaceOf(id);
+    const layout = this.#layoutForContainer(id, activeSpace, split.page);
+    this.#deps.getLifecycle().spaceManager(id, activeSpace)?.setViewport(layout.bounds);
+    this.#deps.getLeases().repositionShield(id, layout.bounds);
+    if (options.syncEmulation !== false) {
+      this.#syncControllerViewport(id, activeSpace, layout);
     }
-    this.#deps.getLeases().repositionShield(id, split.page);
   }
 
   closeEnvDevTools(spaces: EnvironmentSpaces): void {
@@ -503,6 +561,8 @@ export class EnvViewCoordinator {
   }
 
   destroyAllDevTools(): void {
+    this.#disposeSplitterIpc?.();
+    this.#disposeSplitterIpc = undefined;
     this.#devtools.destroyAll();
   }
 
@@ -530,6 +590,13 @@ export class EnvViewCoordinator {
   setDevToolsDock(dock: DevToolsDockMode, size?: number): void {
     this.#devtools.setDockConfig(dock, size);
     if (this.#selected) this.reapplySplitBounds(this.#selected);
+    if (typeof size === 'number' && Number.isFinite(size) && (dock === 'right' || dock === 'bottom')) {
+      this.#deps.onDevToolsSizeCommitted?.(dock, this.#devtools.dockSize);
+    }
+  }
+
+  setDevToolsTheme(theme: 'dark' | 'light'): void {
+    this.#devtools.setTheme(theme);
   }
 
   getDevToolsState(): { open: boolean; dock: DevToolsDockMode; size: number } {
@@ -582,17 +649,23 @@ export class EnvViewCoordinator {
 
   applyOriginZoom(id: string, tab: Tab, url: string): void {
     const origin = this.#originOf(url);
-    if (!origin) return;
-    const pref = this.#deps.store.domainPref(id, origin);
+    const pref = origin ? this.#deps.store.domainPref(id, origin) : undefined;
     const wc = tab.webContents;
     if (!wc || wc.isDestroyed()) return;
     if (pref && Math.abs(pref.zoomFactor - 1) > 0.001) {
       wc.setZoomFactor(pref.zoomFactor);
     }
-    const targetPreset = pref?.viewportPreset ?? (this.#defaultViewport !== 'auto' ? this.#defaultViewport : undefined);
-    if (targetPreset) {
-      const controller = this.#deps.getLifecycle().spaceManager(id, tab.space)?.controllerFor(tab.id);
-      if (controller) void controller.setViewportPreset(targetPreset).catch(() => {});
+    const targetPreset = pref?.viewportPreset ?? this.#presets.get(`${id}:${tab.space}`) ?? this.#defaultViewport;
+    const layout = computeSimulatedPageBounds(this.#splitPageContainer(), targetPreset);
+    const tabs = this.#deps.getLifecycle().spaceManager(id, tab.space);
+    const controller = tabs?.controllerFor(tab.id);
+    if (controller) void controller.setViewportPreset(layout.preset, layout.scale).catch(() => {});
+    if (tabs && tabs.activeId === tab.id) {
+      tabs.setViewport(layout.bounds);
+      if (this.#selected === id && this.#deps.getLifecycle().activeSpaceOf(id) === tab.space) {
+        this.#deps.getLeases().repositionShield(id, layout.bounds);
+      }
+      this.#deps.onChange();
     }
   }
 
@@ -600,13 +673,18 @@ export class EnvViewCoordinator {
     const tabs = this.#deps.getLifecycle().spaceManager(id, space);
     const controller = tabs?.controller();
     const wc = tabs?.active()?.webContents;
-    if (!controller || !wc || wc.isDestroyed()) {
+    if (!tabs || !controller || !wc || wc.isDestroyed()) {
       throw Object.assign(new Error(`environment ${id} active tab is not ready`), { code: 'ENV_NOT_RUNNING' });
     }
-    await controller.setViewportPreset(preset);
+    const layout = computeSimulatedPageBounds(this.#splitPageContainer(), preset);
+    await controller.setViewportPreset(layout.preset, layout.scale);
     this.#presets.set(`${id}:${space}`, preset);
     const origin = this.#originOf(wc.getURL());
     if (origin) this.#deps.store.setDomainPref(id, origin, { viewportPreset: preset === 'auto' ? null : preset });
+    tabs.setViewport(layout.bounds);
+    if (this.#selected === id && this.#deps.getLifecycle().activeSpaceOf(id) === space) {
+      this.#deps.getLeases().repositionShield(id, layout.bounds);
+    }
     this.#deps.onChange();
     return { preset };
   }
@@ -625,9 +703,17 @@ export class EnvViewCoordinator {
     dock?: DevToolsDockMode;
     defaultViewport?: ViewportPresetId;
     pageBorderRadius?: boolean;
+    devtoolsRightSize?: number;
+    devtoolsBottomSize?: number;
   }): void {
     if (options.dock) this.#devtools.setDefaultDock(options.dock);
-    if (options.defaultViewport) this.#defaultViewport = options.defaultViewport;
+    if (options.devtoolsRightSize !== undefined || options.devtoolsBottomSize !== undefined) {
+      this.#devtools.setDefaultSizes({ right: options.devtoolsRightSize, bottom: options.devtoolsBottomSize });
+    }
+    if (options.defaultViewport) {
+      this.#defaultViewport = options.defaultViewport;
+      if (this.#selected) this.reapplySplitBounds(this.#selected);
+    }
     if (typeof options.pageBorderRadius === 'boolean') {
       this.#layers.setPageRadius(options.pageBorderRadius ? 8 : 0);
     }
@@ -975,4 +1061,18 @@ export class EnvViewCoordinator {
       return undefined;
     }
   }
+}
+
+function parseSplitterInput(raw: unknown): DevToolsSplitterInput | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const msg = raw as Record<string, unknown>;
+  if (msg.type === 'reset') return { type: 'reset' };
+  if (msg.type !== 'start' && msg.type !== 'move' && msg.type !== 'end') return undefined;
+  const screenX = Number(msg.screenX);
+  const screenY = Number(msg.screenY);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return undefined;
+  if (msg.type === 'end') {
+    return { type: 'end', screenX, screenY, cancel: Boolean(msg.cancel) };
+  }
+  return { type: msg.type, screenX, screenY };
 }

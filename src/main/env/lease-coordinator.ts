@@ -337,9 +337,6 @@ export class LeaseCoordinator {
       space: current.space,
     });
     this.syncShield(id);
-    if (actor === 'human' && this.#deps.getSelectedId() === id && this.#deps.getActiveSpace(id) === 'agent') {
-      this.#deps.selectSpaceView(id, 'person');
-    }
     this.#deps.onChange();
   }
 

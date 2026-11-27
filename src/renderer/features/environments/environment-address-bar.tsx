@@ -382,7 +382,6 @@ export function EnvironmentAddressBar({
         label: presetLabel ? `模拟响应式视口（当前 ${presetLabel}）` : '模拟响应式视口…',
         enabled: running,
       },
-      { id: 'downloads', label: hasActiveDownload ? '下载记录（进行中）' : '下载记录…' },
       { id: 'copy-url', label: '复制当前 URL', enabled: url.length > 0 },
     ];
     if (pluginPopovers.length > 0) {
@@ -406,8 +405,6 @@ export function EnvironmentAddressBar({
       onOpenFind();
     } else if (picked === 'viewport') {
       openViewportPopover(anchor);
-    } else if (picked === 'downloads') {
-      openDownloadsPopover(anchor);
     } else if (picked === 'copy-url') {
       handleCopyUrl();
     } else if (picked.startsWith('popover:') || picked.startsWith('inspectorTab:')) {

@@ -4,19 +4,20 @@ import type { BaseWindow, WebContentsView } from 'electron';
 import { WindowLayerManager } from '../src/main/ui/layer-manager.ts';
 import { LAYER_SLOTS, LayerOrderModel } from '../src/main/ui/layer-order.ts';
 
-test('LayerOrderModel 严格保持 5 层固定栈顺序', () => {
+test('LayerOrderModel 严格保持 6 层固定栈顺序', () => {
   const model = new LayerOrderModel<string>();
-  assert.deepEqual([...LAYER_SLOTS], ['below', 'page', 'devtools', 'shield', 'overlay']);
+  assert.deepEqual([...LAYER_SLOTS], ['below', 'page', 'devtools', 'shield', 'splitter', 'overlay']);
 
   model.setSlot('overlay', 'V_OVERLAY');
   model.setSlot('below', 'V_BELOW');
+  model.setSlot('splitter', 'V_SPLITTER');
   model.setSlot('shield', 'V_SHIELD');
   model.setSlot('page', 'V_PAGE');
   model.setSlot('devtools', 'V_DEVTOOLS');
 
-  assert.deepEqual(model.orderedViews(), ['V_BELOW', 'V_PAGE', 'V_DEVTOOLS', 'V_SHIELD', 'V_OVERLAY']);
-  assert.equal(model.isInOrder(['V_BELOW', 'V_PAGE', 'V_DEVTOOLS', 'V_SHIELD', 'V_OVERLAY']), true);
-  assert.equal(model.isInOrder(['V_BELOW', 'V_SHIELD', 'V_PAGE', 'V_DEVTOOLS', 'V_OVERLAY']), false);
+  assert.deepEqual(model.orderedViews(), ['V_BELOW', 'V_PAGE', 'V_DEVTOOLS', 'V_SHIELD', 'V_SPLITTER', 'V_OVERLAY']);
+  assert.equal(model.isInOrder(['V_BELOW', 'V_PAGE', 'V_DEVTOOLS', 'V_SHIELD', 'V_SPLITTER', 'V_OVERLAY']), true);
+  assert.equal(model.isInOrder(['V_BELOW', 'V_SHIELD', 'V_PAGE', 'V_DEVTOOLS', 'V_SPLITTER', 'V_OVERLAY']), false);
 });
 
 test('LayerOrderModel 支持同视图升槽位去重并清理旧槽', () => {

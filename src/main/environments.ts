@@ -79,6 +79,9 @@ export class EnvironmentManager {
       onChange,
       onTargetUrl: options.onTargetUrl,
       onFindResult: options.onFindResult,
+      onDevToolsSizeCommitted: (mode, size) => {
+        this.#store.setAppSettings(mode === 'right' ? { devtoolsRightSize: size } : { devtoolsBottomSize: size });
+      },
       emitBusEvent: (type, envId, payload) => this.#emitBusEvent(type, envId, payload),
     });
 
@@ -470,9 +473,10 @@ export class EnvironmentManager {
     return this.#leases.hasActiveAgentLease();
   }
 
-  /** 同步透明护盾主题（暗色 / 浅色）。 */
+  /** 同步透明护盾与 DevTools 分割手柄主题（暗色 / 浅色）。 */
   setShieldTheme(theme: ShieldTheme): void {
     this.#leases.setShieldTheme(theme);
+    this.#views.setDevToolsTheme(theme);
   }
 
   /** 将最新应用级设置同步到各运行期协作者，使设置修改即刻生效。 */
@@ -492,6 +496,8 @@ export class EnvironmentManager {
       dock: settings.devtoolsDefaultDock,
       defaultViewport: settings.devtoolsDefaultViewport,
       pageBorderRadius: settings.pageBorderRadius,
+      devtoolsRightSize: settings.devtoolsRightSize,
+      devtoolsBottomSize: settings.devtoolsBottomSize,
     });
   }
 

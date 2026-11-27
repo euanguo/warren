@@ -32,6 +32,8 @@ export interface AppSettings {
   pageBorderRadius?: boolean;
   devtoolsDefaultDock?: DevToolsDockMode;
   devtoolsDefaultViewport?: ViewportPresetId;
+  devtoolsRightSize?: number;
+  devtoolsBottomSize?: number;
   maxRunning?: number;
   idleHibernateMinutes?: number;
   leaseTtlMs?: number;

@@ -7,8 +7,8 @@ export type { LayerSlot };
 /**
  * 窗口原生子视图的统一 Z-Order 控制器。
  *
- * 强制维护 `below → page → devtools → shield → overlay` 五层固定顺序，
- * 并统一在 `'page'` 与 `'devtools'` 槽位应用圆角。
+ * 强制维护 `below → page → devtools → shield → splitter → overlay` 六层固定顺序，
+ * 并统一在 `'page'`、`'devtools'` 与 `'shield'` 槽位应用圆角。
  */
 export class WindowLayerManager {
   #window: BaseWindow;

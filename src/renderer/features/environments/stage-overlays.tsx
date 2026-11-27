@@ -3,8 +3,10 @@ import { Button, IconButton } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Kbd } from '@/components/ui/kbd';
 import { WarrenMark } from '@/components/warren-mark';
+import { cn } from '@/lib/utils';
 import { egressLabel } from './sidebar-env-row';
-import type { Environment, SpaceId } from '@shared/types';
+import type { Environment, SpaceId, ViewportRect } from '@shared/types';
+import { VIEWPORT_PRESET_SPECS, type SimulatedPageLayout } from '@shared/viewport-presets';
 
 export function PanelExclusivityNoticeBar({
   collapsed,
@@ -131,6 +133,86 @@ export function StageEmptyPlaceholder({
         </div>
       )}
     </Empty>
+  );
+}
+
+export function SimulatedViewportBackdrop({
+  container,
+  layout,
+  roundedOuter = true,
+  onReset,
+}: {
+  container: ViewportRect;
+  layout: SimulatedPageLayout;
+  roundedOuter?: boolean;
+  onReset?: () => void;
+}) {
+  if (!layout.emulated || layout.preset === 'auto') return null;
+  const spec = VIEWPORT_PRESET_SPECS[layout.preset];
+  const relLeft = layout.bounds.x - container.x;
+  const relTop = layout.bounds.y - container.y;
+  const scalePct = Math.round(layout.scale * 100);
+  const pillCenterX = relLeft + layout.bounds.width / 2;
+  const pillTop = Math.max(8, relTop - 32);
+
+  return (
+    <div
+      data-slot="viewport-canvas"
+      style={{
+        left: container.x,
+        top: container.y,
+        width: container.width,
+        height: container.height,
+      }}
+      className={cn(
+        'absolute overflow-hidden bg-surface-recessed select-none',
+        'bg-[radial-gradient(color-mix(in_srgb,var(--border-heavy)_42%,transparent)_1px,transparent_1px)] [background-size:16px_16px]',
+        roundedOuter && 'rounded-[var(--shell-stage-radius)]',
+      )}
+    >
+      <div
+        data-slot="viewport-pill"
+        style={{ left: pillCenterX, top: pillTop }}
+        className="absolute z-10 flex h-6 max-w-[calc(100%-16px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-heavy/80 bg-surface-elevated/95 pr-1 pl-2.5 text-[length:var(--font-size-micro)] text-foreground [box-shadow:var(--shadow-chip)]"
+      >
+        <Icon name={spec.icon} className="size-3.5 shrink-0 text-[var(--theme-accent)]" />
+        <span className="truncate font-medium">{spec.label}</span>
+        <span className="shrink-0 font-mono text-muted-foreground tabular-nums">
+          {layout.logicalWidth} × {layout.logicalHeight}
+        </span>
+        {scalePct < 100 && (
+          <span
+            data-slot="viewport-scale"
+            className="shrink-0 rounded-full bg-surface-fog px-1.5 py-px font-mono text-[10px] text-muted-foreground tabular-nums"
+          >
+            {scalePct}%
+          </span>
+        )}
+        {onReset && (
+          <button
+            type="button"
+            data-slot="viewport-reset"
+            aria-label="还原自适应视口"
+            title="还原自适应工作区"
+            onClick={onReset}
+            className="flex size-4 shrink-0 items-center justify-center rounded-full text-subtle-foreground transition-colors hover:bg-surface-hover hover:text-foreground outline-none focus-visible:border focus-visible:border-focus"
+          >
+            <Icon name="X" className="size-3" />
+          </button>
+        )}
+      </div>
+      <div
+        aria-hidden
+        data-slot="viewport-frame"
+        style={{
+          left: relLeft,
+          top: relTop,
+          width: layout.bounds.width,
+          height: layout.bounds.height,
+        }}
+        className="pointer-events-none absolute rounded-[8px] bg-background ring-1 ring-border-heavy [box-shadow:var(--elevation-popover)]"
+      />
+    </div>
   );
 }
 

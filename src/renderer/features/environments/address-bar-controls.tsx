@@ -119,20 +119,24 @@ export function AddressBarRightControls({
         </ActionTooltip>
       )}
 
-      {hasActiveDownload && (
-        <ActionTooltip label="查看进行中的下载" side="top">
-          <IconButton
-            ref={downloadBtnRef}
-            variant="ghost"
-            aria-label="下载记录"
-            onClick={() => onOpenDownloadsPopover(downloadBtnRef.current)}
-            className="relative"
-          >
-            <Icon name="Download" />
-            <span className="absolute top-1.5 right-1.5 size-1.5 animate-pulse rounded-full bg-[var(--theme-accent)]" />
-          </IconButton>
-        </ActionTooltip>
-      )}
+      <ActionTooltip label={hasActiveDownload ? '查看进行中的下载' : '下载记录'} side="top">
+        <IconButton
+          ref={downloadBtnRef}
+          variant="ghost"
+          data-slot="downloads-trigger"
+          aria-label="下载记录"
+          onClick={() => onOpenDownloadsPopover(downloadBtnRef.current)}
+          className="relative"
+        >
+          <Icon name="Download" />
+          {hasActiveDownload && (
+            <span
+              data-slot="downloads-active-dot"
+              className="absolute top-1.5 right-1.5 size-1.5 animate-pulse rounded-full bg-[var(--theme-accent)]"
+            />
+          )}
+        </IconButton>
+      </ActionTooltip>
 
       {pinnedPopovers.map((pop) => {
         const key = `${pop.pluginId}:${pop.id}`;
@@ -210,7 +214,7 @@ export function AddressBarRightControls({
         <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
       )}
 
-      <ActionTooltip label={running ? '页面工具（查找 / 视口 / 下载）' : '启动环境后可用页面工具'} side="top">
+      <ActionTooltip label={running ? '页面工具（查找 / 视口 / 复制链接）' : '启动环境后可用页面工具'} side="top">
         <IconButton
           ref={pageToolsBtnRef}
           variant="ghost"

@@ -6,6 +6,7 @@
  *
  * 见 docs/APPROVAL-EMBED-MEMORY-PLAN.md §3。
  */
+import { DEVTOOLS_BOTTOM_SIZE, DEVTOOLS_RIGHT_SIZE } from '../../shared/devtools-layout.ts';
 import type {
   AppSettings,
   ApprovalMode,
@@ -25,6 +26,8 @@ export const DEFAULT_APP_SETTINGS: Required<AppSettings> = {
   pageBorderRadius: true,
   devtoolsDefaultDock: 'right',
   devtoolsDefaultViewport: 'auto',
+  devtoolsRightSize: DEVTOOLS_RIGHT_SIZE.default,
+  devtoolsBottomSize: DEVTOOLS_BOTTOM_SIZE.default,
   maxRunning: 8,
   idleHibernateMinutes: 10,
   leaseTtlMs: 60_000,
@@ -83,6 +86,18 @@ export function toAppSettings(raw: Record<string, string | undefined>): AppSetti
       (VIEWPORTS as readonly string[]).includes(raw.devtoolsDefaultViewport)
         ? (raw.devtoolsDefaultViewport as ViewportPresetId)
         : DEFAULT_APP_SETTINGS.devtoolsDefaultViewport,
+    devtoolsRightSize: intPref(
+      raw.devtoolsRightSize,
+      DEFAULT_APP_SETTINGS.devtoolsRightSize,
+      DEVTOOLS_RIGHT_SIZE.min,
+      DEVTOOLS_RIGHT_SIZE.maxConfig,
+    ),
+    devtoolsBottomSize: intPref(
+      raw.devtoolsBottomSize,
+      DEFAULT_APP_SETTINGS.devtoolsBottomSize,
+      DEVTOOLS_BOTTOM_SIZE.min,
+      DEVTOOLS_BOTTOM_SIZE.maxConfig,
+    ),
     maxRunning: intPref(raw.maxRunning, DEFAULT_APP_SETTINGS.maxRunning, 0, 32),
     idleHibernateMinutes: intPref(raw.idleHibernateMinutes, DEFAULT_APP_SETTINGS.idleHibernateMinutes, 0, 240),
     leaseTtlMs: intPref(raw.leaseTtlMs, DEFAULT_APP_SETTINGS.leaseTtlMs, 30_000, 600_000),

@@ -2,9 +2,16 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { usePanelRef } from 'react-resizable-panels';
 import { toast } from 'sonner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { cn } from '@/lib/utils';
+import { DevToolsResizeHandle } from './devtools-resize-handle';
 import { EnvironmentAddressBar } from './environment-address-bar';
 import { EnvironmentInspector } from './environment-inspector';
-import { PanelExclusivityNoticeBar, StageEmptyPlaceholder, TargetUrlPreviewPill } from './stage-overlays';
+import {
+  PanelExclusivityNoticeBar,
+  SimulatedViewportBackdrop,
+  StageEmptyPlaceholder,
+  TargetUrlPreviewPill,
+} from './stage-overlays';
 import type {
   PluginInspectorTab,
   PluginPopoverSurface,
@@ -20,6 +27,15 @@ import {
   useNavigationState,
 } from '@/state/navigation-store';
 import { shouldExcludeRightPanels } from '@/state/workbench-layout';
+import {
+  clampDevToolsSize,
+  computeDevToolsSplitBounds,
+  defaultDevToolsSize,
+  DEVTOOLS_RIGHT_SIZE,
+  isDockedDevToolsMode,
+  type DockedDevToolsMode,
+} from '@shared/devtools-layout';
+import { computeSimulatedPageBounds } from '@shared/viewport-presets';
 import type {
   ConsoleEntry,
   CookieSummary,
@@ -173,12 +189,17 @@ export function EnvironmentStage({
       : undefined;
   const zoomFactor = activePrefs?.zoom ?? 1;
   const viewportPreset = activePrefs?.preset ?? 'auto';
-  const devToolsState = activePrefs?.devTools ?? { open: false, dock: 'right' as DevToolsDockMode, size: 420 };
+  const devToolsState = activePrefs?.devTools ?? {
+    open: false,
+    dock: 'right' as DevToolsDockMode,
+    size: DEVTOOLS_RIGHT_SIZE.default,
+  };
   const hasActiveDownload = activePrefs?.hasActiveDownload ?? false;
 
   const inspectorPanelRef = usePanelRef();
   const inspectorElementRef = useRef<HTMLDivElement>(null);
   const stageContainerRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const { inspectorOpen, inspectorTab } = useNavigationState();
   const inspectorTabIds = [...INSPECTOR_TABS, ...pluginTabs.map((tab) => `plugin:${tab.pluginId}:${tab.id}`)];
   const activeInspectorTab = inspectorTabIds.includes(inspectorTab) ? inspectorTab : 'events';
@@ -333,6 +354,35 @@ export function EnvironmentStage({
     },
     [devToolsState.open, inspectorOpen, inspectorPanelRef, shouldExcludeRight, syncPagePrefs, dismissExclusivityNotice],
   );
+
+  const resizeDevTools = useCallback(
+    (dock: DockedDevToolsMode, nextSize: number) => {
+      if (!current || !running) return;
+      setPagePrefs((prev) =>
+        prev && prev.envId === current.id && prev.spaceId === activeSpaceId
+          ? { ...prev, devTools: { ...prev.devTools, dock, size: nextSize } }
+          : prev,
+      );
+      void window.envApi.setDevToolsDock(dock, nextSize).then(() => void syncPagePrefs());
+    },
+    [current, running, activeSpaceId, syncPagePrefs],
+  );
+
+  const resetDevToolsSize = useCallback(
+    (dock: DockedDevToolsMode) => {
+      const viewport = { x: 0, y: 0, width: stageSize.width, height: stageSize.height };
+      resizeDevTools(dock, clampDevToolsSize(dock, defaultDevToolsSize(dock), viewport));
+    },
+    [resizeDevTools, stageSize.width, stageSize.height],
+  );
+
+  const resetViewportPreset = useCallback(() => {
+    if (!current || !running) return;
+    setPagePrefs((prev) =>
+      prev && prev.envId === current.id && prev.spaceId === activeSpaceId ? { ...prev, preset: 'auto' } : prev,
+    );
+    void window.envApi.setViewportPreset(current.id, activeSpaceId, 'auto').then(() => void syncPagePrefs());
+  }, [current, running, activeSpaceId, syncPagePrefs]);
 
   const switchToBottomCoexist = useCallback(() => {
     if (!current || !running) return;
@@ -535,6 +585,24 @@ export function EnvironmentStage({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const node = stageRef.current;
+    if (!node) return;
+    const sync = () => {
+      const rect = node.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      setStageSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+    };
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    const frame = window.requestAnimationFrame(sync);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [stageRef]);
+
   // 未启动环境时按 Enter 快速拉起（不在输入框/按钮/弹窗中时触发）
   useEffect(() => {
     if (!current || running || stageReplaced) return;
@@ -636,6 +704,23 @@ export function EnvironmentStage({
   }, [stageReplaced, activePopoverKey, current?.id, activeSpaceId, currentUrl]);
 
   const showTargetUrl = running && current?.id === hoverTarget.envId && Boolean(hoverTarget.url);
+  const devToolsDocked =
+    Boolean(running) && tabs.length > 0 && devToolsState.open && isDockedDevToolsMode(devToolsState.dock);
+  const stageViewport = { x: 0, y: 0, width: stageSize.width, height: stageSize.height };
+  const devToolsSplit =
+    devToolsDocked && stageSize.width > 0 && stageSize.height > 0
+      ? computeDevToolsSplitBounds({
+          viewport: stageViewport,
+          mode: devToolsState.dock,
+          size: devToolsState.size,
+          docked: true,
+        })
+      : undefined;
+  const splitPageRect = devToolsSplit?.page ?? stageViewport;
+  const simLayout =
+    running && tabs.length > 0 && stageSize.width > 0 && stageSize.height > 0 && viewportPreset !== 'auto'
+      ? computeSimulatedPageBounds(splitPageRect, viewportPreset)
+      : undefined;
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-under">
@@ -711,7 +796,10 @@ export function EnvironmentStage({
               <div
                 ref={stageRef}
                 data-slot="stage-placeholder"
-                className="relative h-full rounded-[var(--shell-stage-radius)] bg-background [box-shadow:var(--elevation-stage)]"
+                className={cn(
+                  'relative h-full overflow-hidden rounded-[var(--shell-stage-radius)] [box-shadow:var(--elevation-stage)]',
+                  devToolsDocked ? 'bg-surface-under' : 'bg-background',
+                )}
               >
                 {(!running || tabs.length === 0) && (
                   <StageEmptyPlaceholder
@@ -721,6 +809,24 @@ export function EnvironmentStage({
                     activeSpaceId={activeSpaceId}
                     onStart={onStart}
                     onTabCreate={onTabCreate}
+                  />
+                )}
+                {simLayout?.emulated && (
+                  <SimulatedViewportBackdrop
+                    container={splitPageRect}
+                    layout={simLayout}
+                    roundedOuter={!devToolsDocked}
+                    onReset={resetViewportPreset}
+                  />
+                )}
+                {devToolsDocked && devToolsSplit?.gap && isDockedDevToolsMode(devToolsState.dock) && (
+                  <DevToolsResizeHandle
+                    dock={devToolsState.dock}
+                    size={devToolsState.size}
+                    viewport={stageViewport}
+                    gap={devToolsSplit.gap}
+                    onResize={resizeDevTools}
+                    onReset={resetDevToolsSize}
                   />
                 )}
                 {showTargetUrl && <TargetUrlPreviewPill url={hoverTarget.url} />}

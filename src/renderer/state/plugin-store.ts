@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { loadPluginApps } from '@/lib/plugin-runtime';
 import { emptyRegistry, type PluginRegistry } from '@/lib/plugin-sdk-types';
 import { applyTheme } from '@/lib/theme';
+import { DEVTOOLS_BOTTOM_SIZE, DEVTOOLS_RIGHT_SIZE } from '@shared/devtools-layout';
 import type { AppSettings, InstalledPlugin } from '@shared/types';
 
 export interface PluginStoreSnapshot {
@@ -20,6 +21,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   pageBorderRadius: true,
   devtoolsDefaultDock: 'right',
   devtoolsDefaultViewport: 'auto',
+  devtoolsRightSize: DEVTOOLS_RIGHT_SIZE.default,
+  devtoolsBottomSize: DEVTOOLS_BOTTOM_SIZE.default,
   maxRunning: 8,
   idleHibernateMinutes: 10,
   leaseTtlMs: 60_000,

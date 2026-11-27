@@ -22,9 +22,11 @@ import {
   SnapshotOptions,
   TargetInput,
   UrlMatcher,
+  ViewportPresetId,
   WaitEventKind,
   WaitPredicate,
 } from '../../shared/types.ts';
+import { VIEWPORT_PRESET_SPECS } from '../../shared/viewport-presets.ts';
 import { acceptDialog, dismissDialog, downloadCancel, downloadSaveAs, downloadStatus } from './actions.ts';
 import { readAxFrames } from './ax-tree.ts';
 import type { PageContext, PendingSink, VisualActionEvent } from './ctx.ts';
@@ -94,6 +96,9 @@ export class BrowserController {
   #activeFrameId?: string;
   /** 自动弹窗处理策略（`none` 默认显式报错由调用方处理；`accept`/`dismiss` 自动应答）。 */
   #dialogPolicy: 'none' | 'accept' | 'dismiss' = 'none';
+  #emulatedPreset: ViewportPresetId = 'auto';
+  #emulatedScale = 1;
+  #temporaryViewport = false;
 
   constructor(wc: WebContents, ctx?: Partial<Ctx>) {
     this.#wc = wc;
@@ -166,6 +171,7 @@ export class BrowserController {
   /** 后台视图尚未拿到布局尺寸时，给页面一个可点击的视口。 */
   async emulateViewport(width: number, height: number): Promise<void> {
     this.attach();
+    this.#temporaryViewport = true;
     await this.#send('Emulation.setDeviceMetricsOverride', {
       width: Math.max(1, Math.round(width)),
       height: Math.max(1, Math.round(height)),
@@ -175,8 +181,14 @@ export class BrowserController {
   }
 
   async clearEmulatedViewport(): Promise<void> {
+    this.#temporaryViewport = false;
+    if (this.#emulatedPreset !== 'auto') {
+      await this.setViewportPreset(this.#emulatedPreset, this.#emulatedScale, { force: true });
+      return;
+    }
     this.attach();
     await this.#send('Emulation.clearDeviceMetricsOverride');
+    await this.#send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
   }
 
   detach(): void {
@@ -285,27 +297,38 @@ export class BrowserController {
     return this.#performReload(opts, true);
   }
 
-  async setViewportPreset(preset: 'auto' | 'desktop-1440' | 'laptop-1280' | 'mobile-390'): Promise<void> {
-    if (preset === 'auto') {
-      await this.clearEmulatedViewport();
+  async setViewportPreset(preset: ViewportPresetId, scale = 1, options: { force?: boolean } = {}): Promise<void> {
+    const normalizedScale = Number.isFinite(scale) ? Math.max(0.1, Math.min(1, scale)) : 1;
+    if (
+      !options.force &&
+      !this.#temporaryViewport &&
+      this.#emulatedPreset === preset &&
+      (preset === 'auto' || Math.abs(this.#emulatedScale - normalizedScale) < 0.002)
+    ) {
       return;
     }
-    const specs: Record<
-      'desktop-1440' | 'laptop-1280' | 'mobile-390',
-      { width: number; height: number; mobile: boolean; scale: number }
-    > = {
-      'desktop-1440': { width: 1440, height: 900, mobile: false, scale: 1 },
-      'laptop-1280': { width: 1280, height: 800, mobile: false, scale: 1 },
-      'mobile-390': { width: 390, height: 844, mobile: true, scale: 2 },
-    };
-    const spec = specs[preset];
+    if (preset === 'auto') {
+      this.#emulatedPreset = 'auto';
+      this.#emulatedScale = 1;
+      this.#temporaryViewport = false;
+      this.attach();
+      await this.#send('Emulation.clearDeviceMetricsOverride');
+      await this.#send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
+      return;
+    }
+    const spec = VIEWPORT_PRESET_SPECS[preset];
+    this.#emulatedPreset = preset;
+    this.#emulatedScale = normalizedScale;
+    this.#temporaryViewport = false;
     this.attach();
     await this.#send('Emulation.setDeviceMetricsOverride', {
       width: spec.width,
       height: spec.height,
-      deviceScaleFactor: spec.scale,
+      deviceScaleFactor: spec.deviceScaleFactor,
       mobile: spec.mobile,
+      scale: normalizedScale,
     });
+    await this.#send('Emulation.setTouchEmulationEnabled', { enabled: spec.mobile }).catch(() => {});
   }
 
   navigationState(): { url: string; canGoBack: boolean; canGoForward: boolean; loading: boolean } {

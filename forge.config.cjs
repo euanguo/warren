@@ -60,6 +60,8 @@ module.exports = {
           { entry: 'src/preload/preload.ts', config: 'vite.preload.config.mjs' },
           // 环境页（WebContentsView）的 preload，见 src/preload/page-preload.ts
           { entry: 'src/preload/page-preload.ts', config: 'vite.preload.config.mjs' },
+          // DevTools 停靠分割手柄（WebContentsView）的极简 preload
+          { entry: 'src/preload/splitter-preload.ts', config: 'vite.preload.config.mjs' },
         ],
         renderer: [{ name: 'main_window', config: 'vite.renderer.config.mjs' }],
       },

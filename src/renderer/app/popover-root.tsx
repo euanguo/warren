@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { usePluginState } from '@/state/plugin-store';
 import { elevatedMenuSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
 import { ADDRESS_SUGGEST_MAX_HEIGHT, ADDRESS_SUGGEST_MIN_HEIGHT, clampPopoverHeight } from '@shared/popover-sizing';
+import { VIEWPORT_PRESET_LIST } from '@shared/viewport-presets';
 import type {
   DownloadItemInfo,
   FindInPageResult,
@@ -302,9 +303,7 @@ function DownloadsView({ props }: { props: PopoverPropsMap['downloads'] }) {
 
 const VIEWPORT_PRESETS: Array<{ id: ViewportPresetId; label: string; detail: string; icon: IconName }> = [
   { id: 'auto', label: '自适应工作区', detail: '随舞台宽度自动铺满', icon: 'Viewport' },
-  { id: 'desktop-1440', label: '桌面标准', detail: '1440 × 900 · DPR 1', icon: 'Desktop' },
-  { id: 'laptop-1280', label: '笔记本视口', detail: '1280 × 800 · DPR 1', icon: 'Laptop' },
-  { id: 'mobile-390', label: '移动端设备', detail: '390 × 844 · Touch / DPR 2', icon: 'Mobile' },
+  ...VIEWPORT_PRESET_LIST,
 ];
 
 function ViewportView({ props }: { props: PopoverPropsMap['viewport'] }) {
