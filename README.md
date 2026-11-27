@@ -1,182 +1,337 @@
-<img src="assets/icon.png" alt="Warren" width="72">
+<div align="center">
+
+<a href="./README.md">
+  <img src="./assets/icon.png" alt="Warren" width="112" />
+</a>
 
 # Warren
 
-面向 AI Agent 的本地隔离浏览器工作台。
+**Agent-first isolated browser workbench — one burrow per identity, one egress per burrow.**
 
-一个 **Environment** = 独立浏览器存储（Cookie / localStorage / 登录态）+ 独立代理出口 + 独立双空间页面实例（**Person Space** 与 **Agent Space**）。
-AI 通过 `warren` CLI 操作 **Agent Space**，你在桌面端实时查看并可随时无缝接管，同时保留自己独立的 **Person Space** 浏览区。
+An Electron desktop workbench and native CLI where each **Environment** pairs isolated Chromium storage, a dedicated proxy + CA trust boundary, and dual **Person / Agent** spaces under single-writer lease control.
 
-> **名字的由来**：warren 是兔子的地下洞网络——一整片地道，**每个洞有自己的出入口**。
-> 每个环境一个独立身份、一个独立出口，整片洞属于同一个系统。
-> 旧 Chrome 看板原型已移入 `legacy/`；产品契约见 [`docs/PRD.md`](docs/PRD.md)，技术选型见 [`docs/TECH-STACK-RESEARCH.md`](docs/TECH-STACK-RESEARCH.md)，总交接见 [`docs/HANDOFF.md`](docs/HANDOFF.md)。
+**English** · [简体中文](./README.zh-CN.md) · [Quick Start](#quick-start) · [Visual Tour](#visual-tour) · [CLI & Skills](#cli--agent-workflow) · [Architecture](#architecture) · [Plugins](#plugin-system-v4) · [Docs](./docs/README.md)
 
-## 快速开始
+<p>
+  <a href="https://github.com/euanguo/warren/actions/workflows/ci.yml"><img src="https://github.com/euanguo/warren/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/Electron-45.5-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron 45.5" />
+  <img src="https://img.shields.io/badge/Node.js-24%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js 24+" />
+  <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7.0" />
+  <img src="https://img.shields.io/badge/Platform-macOS-181b21?style=flat-square&logo=apple&logoColor=white" alt="macOS" />
+</p>
 
-```bash
-npm install
-npm start                 # 启动桌面端（Electron Core + 本地 Unix Socket RPC）
-```
+<br />
 
-另一个终端：
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" />
+  <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/14-light-mode-main.png" />
+  <img src="./docs/verification/shell-layout-interaction-2026-11-26/03-workbench-inspector.png" alt="Warren Workbench — Dark & Light Adaptive Preview" width="100%" />
+</picture>
 
-```bash
-node bin/warren.mjs env list
-node bin/warren.mjs help
-```
+<sub><i>Adaptive dark/light preview: isolated environments, dual Person/Agent space switcher, live <code>WebContentsView</code> stage, and docked Workbench Inspector.</i></sub>
 
-## 核心概念
+</div>
 
-| 概念 | 含义 |
+---
+
+## Why Warren
+
+> **Etymology** — A *warren* is a network of rabbit burrows: one interconnected system where **each burrow has its own entrance and exit**. Every Environment gets its own identity and network egress while living inside one shared workbench.
+
+Most browser-automation setups split into two extremes: headless scripts you cannot watch or rescue mid-flight, or anti-detect fingerprint managers built around spoofed browser identities. Warren takes a different shape—**isolated environments, explicit addressing, and human-in-the-loop co-browsing**:
+
+| Capability | What It Solves |
 |---|---|
-| **Environment** | 可寻址的隔离浏览器运行单元：独立 `session`、独立代理、独立 `trustedCa` 与标签页集合 |
-| **Person / Agent Space** | 同环境共享 Cookie 与代理出口的两套独立 Tab 工作区：人用 Person Space 免 lease，Agent 默认只操作 Agent Space |
-| **Core** | Electron 主进程。管理生命周期、Session、5 层原生视窗栈、控制权、遥测与插件宿主 |
-| **`warren` CLI** | AI Agent 接口（`bin/warren.mjs` → `bin/cli.mjs`）：支持原子命令、`batch` 批处理、`exec` VM 脚本、`--skill` 动态说明书 |
-| **Lease** | Agent Space 写许可；同一时刻只有 Agent 或人一方能写。Agent 持锁时页上浮透明原生 AI 护盾挡住人工误触 |
+| **Per-Burrow Isolation** | Each **Environment** owns a partitioned Electron `Session` (cookies, `localStorage`, cache), independent HTTP/SOCKS/Whistle proxy, and per-environment X.509 `trustedCa` verification—without kernel patches or fingerprint spoofing. |
+| **Dual Spaces, Shared Auth** | Every Environment contains a **Person Space** (always human-owned, no lease required) and an **Agent Space** (lease-gated). Both share the same login session and proxy egress while keeping separate tab sets that never collide. |
+| **Single-Writer Lease & AI Shield** | Reading never requires a lease; writing requires an explicit `<env>` lease. When an agent holds the lock, a native `WebContentsView` shield renders an optical border, live action badge, and damped AI cursor—blocking accidental clicks while letting CDP events pass cleanly. |
+| **CLI + Auto-Synced Skills** | Designed for coding agents (`warren` CLI + compiled `SKILL.md` for `~/.agents`, `~/.claude`, `~/.codex`) with compact accessibility `@N` snapshots, batched Delta Receipts, and a locked `node:vm` scripting runtime. |
 
-**读取不需要 lease，写入必须持 lease。左侧选中环境 ≠ 获得写权限。**
+---
 
-## 桌面壳与原生视窗架构
+## Visual Tour
 
-- **两层极简桌面壳 + 全球保活页**：
-  - Row 1 顶栏（`40px`）：侧栏折叠（`⌘B`）、当前环境胶囊、`我的 | Agent` Space 切换器、标签条、Agent 上下文控制权胶囊、`⌘K` 命令面板、全局设置；
-  - Row 2 地址栏（`40px`）：导航控制、URL 拆层高亮 + 一键复制、Omnibox 历史联想、插件快捷微标/浮窗槽（`statusBadge` / `popover`）、缩放/视口预设/下载/DevTools/检查器开关；
-  - 进入「设置」或插件全屏 `railPage` 时保留底层侧栏与网页状态，切回零重建。
-- **5 层固定原生视窗栈（`WindowLayerManager`）**：`below → page → devtools → shield → overlay`（统一 `8px` 圆角），彻底避免原生 `WebContentsView` 被渲染层 DOM 误遮挡或弹出浮层藏页。
-  - **`OverlayHost`**：透明无边框预热顶层窗，承载 `⌘K` 命令面板与新建/确认弹窗；
-  - **`PopoverHost`**：低延迟弹出宿主，承载地址栏历史联想、页内查找与插件 `popover` 独立浮窗；
-  - **`DevToolsHost`**：基于 `setDevToolsWebContents` 的停靠式原生 Chrome DevTools（支持 `right` / `bottom` / `detach` 三态切换）。
-- **右侧检查器 & 6+N 设置中心**：
-  - 右侧按需开关检查器 drawer 含 6 个内置面板（`events`、`snapshot`、`console`、`network`、`rules`、`storage`）与插件贡献 `inspectorTab`；
-  - 可搜索设置中心含 6 个内置分节（`general`、`browser`、`agent`、`vault`、`plugins`、`diagnostics`）与插件贡献 `settingsSection`；
-  - 支持浅色 / 深色（`#181b21`）/ 跟随系统 4-seed 主题体系（`src/renderer/theme/theme-tokens.css`），全局 `<Toaster position="top-center" />`。
-- **透明 AI 护盾（`src/main/input-shield.ts`）**：Agent 持 lease 时仅在四周浮现高对比光学光晕与阻尼虚拟动作光标/锚框，中心 100% 透视；拦人误点击但允许 Agent CDP 事件直达。
+### Native AI Input Shield (Dark & Light)
 
-## CLI 与能力总览
+When an agent drives `Agent Space`, Warren's native `shield` layer (`InputShield`) highlights active operations around the viewport perimeter and guides an interpolated virtual cursor onto target elements—keeping the center 100% transparent until you click **Take Over**.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" />
+  <source media="(prefers-color-scheme: light)" srcset="./docs/verification/shell-layout-interaction-2026-11-26/15-light-mode-agent-shield.png" />
+  <img src="./docs/verification/shell-layout-interaction-2026-11-26/08-agent-active-ai-shield.png" alt="Warren AI Input Shield Active State" width="100%" />
+</picture>
+
+<br />
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="./docs/verification/shell-layout-interaction-2026-11-26/06b-devtools-bottom-coexist.png">
+        <img src="./docs/verification/shell-layout-interaction-2026-11-26/06b-devtools-bottom-coexist.png" alt="5-Layer View Stack with Docked DevTools & Plugin Inspector" width="100%" />
+      </a>
+      <br />
+      <strong>5-Layer View Stack &amp; Docked DevTools</strong>
+      <br />
+      <sub>Native Chrome DevTools (<code>right</code> / <code>bottom</code> / <code>detach</code>) coexists cleanly alongside the live page and <code>360px</code> Workbench Inspector without z-index clipping.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png">
+        <img src="./docs/verification/shell-layout-interaction-2026-11-26/13-command-palette.png" alt="Global Command Palette (⌘K)" width="100%" />
+      </a>
+      <br />
+      <strong>Global Command Palette (<code>⌘K</code>)</strong>
+      <br />
+      <sub>Pre-warmed transparent <code>OverlayHost</code> floats cleanly above native Chromium views for instant environment switching, actions, and plugin command-bar entries.</sub>
+    </td>
+  </tr>
+</table>
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **macOS** (primary desktop target; built & verified on Apple Silicon)
+- **Node.js `24+`** and `npm`
+
+### 1. Run Desktop Core + CLI
 
 ```bash
-# 环境与分组
+git clone https://github.com/euanguo/warren.git
+cd warren
+npm install
+npm start                 # Starts Electron Core + local Unix socket RPC (~/.warren/runtime/envd.sock)
+```
+
+In a second terminal (optionally run `npm link` once to expose `warren` globally):
+
+```bash
+npm link                  # Optional: links `warren` -> bin/warren.mjs
 warren env list
-warren env create alpha --proxy=http://127.0.0.1:9001 --start-url=https://example.com
-warren env start|stop|hibernate|wake|remove|select <name>
-warren env acquire <name> [--wait=5000]          # 获取 Agent Space 控制权
-warren env renew|release <name> --lease=<leaseId>
-warren env doctor <name>                        # 代理 / 证书 / 登录 / 本地端口体检
-warren env egress <name>                        # 查看出口代理、CA 与当前状态
+warren help
+```
 
-# 高密读取、语义查找与增量差分
-warren browser open <env> <url> [--read]
-warren browser snapshot <env> -i -u [--filter=...] [--content-boundaries]
-warren browser read <env> --outline --links --data
-warren browser click|fill|check|select <env> @1 ...
-warren browser find <env> role button click --name=登录
-warren browser get <env> title|url|text|html|value|attr|box [target]
-warren browser is <env> visible|enabled|checked <target>
-warren browser diff <env> snapshot|screenshot|urls
-warren browser screenshot <env> [--annotate] [--output=/tmp/a.png]
-warren browser set <env> viewport 1280 800
-warren browser vitals|a11y|react|webmcp <env>
-warren browser console|network|events <env>
+### 2. First Agent Loop
 
-# 批处理（带 Delta Receipt）与站点笔记 / 只读 API Flow
-warren batch <env> --bail <<'EOF'
-goto https://example.com
+Every mutation explicitly names `<env>`—selecting a row in the sidebar never grants implicit write access.
+
+```bash
+# Create & boot an isolated environment (optional --proxy and --start-url)
+warren env create dev --start-url=https://example.com
+warren env start dev
+
+# Acquire single-writer lease on Agent Space, open a page, read compact accessibility tree
+warren env acquire dev --wait=5000
+warren browser open dev https://example.com --read
+warren browser snapshot dev -i -u --content-boundaries
+
+# Batch actions with an automatic post-step Delta Receipt
+warren batch dev --bail <<'EOF'
+click @1
 snapshot -i
 EOF
-warren notes set example.com "登录需要两步跳转"
-warren flow steps <env>
 
-# VM 脚本（仅暴露 5 个全局：page, console, setTimeout, clearTimeout, emitResult）
-warren exec alpha <<'JS'
-await page.goto('https://example.com');
-const snap = await page.snapshot();
-emitResult({ url: snap.url, count: snap.nodes.length });
-JS
-
-# RPC 目录、Skill 合成与外部同步
-warren methods
-warren --skill [--base-only|--full|--plugin=<id>]
-warren skills status|install|refresh|plugin
+# Release lease when finished
+warren env release dev --lease=<leaseId>
 ```
 
-`warren exec` 脚本运行在独立 `node:vm` 受限上下文内，只注入 `page` / `console` / `setTimeout` / `clearTimeout` / `emitResult`，绝不暴露 `process` / `require` / `fs` / 网络模块。
+<details>
+<summary><strong>Build & Package macOS Desktop Bundle (<code>Warren.app</code> / <code>.dmg</code> / <code>.zip</code>)</strong></summary>
 
-## 数据根目录与 Vault 凭据
-
-- **统一数据根目录（`src/main/paths.ts` / `bin/paths.mjs`）**：默认 `~/.warren`（可用 `WARREN_HOME` 覆盖）：
-  - `<WARREN_HOME>/app/`：Electron 窗体 `userData`
-  - `<WARREN_HOME>/core/warren.db`：唯一 SQLite 数据库（WAL），保存环境、分组、历史、遥测、域名偏好、站点笔记、`saved_flows`、插件注册表与 **Vault 密文表（`vault`）**
-  - `<WARREN_HOME>/core/sessions/<env>/` & `plugins/<id>/`
-  - `<WARREN_HOME>/runtime/envd.sock` & `runtime.json`：本地 Unix Socket RPC 端点与随机 `0600` token
-  - `<WARREN_HOME>/whistle/`：Whistle 实例注册表与共用根证书（`WHISTLE_PATH`）
-- **Vault 安全边界**：
-  - 使用 Electron `safeStorage` 加密，CLI `warren vault add <provider> --label=<name>` **只从 stdin 读秘密**；
-  - 对外只有 `vault.list`（返回 `ref` + 打码 `usernameHint`）与 `vault.fill`（受控域白名单校验并直填页面字段），**没有明文 `reveal` 通道**，并拒绝 `"toString"` 等原型字段访问；
-  - 代理认证在 `app.on('login')` 按 host 查找 `provider=proxy` 凭据，未命中直接拒绝认证。
-
-## 插件体系（v4）
-
-插件是独立 npm 包，契约声明在 `package.json#warren`（只接受 `apiVersion: "4"`），类型声明见 [`packages/plugin-sdk`](packages/plugin-sdk/index.d.ts)，详细开发规范见 [`plugins/README.md`](plugins/README.md)。
-
-内置与示例插件包括：`account-manager`（`com.warren.accounts`）、`whistle`（`com.warren.whistle`，内置 `whistle@2.10.15`）、`example-login`、`example-cookies`、`example-notes`、`example-host`。
-
-> **账号管理插件产品例外**：`com.warren.accounts` 按产品设计将账号/密码/TOTP/扩展字段明文存入自身 `data.db`（界面持续展示警示），但 **Agent 通道绝不返回明文**：`list`/`match`/`get` 只返回 `usernameHint` / `hasPassword` / `hasTotp`，`reveal` 与 `totpCode` 仅限 `'ui'`，自动填充强制校验非空 `allowedDomains`。
-
-### 权限三层（单一来源：`src/shared/permissions.ts`，共 19 项）
-
-| 层级 | 权限项 | 行为 |
-|---|---|---|
-| `granted` (6) | `environment.read`、`browser.dom.read`、`browser.screenshot`、`ui.mount`、`storage.write`、`rpc.serve` | 安装即授予 |
-| `confirm` (8) | `environment.write`、`browser.navigate`、`browser.input`、`vault.fill`、`network.observe`、`network.fetch`、`storage.cookie.port`、`events.subscribe` | 须显式批准（`warren plugin grant` 或界面授权） |
-| `denied` (5) | `browser.evaluate`、`storage.cookie.read`、`storage.cookie.write`、`process.spawn`、`filesystem.read` | **永久禁用**，声明了也不会授予 |
-
-### 插件运行时边界与强杀超时
-
-- **`runtime: "sandbox"` 与 `runtime: "host"` 均运行在可强杀子进程内**（Electron 下 `utilityProcess.fork` / 测试下 `child_process.fork`），单次 `activate` / `command` / `rpc` 调用均受 **`30_000ms` 默认超时强制击杀保护**（可通过 `WARREN_PLUGIN_TIMEOUT_MS` 调整，超时返回 `PLUGIN_TIMEOUT`）。
-- `sandbox` 在子进程内加一层受限 `node:vm` 挡住误用与越权 API（无 `require` / `fs` / `process`）；`host` 在独立 Node ESM 子进程拥有完整 Node API。
-- **两者均非 OS 级恶意代码安全沙箱**，只应安装受信任的插件。
+Make sure `npm start` is stopped before packaging so Vite build outputs in `.vite/` do not collide (see [docs/RELEASE.md](./docs/RELEASE.md)):
 
 ```bash
-# Whistle 预设模板示例（基于 instance storage 合成并防并发覆盖）
+npm run make
+# Outputs under out/make/:
+#   out/make/dmg/arm64/Warren-0.1.0-arm64.dmg
+#   out/make/zip/darwin/arm64/Warren-darwin-arm64-0.1.0.zip
+```
+
+Optional Apple signing & notarization (credentials are read exclusively from environment variables):
+
+```bash
+APPLE_ID=you@example.com \
+APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+APPLE_TEAM_ID=XXXXXXXXXX \
+npm run make
+```
+
+</details>
+
+---
+
+## CLI & Agent Workflow
+
+`warren` (`bin/warren.mjs` → `bin/cli.mjs` + `bin/commands/*.mjs`) drives the running desktop Core over `~/.warren/runtime/envd.sock`. Untrusted page content is sanitized against terminal escapes, bounded to `--max-output` (`12000` bytes by default, spilling overflow to `~/.warren/tmp/`), and optionally wrapped in randomized `--content-boundaries` nonces.
+
+### Command Overview
+
+| Group | Key Subcommands | Purpose |
+|---|---|---|
+| `env` | `list`, `create`, `start`, `stop`, `hibernate`, `wake`, `remove`, `update`, `select`, `acquire`, `renew`, `release`, `takeover`, `egress`, `doctor`, `move`, `reorder` | Environment lifecycle, proxy/CA updates, leases, diagnostics |
+| `group` / `tab` | `group list\|create\|rename\|remove\|collapse` · `tab list\|new\|select\|close\|reopen` | Sidebar grouping and per-space tab management |
+| `browser` | `open`, `snapshot`, `read`, `find`, `get`, `is`, `diff`, `click`, `fill`, `type`, `press`, `select`, `drag`, `drop`, `upload`, `download`, `wait`, `dialog`, `eval`, `frame`, `pdf`, `set`, `webmcp`, `vitals`, `a11y`, `react`, `console`, `network`, `screenshot`, `highlight`, `detect-login` | Isolated-world CDP control, actionability checks, a11y trees, telemetry |
+| `batch` / `exec` | `batch <env> [--bail] [--no-changes]` · `exec <env>` (`--capabilities`) | Multi-step CLI pipelines with Delta Receipts; `node:vm` scripts |
+| `net` | `rules`, `rule add\|enable\|disable\|remove`, `hits`, `body`, `passthrough`, `record`, `replay` | Built-in per-environment mocks, blocks, redirects, HAR record/replay |
+| `notes` / `flow` | `notes get\|set\|append\|list\|rm` · `flow steps\|save\|run\|list\|show\|rm` | Per-domain agent notes (auto-injected into snapshots) & read-only GET flows |
+| `vault` / `extension` | `vault list\|add\|remove\|fill` · `extension list\|add\|remove` · `shot diff` | SafeStorage secret autofill (stdin-only add), unpacked extensions, pixel diff |
+| `plugin` / `skills` | `plugin list\|create\|install\|update\|enable\|disable\|grant\|run\|rpc\|logs\|config` · `skills status\|install\|refresh\|plugin` | v4 plugin lifecycle, dynamic skill synthesis, agent harness sync |
+| `rpc` / meta | `methods`, `call`, `events`, `evidence capture`, `help`, `warren --skill` | Live introspection across all registered RPC endpoints |
+
+<details>
+<summary><strong>Sandboxed <code>warren exec</code> &amp; Agent Skill Sync Examples</strong></summary>
+
+`warren exec` executes scripts inside a locked `node:vm` context exposing **only 5 globals** (`page`, `console`, `setTimeout`, `clearTimeout`, `emitResult`)—never `process`, `require`, `fs`, or raw network sockets:
+
+```bash
+warren exec dev <<'JS'
+await page.goto('https://example.com');
+const snap = await page.snapshot();
+emitResult({ url: snap.url, interactiveCount: snap.nodes.length });
+JS
+warren exec --capabilities
+```
+
+Synchronize Warren's base skill and all enabled plugin skills (`SKILL.md` + `references/`) directly into your local agent directories (`~/.agents`, `~/.claude`, `~/.codex`):
+
+```bash
+warren skills status
+warren skills refresh
+warren --skill --base-only        # Base Warren manual only
+warren --skill --plugin=<id>      # Single plugin manual
+```
+
+</details>
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  CLI["Coding Agent / CLI<br/>bin/warren.mjs"] -->|"Unix Socket + 0600 Token<br/>~/.warren/runtime/envd.sock"| RPC["RPC_REGISTRY<br/>src/main/rpc/*"]
+  UI["React 19 Renderer<br/>2-Row Shell + Inspector + Settings"] <-->|"Typed contextBridge IPC<br/>preload.ts"| Core
+
+  subgraph Core["Electron Main Process (Core)"]
+    Env["EnvironmentManager<br/>Lifecycle · Session · Lease · View"]
+    CDP["Isolated-World CDP<br/>Actionability · AXTree · OOPIF"]
+    Layers["WindowLayerManager<br/>5-Layer Z-Order Stack"]
+    Store["SQLite (WAL) + Vault<br/>~/.warren/core/warren.db"]
+    Plugins["PluginHost (v4)<br/>sandbox (node:vm) · host (ESM)"]
+  end
+
+  RPC --> Core
+  Layers --> Stack["below → page → devtools → shield → overlay"]
+```
+
+### Core Architectural Decisions
+
+- **Two-Row Minimal Chrome + Keep-Alive Shell**:
+  - **Row 1 (`40px`)**: Sidebar collapse (`⌘B`), environment pill, `Person | Agent` space switcher, tab strip, single lease/takeover pill, `⌘K` command bar trigger, global settings.
+  - **Row 2 (`40px`)**: Navigation, decomposed URL bar with one-click copy, omnibox history popover, plugin `statusBadge` / `popover` slots, zoom, viewport presets, downloads, DevTools, and right Workbench Inspector toggle.
+  - Switching to full-page Settings or a plugin `railPage` preserves live sidebar and page views with zero teardown.
+- **5-Layer Native Window Stack ([`layer-order.ts`](src/main/ui/layer-order.ts))**: Every Chromium `WebContentsView` is ordered strictly by `below → page → devtools → shield → overlay` with unified `8px` corners—guaranteeing `OverlayHost` (`⌘K` / dialogs), `PopoverHost` (omnibox / find / plugin popovers), and docked `DevToolsHost` (`right` / `bottom` / `detach`) are never covered by native web views.
+- **Clean Telemetry & Anti-Detection Hygiene**: Warren never keeps `Runtime.enable` or `Network.enable` permanently attached. Console and network logs come from Electron's native `console-message` and `webRequest` hooks and persist per tab in SQLite (`warren.db`, retained across stop/hibernate and purged on `env remove`). CSS/XPath locators run inside `Page.createIsolatedWorld` rather than polluting page globals.
+- **Right Workbench Inspector & 6+N Settings**: On-demand `360px` drawer bundling 6 built-in tabs (`events`, `snapshot`, `console`, `network`, `rules`, `storage`) + plugin `inspectorTab` contributions, paired with a searchable 6-section Settings center (`general`, `browser`, `agent`, `vault`, `plugins`, `diagnostics`) + plugin `settingsSection` contributions and light/dark (`#181b21`) theming.
+
+---
+
+## Security & Data Boundaries
+
+Everything Warren persists lives under a single configurable data root (`WARREN_HOME`, defaulting to `~/.warren`, defined symmetrically in [`src/main/paths.ts`](src/main/paths.ts) and [`bin/paths.mjs`](bin/paths.mjs)):
+
+```text
+~/.warren/
+├── app/                   # Electron shell Chromium userData
+├── core/
+│   ├── warren.db          # Unified SQLite WAL DB (envs, groups, history, telemetry, notes, flows, vault)
+│   ├── sessions/<env>/    # Partitioned browser storage per Environment
+│   └── plugins/<id>/      # Installed plugin bundles + isolated plugin data.db
+├── runtime/
+│   ├── envd.sock          # Local Unix socket RPC server
+│   └── runtime.json       # Ephemeral 0600 auth token
+└── whistle/               # Shared Whistle root CA & per-instance state (WHISTLE_PATH)
+```
+
+- **Encrypted Vault without Reveal**: Credentials are encrypted via Electron `safeStorage`. `warren vault add <provider> --label=<name>` reads secrets **strictly from `stdin`** (never `argv`). External callers can only invoke `vault.list` (`ref` + masked `usernameHint`) and domain-checked `vault.fill`—prototype keys (e.g., `"toString"`) are rejected, and there is no plaintext `reveal` API.
+- **Per-Environment CA & Proxy Auth**: Setting `EnvironmentConfig.trustedCa` verifies leaf certificates with `X509Certificate.verify` inside that environment's `Session` only; proxy auth in `app.on('login')` denies immediately if no matching credential exists.
+- **Human-Only Approval Policy**: `controlPolicy` and per-environment `approval` rules can only be mutated via the desktop IPC channel—never via CLI/RPC.
+
+---
+
+## Plugin System (v4)
+
+Warren plugins are standard npm packages declaring metadata under `package.json#warren` (`apiVersion: "4"`), typed by [`@warren/plugin-sdk`](./packages/plugin-sdk/index.d.ts). See [`plugins/README.md`](./plugins/README.md) for the full authoring guide.
+
+- **Subprocess Execution with Hard Timeout**: Both `runtime: "sandbox"` (restricted `node:vm` inside a worker process—no `require`, `fs`, or `process`) and `runtime: "host"` (full Node ESM worker process) run inside killable child processes (`utilityProcess.fork` / `child_process.fork`) enforced by a `30_000ms` default kill timeout (`WARREN_PLUGIN_TIMEOUT_MS`). Neither runtime is an OS-level malware sandbox—only install trusted plugins.
+- **8 Fail-Closed UI Surfaces**: Zero-build frontend ESM (`warren-plugin://<id>/app.js`) reuses host `app.ui`, `app.shell`, and `app.host` across `railPage`, `settingsSection`, `inspectorTab`, `envAction`, `envBadge`, `popover`, `statusBadge`, and `commandBarAction`.
+- **Automatic Skill Injection**: Enabled plugins synthesize `SKILL.md` and `references/` (capped at `32KB` per plugin) into the main Warren agent skill automatically.
+
+### Three-Tier Permission Model
+
+Single source of truth in [`src/shared/permissions.ts`](src/shared/permissions.ts) (`19` total permissions):
+
+| Tier | Permissions | Policy |
+|---|---|---|
+| `granted` (`6`) | `environment.read`, `browser.dom.read`, `browser.screenshot`, `ui.mount`, `storage.write`, `rpc.serve` | Granted on install |
+| `confirm` (`8`) | `environment.write`, `browser.navigate`, `browser.input`, `vault.fill`, `network.observe`, `network.fetch`, `storage.cookie.port`, `events.subscribe` | Requires explicit user approval (`warren plugin grant` or UI prompt) |
+| `denied` (`5`) | `browser.evaluate`, `storage.cookie.read`, `storage.cookie.write`, `process.spawn`, `filesystem.read` | **Permanently denied**, ignored even if declared |
+
+### Bundled & Example Plugins
+
+| Plugin | ID | Runtime | Highlights |
+|---|---|---|---|
+| **Whistle Proxy** | `com.warren.whistle` | `host` | Isolated `whistle@2.10.15` instances per environment (`46` commands, `7` UI surfaces): HTTPS traffic capture, `quickMock` / `injectFault` / `mapLocal` intent groups, redacted replay diff, cURL export, and preflight doctor. |
+| **Account Manager** | `com.warren.accounts` | `sandbox` | Zero-selector login autofill + RFC 6238 TOTP (`16` commands, `5` UI surfaces). **Explicit product exception**: stores test credentials in plaintext in its own `data.db` with persistent UI warnings; agent channels never receive plaintext passwords/TOTP and enforce non-empty domain allowlists. |
+| **Notes** | `com.example.notes` | `sandbox` | Per-environment & global agent memory/todo store (`9` commands, `5` UI surfaces). |
+| **Login / Cookies / Host** | `com.example.{login,cookies,hosty}` | `sandbox` / `host` | Minimal reference plugins demonstrating `vault.fill`, metadata-only `storage.cookie.port`, and host Node runtime. |
+
+```bash
+# Install & use a bundled plugin
+warren plugin install path:plugins/whistle
+warren plugin enable com.warren.whistle
 warren plugin run com.warren.whistle presetPreview --input='{"storage":"<instance>","scenario":"test"}'
 warren plugin run com.warren.whistle presetApply --input='{"storage":"<instance>","scenario":"test","expectedHash":"<preview-hash>"}'
 ```
 
-## CDP 与遥测边界
+---
 
-- **禁止长驻 `Runtime.enable` / `Network.enable`**：`browser/session.ts` 只长开 `Page.enable` 与按需 `Target.setAutoAttach`（OOPIF 跨源 iframe 支持）；Console / Network 遥测完全走 Electron 原生 `console-message` 与 `webRequest` 事件并持久化入 `warren.db`（每标签保留 300 条，停用/休眠保留历史、删除环境彻底清理）。
-- 页面定位与操控在**隔离世界**（`Page.createIsolatedWorld`）或受控 `Runtime.callFunctionOn` / `DOM.*` / `Accessibility.getFullAXTree` / `Input.*` / `Emulation.*`（`browser set` 与视口覆盖）上运行，绝不向页面全局挂载可被反爬脚本篡改的变量。
-
-## 仓库结构
+## Project Layout & Development
 
 ```text
-bin/                          Agent CLI（入口 warren.mjs + cli.mjs / commands/*.mjs / exec-runtime.mjs / output-guard.mjs）
-src/shared/                   跨进程单一契约（permissions.ts / plugin-host-api.ts / popover-sizing.ts / types/*.ts）
-src/main/                     Electron 主进程（Core）
-  main.ts / ipc-routes.ts     应用入口、窗口装配、IPC 路由与自定义协议（plugin-protocol.ts）
-  environments.ts / env/      Environment Facade 与 lifecycle / session-factory / lease-coordinator / view-coordinator
-  ui/                         5 层原生窗口栈（layer-order / layer-manager / overlay-host / popover-host / devtools-host）
-  browser/                    CDP 控制与高阶浏览器能力（controller / locator / actions / waits / snapshot / screenshot / ops/*）
-  net/                        网络拦截器与 HAR 录放（interceptor / ops / rules / har）
-  plugins/                    插件宿主（host / package / source / installer / lifecycle / registry / api/* / runtime-* / worker-process）
-  skills/ & agent-integration.ts  内置 Skill 与已启用插件 Skill 自动合成同步
-  rpc/                        按域拆分的单一 RPC_REGISTRY 与派发器
-  store/ & db.ts & vault/     SQLite WAL 数据库、分域仓储与 safeStorage 凭据库
-src/preload/                  contextBridge 类型安全 IPC 桥
-src/renderer/                 React 19 + Vite 8 + Tailwind v4 + base-ui 桌面界面（app/ / features/ / state/ / lib/ / theme/）
-packages/plugin-sdk/          @warren/plugin-sdk 类型契约（已纳入 tsconfig.check.json）
-plugins/                      内置与示例插件（account-manager / whistle / example-*）
-scripts/                      fixture 服务、变更筛选测试及 regress 套件
-tests/                        node:test 单元测试 + Vitest/happy-dom 无头 UI 测试（tests/ui/）
-docs/                         架构设计、交接（HANDOFF.md）与改造记录
+warren/
+├── bin/                   Agent CLI entrypoint (warren.mjs) & domain commands/*.mjs
+├── src/
+│   ├── shared/            Cross-process contracts (permissions.ts, plugin-host-api.ts, types/*.ts)
+│   ├── main/              Electron Core: env/, ui/ (5-layer stack), browser/, net/, plugins/, rpc/, store/, vault/
+│   ├── preload/           Type-safe contextBridge IPC preload
+│   └── renderer/          React 19 + Vite 8 + Tailwind v4 + base-ui desktop shell
+├── packages/plugin-sdk/   @warren/plugin-sdk TypeScript package contract
+├── plugins/               Official & reference plugins (whistle, account-manager, example-*)
+├── skills/warren/         Built-in Warren Agent Skill template
+├── tests/                 Node unit tests (69 files) + Vitest/happy-dom UI tests (tests/ui/)
+├── scripts/               Fixture server, changed-test selector, and regression suite
+└── docs/                  Architecture plans, product specs, UI design language & handoff
 ```
 
-## 开发与校验
+### Verification Commands
 
 ```bash
-npm run check:changed         # 日常推荐：lint + format:check + typecheck + 关联无头单测与 UI 测试
-npm run test:ui               # 仅跑无头 React UI 测试（Vitest + happy-dom）
-npm run check                 # 重大改造全量门禁：oxlint + prettier + tsc + 全量 node:test + vitest + vite build
-npx tsc -p tsconfig.check.json  # 覆盖 src/ + tests/ + packages/plugin-sdk/index.d.ts 的全量类型检查
+npm run check:changed             # Daily workflow: oxlint + prettier + tsc + git-diff headless tests
+npm run test:ui                   # Headless React UI test suite (Vitest + happy-dom)
+npm run check                     # Full headless CI gate: lint, format, typecheck, unit + UI tests, Vite build
+npx tsc -p tsconfig.check.json    # Full typecheck across src/, tests/, and @warren/plugin-sdk
 ```
+
+### Documentation Map
+
+| Topic | Document |
+|---|---|
+| Docs index & reading order | [`docs/README.md`](./docs/README.md) |
+| Architecture decisions & current state | [`docs/HANDOFF.md`](./docs/HANDOFF.md) |
+| Product requirements & CLI contracts | [`docs/PRD.md`](./docs/PRD.md) |
+| Tech stack rationale | [`docs/TECH-STACK-RESEARCH.md`](./docs/TECH-STACK-RESEARCH.md) |
+| Design system & component contract | [`docs/ui-design-language.md`](./docs/ui-design-language.md) |
+| Plugin authoring guide & SDK | [`plugins/README.md`](./plugins/README.md) · [`packages/plugin-sdk/README.md`](./packages/plugin-sdk/README.md) |
+| Build, signing & notarization | [`docs/RELEASE.md`](./docs/RELEASE.md) |
