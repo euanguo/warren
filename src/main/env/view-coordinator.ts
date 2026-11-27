@@ -262,7 +262,7 @@ export class EnvViewCoordinator {
         if (this.#selected === id && this.#deps.getLifecycle().activeSpaceOf(id) === space) {
           this.#devtools.activateTab(this.#deps.getLifecycle().spaceManager(id, space)?.activeId);
           this.reapplySplitBounds(id);
-          this.#deps.getLeases().syncShield(id);
+          this.#deps.getLeases().syncShield(id, { createIfMissing: true });
         }
       },
       onEmpty: () => this.#deps.getLifecycle().onSpaceEmpty(id, space),
@@ -508,7 +508,7 @@ export class EnvViewCoordinator {
       spaces[space].attach();
       this.#syncControllerViewport(id, space, layout);
       this.#devtools.syncVisibility();
-      this.#deps.getLeases().syncShield(id);
+      this.#deps.getLeases().syncShield(id, { createIfMissing: true });
       this.#syncDisplayedVisibilityFocus();
     }
     this.#deps.emitBusEvent('space.switched', id, {
@@ -1060,7 +1060,7 @@ export class EnvViewCoordinator {
     if (this.#selected === id) {
       this.#devtools.activateTab(this.#deps.getLifecycle().spaceManager(id)?.activeId);
       this.reapplySplitBounds(id);
-      this.#deps.getLeases().syncShield(id);
+      this.#deps.getLeases().syncShield(id, { createIfMissing: true });
       this.#syncDisplayedVisibilityFocus();
     }
     this.#deps.onChange();

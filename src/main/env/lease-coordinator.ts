@@ -340,6 +340,7 @@ export class LeaseCoordinator {
    * 空闲态与人工接管态绝不挂载遮罩，零误拦、零多余进程。
    */
   syncShield(id: string, options: { createIfMissing?: boolean } = {}): void {
+    const createIfMissing = options.createIfMissing ?? true;
     const lease = this.#leases.get(id);
     const agentControlling = Boolean(
       lease && lease.space === 'agent' && lease.owner === 'agent' && lease.expiresAt > this.#now(),
@@ -356,7 +357,7 @@ export class LeaseCoordinator {
       }
       return;
     }
-    if (!this.#sharedShield && options.createIfMissing) {
+    if (!this.#sharedShield && createIfMissing) {
       this.#sharedShield = this.#deps.createShield(
         id,
         () => {

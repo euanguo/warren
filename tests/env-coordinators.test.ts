@@ -935,3 +935,60 @@ test('LeaseCoordinator：Agent 空间托管会话态（acting → thinking 常�
   // 防止 unused warning
   assert.ok(second.leaseId);
 });
+
+test('LeaseCoordinator：在 Person Space 完成首条 AI 命令进入 thinking 后，切入 Agent Space 立即创建并挂载护盾', () => {
+  const configs = new Map<string, EnvironmentConfig>([
+    ['alpha', createEnvironmentConfig({ id: 'alpha', storagePath: '/tmp/alpha', createdBy: 'human' })],
+  ]);
+  let activeSpace: SpaceId = 'person';
+  let shield: ReturnType<typeof makeFakeShield> | undefined;
+  const now = 200_000;
+  const coordinator = new LeaseCoordinator({
+    getEnvironment: (id) => {
+      const cfg = configs.get(id);
+      return cfg ? toEnvironment(cfg, { owner: 'none' }) : undefined;
+    },
+    getConfig: (id) => configs.get(id),
+    getControlPolicy: () => 'ask',
+    getSpaceManager: () => makeFakeTabManager('agent', { showing: true }),
+    getSelectedId: () => 'alpha',
+    getActiveSpace: () => activeSpace,
+    getViewVisible: () => true,
+    getPageBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    getViewportSize: () => ({ width: 800, height: 600 }),
+    selectSpaceView: () => {},
+    restoreDisplayedFocus: () => {},
+    touch: () => {},
+    recordEvent: () => {},
+    onChange: () => {},
+    emitBusEvent: () => {},
+    createShield: (_id, onTakeover, onFinish) => {
+      shield = makeFakeShield();
+      shield.onTakeover = onTakeover;
+      shield.onFinish = onFinish;
+      return shield;
+    },
+    attachAndRaiseShield: (s) => {
+      (s as { attached: boolean }).attached = true;
+    },
+    detachShield: (s) => {
+      (s as { attached: boolean }).attached = false;
+    },
+    now: () => now,
+  });
+
+  const getShield = () => shield;
+  // 用户停留在 Person Space 时，AI 执行完一条命令并进入 thinking：此时不建多余护盾进程
+  const lease = coordinator.acquire('alpha', 'agent', 'Antigravity', 'agent');
+  coordinator.release('alpha', lease.leaseId, 'agent', { keepSession: true });
+  assert.equal(getShield(), undefined);
+  assert.equal(coordinator.agentSession('alpha')?.phase, 'thinking');
+
+  // 用户手动点击切到 Agent Space（selectSpace 触发 syncShield）：必须立即补建并挂载 thinking 态护盾
+  activeSpace = 'agent';
+  coordinator.syncShield('alpha');
+  assert.ok(getShield(), '切入 thinking 态 Agent Space 时必须按需创建护盾');
+  assert.equal(getShield()?.attached, true);
+  assert.equal(getShield()?.mode, 'agent');
+  assert.equal(getShield()?.session?.phase, 'thinking');
+});
