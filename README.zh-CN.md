@@ -212,7 +212,7 @@
 
 **方式 A：从 `.dmg` 安装**
 
-1. 打开 `Warren-0.3.1-arm64.dmg`，将 `Warren.app` 拖入 `/Applications`（若系统提示警告，先关闭弹窗，不要移到废纸篓）。
+1. 打开 `Warren-0.3.2-arm64.dmg`，将 `Warren.app` 拖入 `/Applications`（若系统提示警告，先关闭弹窗，不要移到废纸篓）。
 2. 在终端运行：
 
 ```bash
@@ -225,7 +225,7 @@ open -a Warren
 建议使用 `ditto` 直接解压进 `/Applications`（完整保留 Electron 包内符号链接与权限），清除隔离属性后启动：
 
 ```bash
-ditto -xk Warren-darwin-arm64-0.3.1.zip /Applications
+ditto -xk Warren-darwin-arm64-0.3.2.zip /Applications
 xattr -cr /Applications/Warren.app
 open -a Warren
 ```
