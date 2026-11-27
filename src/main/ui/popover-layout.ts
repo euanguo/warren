@@ -1,3 +1,10 @@
+import {
+  ADDRESS_SUGGEST_MAX_HEIGHT,
+  ADDRESS_SUGGEST_MIN_HEIGHT,
+  POPOVER_WINDOW_PAD,
+  clampPopoverHeight,
+  estimateAddressSuggestHeight,
+} from '../../shared/popover-sizing.ts';
 import type { PopoverPlacement, ViewportRect } from '../../shared/types.ts';
 
 export interface PopoverLayoutInput {
@@ -82,9 +89,22 @@ function clamp(value: number, min: number, max: number): number {
 export {
   ADDRESS_SUGGEST_MAX_HEIGHT,
   ADDRESS_SUGGEST_MIN_HEIGHT,
+  POPOVER_WINDOW_PAD,
   clampPopoverHeight,
   estimateAddressSuggestHeight,
-} from '../../shared/popover-sizing.ts';
+};
+
+/**
+ * 将逻辑浮卡矩形向四周外扩透明阴影缓冲区，供无系统阴影的透明 Popover 子窗口承载 CSS 描边与柔光投影。
+ */
+export function expandPopoverWindowBounds(cardBounds: ViewportRect, pad = POPOVER_WINDOW_PAD): ViewportRect {
+  return {
+    x: Math.round(cardBounds.x - pad),
+    y: Math.round(cardBounds.y - pad),
+    width: Math.round(cardBounds.width + pad * 2),
+    height: Math.round(cardBounds.height + pad * 2),
+  };
+}
 
 /**
  * 将桌面坐标系下的鼠标点换算到浮卡窗口内局部坐标；点落在窗外时返回 null。

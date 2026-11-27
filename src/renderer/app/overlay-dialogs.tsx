@@ -267,7 +267,7 @@ export function EditEnvCard({ environment }: { environment: Environment }) {
         </Field>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </form>
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 border-t border-border pt-3.5">
         <Button variant="ghost" onClick={cancel}>
           取消
         </Button>
@@ -327,7 +327,7 @@ export function CreateGroupCard() {
         </Field>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </form>
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 border-t border-border pt-3.5">
         <Button variant="ghost" onClick={cancel}>
           取消
         </Button>

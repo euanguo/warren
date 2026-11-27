@@ -501,7 +501,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
                   onClick={() => void executeItem(item)}
                   className={cn(
                     menuItemInteractiveClass,
-                    'flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-left',
+                    'flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left',
                     idx === clampedIndex
                       ? 'bg-surface-highlight opacity-100 hover:bg-surface-highlight'
                       : 'hover:bg-transparent',
@@ -514,9 +514,7 @@ export function CommandBarCard({ initialQuery = '' }: { initialQuery?: string })
                       status={item.envChip.status}
                       hasError={Boolean(item.envChip.error)}
                       size="sm"
-                      ringClassName={
-                        idx === clampedIndex ? 'ring-[var(--surface-selected-solid)]' : 'ring-surface-elevated'
-                      }
+                      ringClassName={idx === clampedIndex ? 'ring-[var(--surface-selected-solid)]' : 'ring-sheet'}
                     />
                   ) : item.pluginBrand ? (
                     <PluginBrandGlyph

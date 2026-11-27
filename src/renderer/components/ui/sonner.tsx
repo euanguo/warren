@@ -18,7 +18,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            'rounded-[var(--radius-card)] border border-border-strong bg-popover text-popover-foreground [box-shadow:var(--elevation-popover)] text-[13px]',
+            'rounded-[var(--radius-card)] border-0 bg-popover text-popover-foreground shadow-none [box-shadow:var(--elevation-popover)] text-[13px]',
           description: 'text-[12px] text-muted-foreground',
           actionButton: 'active:scale-[0.96] transition-transform',
           cancelButton: 'active:scale-[0.96] transition-transform',

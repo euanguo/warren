@@ -277,18 +277,18 @@
   --padding-row-x: var(--control-pad-x-compact);
   --padding-row-y: var(--control-pad-y-compact);
 
-  /* ── 锁定阴影策略（严格对齐 OpenBot tokens-light.css：浅色全透明零阴影，纯靠 1px 发丝边界定型） ── */
+  /* ── 锁定阴影策略（静态面板零阴影，浮层/弹窗为 1px 柔和发丝边 + 轻盈浅灰投影，确保在透明子窗与白底网页上清晰浮起且不发黑） ── */
   --highlight-top: 0 0 0 transparent;
   --shadow-recessed: 0 0 0 transparent;
   --shadow-chip: 0 0 0 transparent;
   --shadow-raised: 0 0 0 transparent;
   --shadow-card: 0 0 0 transparent;
-  --shadow-menu: 0 0 0 transparent;
-  --shadow-dialog: 0 0 0 transparent;
+  --shadow-menu: 0 4px 12px -2px rgba(20, 20, 20, 0.08), 0 1px 3px rgba(20, 20, 20, 0.04);
+  --shadow-dialog: 0 14px 36px -6px rgba(20, 20, 20, 0.12), 0 4px 12px -2px rgba(20, 20, 20, 0.05);
   --elevation-stroke: 0 0 0 1px var(--border-strong);
   --elevation-stage: 0 0 0 1px var(--border);
-  --elevation-popover: 0 0 0 1px var(--menu-edge);
-  --elevation-dialog: 0 0 0 1px var(--dialog-ring);
+  --elevation-popover: 0 0 0 1px var(--menu-edge), var(--shadow-menu);
+  --elevation-dialog: 0 0 0 1px var(--dialog-ring), var(--shadow-dialog);
   --elevation-sidebar: 0 0 0 transparent;
   --blur-menu: 0px;
   --blur-dialog: 4px;
@@ -421,7 +421,7 @@
  * ============================================================================ */
 :root.dark,
 :root[data-theme='dark'] {
-  --shadow-menu: 0 4px 6px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -2px rgba(0, 0, 0, 0.45);
+  --shadow-menu: 0 4px 12px -2px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.28);
   --shadow-dialog: 0 12px 32px rgba(0, 0, 0, 0.48);
   --elevation-popover: inset 0 1px 0 var(--menu-highlight), 0 0 0 1px var(--menu-edge), var(--shadow-menu);
   --elevation-dialog: 0 0 0 1px var(--dialog-ring), var(--shadow-dialog);

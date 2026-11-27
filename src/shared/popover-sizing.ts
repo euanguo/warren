@@ -1,3 +1,10 @@
+/**
+ * Popover 原生透明子窗口四边阴影缓冲（px）。
+ * 关闭系统原生 `hasShadow` / `vibrancy`（避免浅色模式下出现 macOS 暗色窗框黑边与浓重黑影）后，
+ * 由子窗口向四周外扩该缓冲区承载 CSS 1px 发丝描边与柔和主题阴影，同时保持卡片相对锚点的视觉位置 0 偏移。
+ */
+export const POPOVER_WINDOW_PAD = 16;
+
 /** 地址栏联想浮层的动态高度上下限（低于上限紧贴内容零空块，高于上限启用滚动）。 */
 export const ADDRESS_SUGGEST_MIN_HEIGHT = 60;
 export const ADDRESS_SUGGEST_MAX_HEIGHT = 320;

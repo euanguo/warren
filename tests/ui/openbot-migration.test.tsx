@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppTitlebar } from '@/app/app-titlebar';
+import { PopoverRoot } from '@/app/popover-root';
 import { PanelResizer } from '@/components/ui/panel-resizer';
 import { Switch } from '@/components/ui/switch';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -9,6 +10,7 @@ import { EnvironmentTabstrip } from '@/features/environments/environment-tabstri
 import { GeneralPanel } from '@/features/settings/general-panel';
 import { applyTheme } from '@/lib/theme';
 import { refreshPluginsAndSettings } from '@/state/plugin-store';
+import { POPOVER_WINDOW_PAD } from '@shared/popover-sizing';
 import { BUILTIN_SKINS } from '@shared/skin';
 import type { Environment, TabState } from '@shared/types';
 import { installMockEnvApi } from './setup';
@@ -280,5 +282,24 @@ describe('OpenBot 设计体系迁移与可配置配色皮肤回归测试', () =>
     expect(settingsBack.className).toContain('h-[var(--control-height-icon)]');
     expect(globalNav.className).toContain('h-[var(--control-height-icon)]');
     expect(globalNav.className).toContain('[box-shadow:inset_0_0_0_1px_var(--border)]');
+  });
+
+  it('PopoverRoot 为无系统阴影的透明浮窗预留阴影缓冲区，内存速览展示「释放标签」且点击缓冲外缘可关闭', async () => {
+    const mocks = installMockEnvApi({
+      getPopoverState: vi.fn(async () => ({ id: 'memory-quick' as const, props: {} })),
+    });
+
+    render(<PopoverRoot />);
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-slot="memory-quick-popover"]')).not.toBeNull();
+    });
+
+    const frame = document.querySelector<HTMLElement>('[data-slot="popover-window-frame"]')!;
+    expect(frame.style.padding).toBe(`${POPOVER_WINDOW_PAD}px`);
+    expect(screen.getByRole('button', { name: '释放标签' })).toBeTruthy();
+
+    fireEvent.mouseDown(document.querySelector('[data-slot="popover-backdrop"]')!);
+    expect(mocks.closePopover).toHaveBeenCalledWith('memory-quick');
   });
 });

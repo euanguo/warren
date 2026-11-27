@@ -392,7 +392,7 @@ describe('图四：地址栏联想浮层动态高度与鼠标悬停选中', () =
     rerender(<AddressSuggestView props={{ query: 'a', entries: sampleEntries, highlighted: 0, width: 520 }} />);
     await waitFor(() => {
       expect(mocks.updatePopover).toHaveBeenCalledWith('address-suggest', {
-        size: { width: 520, height: 158 },
+        size: { width: 520, height: 162 },
       });
     });
 

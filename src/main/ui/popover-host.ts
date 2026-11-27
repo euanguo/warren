@@ -1,6 +1,11 @@
 import { BrowserWindow, screen, type WebContents } from 'electron';
 import path from 'node:path';
-import { computePopoverBounds, shouldFocusPopover, toLocalPopoverPoint } from './popover-layout.ts';
+import {
+  computePopoverBounds,
+  expandPopoverWindowBounds,
+  shouldFocusPopover,
+  toLocalPopoverPoint,
+} from './popover-layout.ts';
 import type {
   PopoverActionEvent,
   PopoverId,
@@ -260,18 +265,21 @@ export class PopoverHost {
     const existing = focusable ? this.#focusable : this.#nonFocusable;
     if (existing && !existing.win.isDestroyed()) return existing;
 
+    // 关闭 vibrancy 与原生 hasShadow / roundedCorners：
+    // 1. OpenBot 扁平精密体系要求纯实色浮层（--blur-menu: 0px），避免 macOS vibrancy 强绘暗色窗框黑边；
+    // 2. 阴影与 1px 发丝描边全部交给渲染层在透明缓冲区（POPOVER_WINDOW_PAD）内按当前明暗主题与皮肤精确绘制。
     const win = new BrowserWindow({
       parent: this.#mainWindow,
       show: false,
       frame: false,
       transparent: true,
-      hasShadow: true,
+      hasShadow: false,
+      roundedCorners: false,
       resizable: false,
       minimizable: false,
       maximizable: false,
       skipTaskbar: true,
       focusable,
-      vibrancy: process.platform === 'darwin' ? 'popover' : undefined,
       backgroundColor: '#00000000',
       webPreferences: {
         preload: this.#preloadPath,
@@ -312,7 +320,7 @@ export class PopoverHost {
   #calcBounds(options: PopoverOpenOptions) {
     const contentBounds = this.#mainWindow.getContentBounds();
     const display = screen.getDisplayMatching(contentBounds);
-    return computePopoverBounds({
+    const cardBounds = computePopoverBounds({
       anchorRect: options.anchorRect,
       windowBounds: contentBounds,
       preferredSize: options.size,
@@ -320,5 +328,6 @@ export class PopoverHost {
       beyondWindow: options.beyondWindow,
       workArea: display.workArea,
     });
+    return expandPopoverWindowBounds(cardBounds);
   }
 }

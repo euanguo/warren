@@ -14,7 +14,12 @@ import { useStandaloneThemeSync } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { usePluginState } from '@/state/plugin-store';
 import { elevatedMenuSurfaceClass, menuItemInteractiveClass } from '@/theme/surface';
-import { ADDRESS_SUGGEST_MAX_HEIGHT, ADDRESS_SUGGEST_MIN_HEIGHT, clampPopoverHeight } from '@shared/popover-sizing';
+import {
+  ADDRESS_SUGGEST_MAX_HEIGHT,
+  ADDRESS_SUGGEST_MIN_HEIGHT,
+  POPOVER_WINDOW_PAD,
+  clampPopoverHeight,
+} from '@shared/popover-sizing';
 import { VIEWPORT_PRESET_LIST } from '@shared/viewport-presets';
 import type {
   DownloadItemInfo,
@@ -39,7 +44,7 @@ export function AddressSuggestView({ props }: { props: PopoverPropsMap['address-
     const syncHeight = () => {
       const rawHeight = contentEl.getBoundingClientRect().height || contentEl.scrollHeight;
       if (rawHeight <= 0) return;
-      const nextHeight = clampPopoverHeight(rawHeight + 8, ADDRESS_SUGGEST_MIN_HEIGHT, ADDRESS_SUGGEST_MAX_HEIGHT);
+      const nextHeight = clampPopoverHeight(rawHeight + 12, ADDRESS_SUGGEST_MIN_HEIGHT, ADDRESS_SUGGEST_MAX_HEIGHT);
       if (Math.abs(nextHeight - lastReportedHeightRef.current) < 1) return;
       lastReportedHeightRef.current = nextHeight;
       void window.envApi.updatePopover('address-suggest', {
@@ -265,7 +270,7 @@ function DownloadsView({ props }: { props: PopoverPropsMap['downloads'] }) {
             {items.map((item) => (
               <li
                 key={item.downloadId}
-                className="flex items-center gap-2 rounded-[var(--radius-menu-item)] border border-border/50 px-2.5 py-2"
+                className="flex items-center gap-2 rounded-[var(--radius-menu-item)] border border-border px-2.5 py-2"
               >
                 <Icon name="Download" className="shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
@@ -333,7 +338,7 @@ function ViewportView({ props }: { props: PopoverPropsMap['viewport'] }) {
             className={cn(
               menuItemInteractiveClass,
               'flex w-full items-center gap-2.5 px-2.5 py-2 text-left',
-              active && 'bg-surface-hover opacity-100',
+              active && 'bg-surface-highlight opacity-100',
             )}
           >
             <Icon name={preset.icon} className="shrink-0 text-muted-foreground" />
@@ -341,7 +346,7 @@ function ViewportView({ props }: { props: PopoverPropsMap['viewport'] }) {
               <div className="text-xs font-medium text-foreground">{preset.label}</div>
               <div className="text-[11px] text-muted-foreground">{preset.detail}</div>
             </div>
-            {active && <Icon name="Check" className="size-3.5 text-[var(--theme-accent)]" />}
+            {active && <Icon name="Check" className="size-3.5 text-accent-text" />}
           </button>
         );
       })}
@@ -399,12 +404,12 @@ function PluginPopoverView({ props }: { props: PopoverPropsMap['plugin-popover']
       data-surface-id={surfaceId}
       className={cn(
         elevatedMenuSurfaceClass,
-        'flex h-full flex-col overflow-hidden rounded-[var(--radius-menu)] border-0 text-xs text-foreground shadow-none outline-none',
+        'flex h-full flex-col overflow-hidden rounded-[var(--radius-menu)] text-xs text-foreground outline-none',
       )}
     >
       <div
         data-slot="plugin-popover-header"
-        className="flex shrink-0 items-center gap-1.5 border-b border-border/70 px-2.5 py-1.5"
+        className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-1.5"
       >
         <PluginBrandGlyph pluginId={pluginId} icon={surface?.icon} />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{surface?.title ?? '插件快捷面板'}</span>
@@ -518,7 +523,7 @@ export function MemoryQuickView() {
         'flex h-full w-full flex-col overflow-hidden rounded-[var(--radius-menu)] text-xs',
       )}
     >
-      <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <StatusDot tone={tone} />
           <span className="font-medium">内存速览</span>
@@ -579,7 +584,7 @@ export function MemoryQuickView() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-1.5 border-t border-border/70 px-3 py-2">
+      <div className="flex items-center justify-between gap-1.5 border-t border-border px-3 py-2">
         <div className="flex items-center gap-1">
           <Button
             size="sm"
@@ -595,7 +600,7 @@ export function MemoryQuickView() {
             disabled={busy}
             onClick={() => void runQuick(() => window.envApi.sleepIdleTabs())}
           >
-            释标签
+            释放标签
           </Button>
         </div>
         <Button
@@ -619,8 +624,8 @@ export function MemoryQuickView() {
  */
 export function PopoverRoot() {
   const [state, setState] = useState<PopoverState | null>(null);
-  // plugin-popover 内部挂了 usePluginState() 订阅主题同步，避免同一窗口挂两份。
-  useStandaloneThemeSync(state !== null && state.id !== 'plugin-popover');
+  // 预热态（state === null）即刻同步主题与皮肤，避免首次弹出闪烁；plugin-popover 内部已挂 usePluginState()。
+  useStandaloneThemeSync(state?.id !== 'plugin-popover');
 
   useEffect(() => {
     void window.envApi.getPopoverState().then(setState);
@@ -642,13 +647,27 @@ export function PopoverRoot() {
 
   return (
     <TooltipProvider>
-      <div className="h-full w-full">
-        {state.id === 'address-suggest' && <AddressSuggestView props={state.props} />}
-        {state.id === 'find-in-page' && <FindInPageView props={state.props} />}
-        {state.id === 'downloads' && <DownloadsView props={state.props} />}
-        {state.id === 'viewport' && <ViewportView props={state.props} />}
-        {state.id === 'memory-quick' && <MemoryQuickView />}
-        {state.id === 'plugin-popover' && <PluginPopoverView props={state.props} />}
+      <div
+        data-slot="popover-window-frame"
+        style={{ padding: `${POPOVER_WINDOW_PAD}px` }}
+        className="relative h-full w-full bg-transparent"
+      >
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="关闭浮窗"
+          data-slot="popover-backdrop"
+          onMouseDown={() => void window.envApi.closePopover(state.id)}
+          className="fixed inset-0 cursor-default bg-transparent"
+        />
+        <div className="relative z-10 h-full w-full">
+          {state.id === 'address-suggest' && <AddressSuggestView props={state.props} />}
+          {state.id === 'find-in-page' && <FindInPageView props={state.props} />}
+          {state.id === 'downloads' && <DownloadsView props={state.props} />}
+          {state.id === 'viewport' && <ViewportView props={state.props} />}
+          {state.id === 'memory-quick' && <MemoryQuickView />}
+          {state.id === 'plugin-popover' && <PluginPopoverView props={state.props} />}
+        </div>
       </div>
     </TooltipProvider>
   );

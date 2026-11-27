@@ -161,7 +161,7 @@ export function EnvironmentSidebar({
         width: Math.round(rect.width),
         height: Math.round(rect.height),
       },
-      size: { width: 320, height: 312 },
+      size: { width: 340, height: 312 },
       placement: 'top-start',
       focusable: true,
       props: {},

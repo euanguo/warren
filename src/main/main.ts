@@ -31,6 +31,8 @@ import { Store } from './store';
 import { WindowLayerManager } from './ui/layer-manager.ts';
 import { OverlayHost } from './ui/overlay-host.ts';
 import { PopoverHost } from './ui/popover-host.ts';
+import { DEFAULT_SKIN_ID, resolveSkinPalette } from '../shared/skin.ts';
+import type { AppSettings } from '../shared/types.ts';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -195,8 +197,19 @@ function resolveProxyCredential(host: string, port?: number): { username: string
   return null;
 }
 
+function resolveNativeScheme(theme: AppSettings['theme']): 'dark' | 'light' {
+  if (theme === 'light') return 'light';
+  if (theme === 'dark') return 'dark';
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+}
+
+function resolveMainFrameBackground(settings: AppSettings): string {
+  const scheme = resolveNativeScheme(settings.theme);
+  return resolveSkinPalette(settings.skin ?? DEFAULT_SKIN_ID, scheme, settings.skinOverrides).frame;
+}
+
 /** 仅创建主窗对象与原生事件监听，暂不加载渲染层；待 IPC 路由就绪后再调用 `loadMainWindow`。 */
-function createMainWindow(): BrowserWindow {
+function createMainWindow(initialSettings: AppSettings): BrowserWindow {
   const startBackground = process.env.WARREN_BACKGROUND === '1';
   const startInactive = startBackground || process.env.WARREN_START_INACTIVE === '1';
   const win = new BrowserWindow({
@@ -205,7 +218,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 640,
     show: !startInactive,
-    backgroundColor: '#0d0d0d',
+    backgroundColor: resolveMainFrameBackground(initialSettings),
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 12 },
     icon: assetPath('icon.png'),
@@ -382,7 +395,9 @@ app.whenReady().then(async () => {
   });
 
   const initialSettings = store.appSettings();
-  window = createMainWindow();
+  // 同步 Electron nativeTheme，确保 macOS 原生右键菜单、对话框与窗口外观始终跟随应用明暗模式
+  nativeTheme.themeSource = initialSettings.theme ?? 'dark';
+  window = createMainWindow(initialSettings);
   layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 8);
   const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -436,16 +451,15 @@ app.whenReady().then(async () => {
     },
   );
   manager.applySettings(initialSettings, { respectEnvOverrides: true });
-  manager.setShieldTheme(
-    initialSettings.theme === 'light'
-      ? 'light'
-      : initialSettings.theme === 'system' && !nativeTheme.shouldUseDarkColors
-        ? 'light'
-        : 'dark',
-  );
+  manager.setShieldTheme(resolveNativeScheme(initialSettings.theme));
   nativeTheme.on('updated', () => {
-    if (store.appSettings().theme === 'system') {
-      manager?.setShieldTheme(nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+    const currentSettings = store.appSettings();
+    if (currentSettings.theme === 'system') {
+      const scheme = resolveNativeScheme('system');
+      manager?.setShieldTheme(scheme);
+      if (window && !window.isDestroyed()) {
+        window.setBackgroundColor(resolveMainFrameBackground(currentSettings));
+      }
     }
   });
 

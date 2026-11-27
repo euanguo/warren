@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {
   ADDRESS_SUGGEST_MAX_HEIGHT,
   ADDRESS_SUGGEST_MIN_HEIGHT,
+  POPOVER_WINDOW_PAD,
   clampPopoverHeight,
   computePopoverBounds,
   estimateAddressSuggestHeight,
+  expandPopoverWindowBounds,
   shouldFocusPopover,
   toLocalPopoverPoint,
 } from '../src/main/ui/popover-layout.ts';
@@ -83,4 +85,15 @@ test('toLocalPopoverPoint 准确转换窗内坐标并在窗外返回 null', () =
   assert.equal(toLocalPopoverPoint({ x: 199, y: 180 }, bounds), null);
   assert.equal(toLocalPopoverPoint({ x: 600, y: 180 }, bounds), null);
   assert.equal(toLocalPopoverPoint({ x: 250, y: 360 }, bounds), null);
+});
+
+test('expandPopoverWindowBounds 向四周外扩透明阴影缓冲区且不改变可见卡片锚点位置', () => {
+  const card = { x: 300, y: 218, width: 340, height: 312 };
+  const expanded = expandPopoverWindowBounds(card);
+  assert.deepEqual(expanded, {
+    x: 300 - POPOVER_WINDOW_PAD,
+    y: 218 - POPOVER_WINDOW_PAD,
+    width: 340 + POPOVER_WINDOW_PAD * 2,
+    height: 312 + POPOVER_WINDOW_PAD * 2,
+  });
 });

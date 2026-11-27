@@ -4,6 +4,7 @@
 import { app, dialog, ipcMain, nativeTheme, shell, type BrowserWindow, type WebContents } from 'electron';
 import os from 'node:os';
 import type { Permission } from '../shared/permissions.ts';
+import { DEFAULT_SKIN_ID, resolveSkinPalette } from '../shared/skin.ts';
 import type {
   AppSettings,
   ApprovalMode,
@@ -115,9 +116,21 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
     const mgr = deps.getManager();
     mgr.applySettings(next);
     deps.getMemoryMonitor?.()?.configure({ softLimitMb: next.memorySoftLimitMb });
-    mgr.setShieldTheme(
-      next.theme === 'light' ? 'light' : next.theme === 'system' && !nativeTheme.shouldUseDarkColors ? 'light' : 'dark',
-    );
+    nativeTheme.themeSource = next.theme ?? 'dark';
+    const scheme: 'dark' | 'light' =
+      next.theme === 'light'
+        ? 'light'
+        : next.theme === 'dark'
+          ? 'dark'
+          : nativeTheme.shouldUseDarkColors
+            ? 'dark'
+            : 'light';
+    mgr.setShieldTheme(scheme);
+    const mainWin = deps.getWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      const frameBg = resolveSkinPalette(next.skin ?? DEFAULT_SKIN_ID, scheme, next.skinOverrides).frame;
+      mainWin.setBackgroundColor(frameBg);
+    }
     deps.store.record(makeEvent('settings.updated', `应用设置更新: ${JSON.stringify(patch)}`, 'human'));
     deps.broadcastEnvDelta('settings');
     deps.broadcastPluginChanged('settings');
