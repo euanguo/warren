@@ -26,19 +26,20 @@ warren env create dev --start-url=http://localhost:3000
 warren env start <env>
 warren env acquire <env>
 warren tab list <env>
+warren tab close <env> --agent-only
 warren browser open <env> https://example.com --read
-warren browser snapshot <env> -i -u
+warren browser snapshot <env> -i -u --viewport
 warren browser read <env> --outline --links --data --content-boundaries
 warren env finish <env>
 ```
 
-- **结构优先**：`browser snapshot <env> -i -u` 返回极简缩进交互树、链接 URL，并在命中域名时自动注入 `# site-notes`；`page.snapshot()` 返回结构对象 `{ url, title, nodes }`（截断须先 `JSON.stringify()`）。
-- **不可信输出安全**：`snapshot` 与 `read` 默认做终端转义净化并按 `--max-output=12000` 裁剪溢出至 `~/.warren/tmp/`；读取第三方网页正文时保留 `--content-boundaries` 随机 nonce 边界。`@N` ref 仅对当前快照有效。
-- **短横线值传递**：值以 `-` 开头时用 POSIX `--` 隔开（如 `warren browser fill <env> @2 -- "--dashed-value"`）。仅在确实需要排版或视觉验证时调用 `warren browser screenshot <env> --annotate`。
+- **结构优先 + 默认动作变化回执**：`browser click/fill/select/...` 默认返回紧凑 **Action Delta**（URL/Title 变更、带新 `@N` 的增删改节点、过滤静态资源后的 API 摘要、新弹窗 `text:` 与未处理副作用；需要纯回执时加 `--no-changes`）。`browser snapshot <env> -i` 默认全页并附带视口滚动进度、长列表/连续禁用折叠与每会话首次 `# site-notes`/`# saved-flows` 注入；大页面加 `--viewport` 开启真视口过滤与屏外计数，加 `--no-fold` 展开全部项。`page.snapshot()` 返回结构对象 `{ url, title, nodes }`（截断须先 `JSON.stringify()`）。
+- **不可信输出安全**：`snapshot`、`read` 与原子写动作 Delta 默认做终端转义净化并按 `--max-output=12000` 裁剪溢出至 `~/.warren/tmp/`；读取第三方网页正文时保留 `--content-boundaries` 随机 nonce 边界。`@N` ref 跨同容器重绘自动自愈，失败才重拍。
+- **并发读取与短横线传值**：`browser read <env> <url1> <url2> --concurrency=4` 或 `--links=<pattern>` 默认在环境隔离离屏读池并发抓取（不扰动当前 Tab，加 `--list` 仅列链接）；`--data` 支持 `--block`/`--fields`/`--where`/`--limit` 切片。值以 `-` 开头时用 POSIX `--` 隔开（如 `warren browser fill <env> @2 -- "--dashed-value"`）。仅在确实需要排版或视觉验证时调用 `warren browser screenshot <env> --annotate`。
 
 ## 多步批处理与复用流
 
-- **常规多步连招**用 `warren batch <env> --bail` 一次下发并在稳定后直接返回附带新 `@N` 的 Delta Receipt；**复杂条件逻辑或循环探索**用 `warren exec <env>`：
+- **常规多步连招**用 `warren batch <env> --bail` 一次下发并在稳定后直接返回统一 Action Delta 回执；**复杂条件逻辑或循环探索**用 `warren exec <env>`（自带跨调用持久化 `state`、原子 `checkpoint` 与内置 `help()`）：
 
 ```bash
 warren batch <env> --bail <<'EOF'
@@ -53,17 +54,18 @@ await page.goto('http://localhost:3000');
 const snap = await page.snapshot();
 emitResult({ url: snap.url, count: snap.nodes.length });
 JS
-warren exec --capabilities
+warren exec --capabilities --detailed
 ```
 
-- **高频排查与复用**：环境异常跑 `warren env doctor <env>`；页面报错看 `warren browser console <env>` 与 `warren browser network <env>`（扩展只支持解包目录，React Hook 可用 `evaluate` 读取）；高频 GET 接口可经 `flow` 固化复跑，跨回合站点坑用 `notes` 沉淀。
+- **高频排查与自动 Flow**：环境异常跑 `warren env doctor <env>`；页面报错看 `warren browser console <env>` 与 `warren browser network <env>`；常规操作期间会自动关联录制只读 GET 接口，可用 `warren flow steps <env>` 查看 `s3r1` 引用并用 `warren flow save <name> --env=<env> --output=s3r1 --param=q=shoes` 零模板固化复跑，跨回合站点坑用 `notes` 沉淀。
 
 ## exec 里有什么
 
-VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`、`emitResult`。**没有 `fs`、`require`、`process` 或网络模块**。
+VM 里的全局就这几个：`page`、`console`、`setTimeout`、`clearTimeout`、`emitResult`、`state`、`checkpoint`、`help`、`sleep`。**没有 `fs`、`require`、`process` 或网络模块**。
 
-- `page` 与 `locator`、`mouse`、`keyboard` 提供 Playwright 子集操控，实时能力清单以 `warren exec --capabilities` 为准。
-- `snapshot` 返回 `{ url, title, nodes }` 结构对象而非字符串（截断须先 `JSON.stringify`）；结构化输出用 `emitResult` 传回宿主。
+- `page` 与 `locator`、`mouse`、`keyboard` 提供 Playwright 子集操控与并发读取 `readAll`，实时能力清单以 `warren exec --capabilities --detailed` 或脚本内 `help()` 为准。
+- `state` 为按环境隔离的持久内存对象（跨 `warren exec` 调用与超时/报错自动保留，环境停止或删除后自动清空，可用 `--reset-state` 手动重置）；大结果或跨会话进度用 `checkpoint` 原子落盘。
+- `snapshot` 返回 `{ url, title, nodes }` 结构对象而非字符串（截断须先 `JSON.stringify`）；结构化输出用 `emitResult` 传回宿主，或用 `--out=result.json|jsonl|csv` 直接落盘。
 
 没有 `context()`、`expect()`、`route()` 或 `setViewportSize()`。
 
@@ -89,8 +91,10 @@ warren browser detect-login <env>
 | `SPACE_FORBIDDEN` | Agent 请求或越权操作 `Person Space` | 去掉 `space: "person"`，仅操作 Agent Space |
 | `PATH_DENIED` | 路径越界（系统/数据目录），或凭据域名不在已配置的白名单 | 传安全绝对路径；核对站点域，或用账号插件 `update` 补齐允许域名 |
 | `ENV_NOT_VISIBLE` | 主窗切到设置/插件全屏页或开着浮层让出了视图 | 关闭浮层或切回环境页（非后台运行问题） |
+| `TAB_GONE` | 固定或显式指定的标签已关闭（禁止静默切页） | 运行 `warren tab list <env>` 选择新标签或取消 `--tab` |
 | `DIALOG_OPEN` | 页面存在未处理的原生弹窗 | 先 `browser dialog <env> accept` 或 `dismiss` |
-| `CDP_BLOCKED` / `UNSUPPORTED_PAGE_API` | 超出干净 CDP 白名单或调用了不支持的 `page` 方法 | 改用 `page.evaluate` 或检查 `warren exec --capabilities` |
+| `FLOW_AUTH_EXPIRED` / `FLOW_UNKNOWN_FIELD` | Flow 鉴权过期或过滤字段不存在 | 重新登录目标站点，或按报错列出的可用字段修正 `--where` |
+| `CDP_BLOCKED` / `UNSUPPORTED_PAGE_API` | 超出干净 CDP 白名单或调用了不支持的 `page` 方法 | 改用 `page.evaluate`、脚本内 `help()` 或 `warren exec --capabilities --detailed` |
 
 ## 插件与自动注入索引
 

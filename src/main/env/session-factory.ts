@@ -1,7 +1,8 @@
 import type { X509Certificate } from 'node:crypto';
-import { session, type Session, type WebContents } from 'electron';
+import { BrowserWindow, session, type Session, type WebContents } from 'electron';
 import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import type { EphemeralReaderHandle } from '../browser/ops/batch-reader.ts';
 import {
   clearCookies,
   copyCookies,
@@ -114,6 +115,118 @@ export class EnvSessionFactory {
     const config = this.#store.configFor(id);
     if (!config) throw Object.assign(new Error(`unknown environment ${id}`), { code: 'ENV_NOT_FOUND' });
     return this.sessionFor(id, config.storagePath);
+  }
+
+  /**
+   * 为后台并发读池创建一个与环境共享 Session 的隐藏离屏页面；
+   * 绝不显示窗口、不抢焦点、不碰主窗口视图栈，并在 `close()` 中销毁渲染进程。
+   */
+  async openOffscreenReaderPage(id: string): Promise<EphemeralReaderHandle> {
+    const ses = this.sessionOf(id);
+    const win = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 800,
+      focusable: false,
+      skipTaskbar: true,
+      webPreferences: {
+        session: ses,
+        offscreen: true,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+      },
+    });
+    try {
+      win.webContents.stopPainting?.();
+    } catch {
+      // 某些平台版本忽略 stopPainting
+    }
+
+    const load = (url: string, timeoutMs: number): Promise<void> =>
+      new Promise((resolve, reject) => {
+        if (win.isDestroyed()) {
+          reject(new Error('offscreen reader window already destroyed'));
+          return;
+        }
+        let settled = false;
+        const done = (err?: Error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (!win.isDestroyed()) {
+            win.webContents.off('did-finish-load', onDone);
+            win.webContents.off('did-fail-load', onFail);
+          }
+          if (err) reject(err);
+          else resolve();
+        };
+        const onDone = () => done();
+        const onFail = (_e: unknown, code: number, desc: string, _failedUrl: string, isMainFrame: boolean) => {
+          if (!isMainFrame || code === -3) return;
+          done(new Error(`页面加载失败 (${code}): ${desc}`));
+        };
+        const timer = setTimeout(() => done(new Error(`页面加载超时 ${timeoutMs}ms: ${url}`)), timeoutMs);
+        win.webContents.once('did-finish-load', onDone);
+        win.webContents.on('did-fail-load', onFail);
+        void win.loadURL(url).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!/ERR_ABORTED/i.test(msg)) done(err instanceof Error ? err : new Error(msg));
+        });
+      });
+
+    const client = {
+      currentUrl: () => (win.isDestroyed() ? '' : win.webContents.getURL()),
+      title: async () => (win.isDestroyed() ? '' : win.webContents.getTitle()),
+      evaluate: async (fn: string, arg?: unknown) => {
+        if (win.isDestroyed()) throw new Error('offscreen reader window destroyed');
+        const expr = `(${fn})(${JSON.stringify(arg)})`;
+        return win.webContents.executeJavaScript(expr, true);
+      },
+    };
+
+    return {
+      client,
+      load,
+      close: () => {
+        if (!win.isDestroyed()) win.destroy();
+      },
+    };
+  }
+
+  /** 使用目标环境的隔离 Electron Session 直接发起只读 GET 请求（自动复用环境 Cookie、代理与自定义 CA）。 */
+  async fetchInSession(
+    id: string,
+    url: string,
+    opts: { method?: string; headers?: Record<string, string> } = {},
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    statusText: string;
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  }> {
+    const ses = this.sessionOf(id);
+    const resp = await ses.fetch(url, {
+      method: opts.method ?? 'GET',
+      headers: opts.headers,
+      credentials: 'include',
+    });
+    const body = await resp.text();
+    const headers: Record<string, string> = {};
+    resp.headers.forEach((v, k) => {
+      headers[k] = v;
+    });
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      statusText: resp.statusText,
+      url: resp.url || url,
+      headers,
+      body,
+    };
   }
 
   /** 同步环境网络出口（代理与自定义 CA）到已创建的 Session，避免配置变更或休眠唤醒后分裂。 */

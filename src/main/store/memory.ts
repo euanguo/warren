@@ -7,6 +7,7 @@ import type {
   DomainPref,
   SavedFlowRecord,
   SavedFlowSpec,
+  SavedFlowSummary,
   SiteNote,
   UrlHistoryEntry,
   ViewportPresetId,
@@ -331,5 +332,41 @@ export class SiteMemoryRepository {
     const key = name.trim().toLowerCase();
     const result = this.#db().prepare('DELETE FROM saved_flows WHERE name = ?').run(key);
     return Number(result.changes ?? 0) > 0;
+  }
+
+  /** 按当前 URL 的 host/path/子域匹配已保存的只读 Saved Flows（用于首访自动提示）。 */
+  matchSavedFlowsForUrl(rawUrl: string): SavedFlowSummary[] {
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return [];
+    }
+    if (!/^https?:$/i.test(parsed.protocol)) return [];
+    const host = parsed.host.toLowerCase();
+    const cleanPath = parsed.pathname.replace(/\/+$/, '');
+    const full = `${host}${cleanPath}`;
+    return this.listSavedFlows()
+      .filter((rec) => {
+        const site = rec.site.trim().toLowerCase();
+        if (!site) return false;
+        if (site === host || site === full) return true;
+        if (site.startsWith(`${host}/`)) return full === site || full.startsWith(`${site}/`);
+        return host.endsWith(`.${site}`);
+      })
+      .sort((a, b) => b.site.length - a.site.length)
+      .slice(0, 10)
+      .map((rec) => {
+        const params = new Set<string>();
+        for (const match of rec.spec.urlTemplate.matchAll(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g)) {
+          if (match[1]) params.add(match[1]);
+        }
+        return {
+          name: rec.name,
+          site: rec.site,
+          ...(rec.spec.description ? { description: rec.spec.description } : {}),
+          params: [...params],
+        };
+      });
   }
 }

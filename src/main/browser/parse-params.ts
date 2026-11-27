@@ -269,6 +269,7 @@ export function asSnapshotOptions(raw: unknown): SnapshotOptions {
     maxTokens: asFiniteNumber(raw.maxTokens),
     filter: typeof raw.filter === 'string' ? raw.filter : undefined,
     frame: typeof raw.frame === 'string' ? raw.frame : undefined,
+    noFold: Boolean(raw.noFold),
   };
 }
 

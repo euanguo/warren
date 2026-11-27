@@ -4,7 +4,7 @@
  *
  * **只有 `assignRefs()` 会往 `RefTable` 注册 ref。** 别的模块要读 AX 树一律走 `ax-tree.ts#readAxNodes()`。
  */
-import type { AxNode, SnapshotOptions } from '../../shared/types.ts';
+import type { AxNode, SnapshotOptions, ViewportMetrics } from '../../shared/types.ts';
 import type { PageContext } from './ctx.ts';
 import { buildHierarchicalAxNodes, readAxFrames, sessionOfAxNode, tagAxNodeSession } from './ax-tree.ts';
 import { richErr } from './errors.ts';
@@ -48,6 +48,8 @@ interface DomAugmentResult {
   urls: Record<number, string>;
   extras: Array<{ idx: number; role: string; name: string; cursorInteractive?: boolean; hiddenInput?: boolean }>;
   boxes?: Record<number, { x: number; y: number; width: number; height: number }>;
+  viewport?: ViewportMetrics;
+  viewportBands?: { above: number[]; inside: number[]; below: number[] };
 }
 
 /**
@@ -65,35 +67,42 @@ async function augmentFrameWithDom(
     urls?: boolean;
     includeCursor?: boolean;
     boxes?: boolean;
+    viewportFilter?: boolean;
     frameId?: string;
     loaderId?: string;
     sessionId?: string;
   },
-): Promise<AxNode[]> {
-  if (ctx.wc.isDestroyed()) return nodes;
+): Promise<{ nodes: AxNode[]; viewport?: ViewportMetrics }> {
+  if (ctx.wc.isDestroyed()) return { nodes };
   const sessionId = options.sessionId;
   // 在隔离世界扫描页面，绝不污染主世界 window
   let contextId: number | undefined;
   try {
     const tree = await ctx.sendOn<{ frameTree?: { frame?: { id?: string } } }>(sessionId, 'Page.getFrameTree');
     const fid = options.frameId ?? tree?.frameTree?.frame?.id;
-    if (!fid) return nodes;
+    if (!fid) return { nodes };
     const world = await ctx.sendOn<{ executionContextId?: number }>(sessionId, 'Page.createIsolatedWorld', {
       frameId: fid,
       worldName: 'warren-augment',
     });
     contextId = world?.executionContextId;
   } catch {
-    return nodes;
+    return { nodes };
   }
-  if (!contextId) return nodes;
+  if (!contextId) return { nodes };
 
   try {
     const raw = await ctx.sendOn<{ result?: { objectId?: string } }>(sessionId, 'Runtime.evaluate', {
       contextId,
       returnByValue: false,
       expression: `(() => {
-        const opts = ${JSON.stringify({ urls: Boolean(options.urls), includeCursor: Boolean(options.includeCursor), boxes: Boolean(options.boxes) })};
+        const opts = ${JSON.stringify({
+          urls: Boolean(options.urls),
+          includeCursor: Boolean(options.includeCursor),
+          boxes: Boolean(options.boxes),
+          viewportFilter: Boolean(options.viewportFilter),
+          isMainFrame: !options.sessionId,
+        })};
         const tagGetter = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName')?.get;
         const safeTag = (n) => {
           try { return n && n.nodeType === 1 ? String(tagGetter ? tagGetter.call(n) : n.tagName).toLowerCase() : ''; }
@@ -106,18 +115,46 @@ async function augmentFrameWithDom(
           const r = el.getBoundingClientRect();
           return r.width > 0 && r.height > 0;
         };
+        const vw = Math.max(1, innerWidth || document.documentElement?.clientWidth || 1280);
+        const vh = Math.max(1, innerHeight || document.documentElement?.clientHeight || 800);
+        const sx = Math.max(0, Math.round(scrollX || 0));
+        const sy = Math.max(0, Math.round(scrollY || 0));
+        const pw = Math.max(vw, Math.round(document.documentElement?.scrollWidth || vw));
+        const ph = Math.max(vh, Math.round(document.documentElement?.scrollHeight || vh));
+        const belowPx = Math.max(0, ph - (sy + vh));
+        const maxScrollY = Math.max(0, ph - vh);
+        const viewport = opts.isMainFrame ? {
+          width: vw,
+          height: vh,
+          scrollX: sx,
+          scrollY: sy,
+          scrollWidth: pw,
+          scrollHeight: ph,
+          abovePx: sy,
+          belowPx,
+          scrollPercentY: maxScrollY > 0 ? Math.min(100, Math.round((sy / maxScrollY) * 100)) : 100,
+        } : undefined;
+
         const collected = [];
         const passwordIndices = [];
         const hiddenGhostIndices = [];
         const urls = {};
         const extras = [];
         const boxes = {};
+        const viewportBands = opts.viewportFilter ? { above: [], inside: [], below: [] } : undefined;
         const seen = new Set();
 
         const pushEl = (el) => {
           const idx = collected.length;
           collected.push(el);
           return idx;
+        };
+
+        const isInteractiveEl = (el, tag) => {
+          if (/^(a|button|input|select|textarea|summary|option)$/.test(tag)) return true;
+          const role = (el.getAttribute('role') || '').toLowerCase();
+          if (/^(button|link|textbox|checkbox|radio|combobox|menuitem|tab|switch|slider|searchbox|option|treeitem|listbox|gridcell)$/.test(role)) return true;
+          return el.isContentEditable || (el.hasAttribute('tabindex') && Number(el.getAttribute('tabindex')) >= 0);
         };
 
         const walk = (root, parentHasPointer) => {
@@ -163,6 +200,20 @@ async function augmentFrameWithDom(
               continue;
             }
 
+            // 2.5) 真视口内外判定（仅 scope === 'viewport' 时启用）
+            if (viewportBands && isInteractiveEl(el, tag)) {
+              const r = el.getBoundingClientRect();
+              const inModal = Boolean(el.closest('dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]'));
+              const bandIdx = pushEl(el);
+              if (inModal || (r.bottom >= -120 && r.top <= vh + 120 && r.right >= -120 && r.left <= vw + 120)) {
+                viewportBands.inside.push(bandIdx);
+              } else if (r.bottom < -120) {
+                viewportBands.above.push(bandIdx);
+              } else {
+                viewportBands.below.push(bandIdx);
+              }
+            }
+
             // 3) Cursor 交互补盲（排除原生可交互标签与大容器）
             const hasPointer = cs.cursor === 'pointer';
             if (opts.includeCursor && extras.length < 120) {
@@ -171,7 +222,7 @@ async function augmentFrameWithDom(
               const hasAriaInteractive = /^(button|link|textbox|checkbox|radio|combobox|menuitem|tab|switch|slider|searchbox|option|treeitem|listbox|gridcell)$/.test(role);
               if (!isNative && !hasAriaInteractive) {
                 const r = el.getBoundingClientRect();
-                const reasonableSize = r.width >= 8 && r.height >= 8 && r.width * r.height < innerWidth * innerHeight * 0.45;
+                const reasonableSize = r.width >= 8 && r.height >= 8 && r.width * r.height < vw * vh * 0.45;
                 const explicitInteractive =
                   typeof el.onclick === 'function' ||
                   el.hasAttribute('onclick') ||
@@ -205,13 +256,13 @@ async function augmentFrameWithDom(
         walk(document, false);
         return {
           elements: collected,
-          meta: JSON.stringify({ passwordIndices, hiddenGhostIndices, urls, extras, boxes }),
+          meta: JSON.stringify({ passwordIndices, hiddenGhostIndices, urls, extras, boxes, viewport, viewportBands }),
         };
       })()`,
     });
 
     const bundleObjectId = raw?.result?.objectId;
-    if (!bundleObjectId) return nodes;
+    if (!bundleObjectId) return { nodes };
 
     let data: DomAugmentResult | null = null;
     let elementsObjectId: string | undefined;
@@ -242,7 +293,7 @@ async function augmentFrameWithDom(
       if (elementsObjectId) {
         await ctx.sendOn(sessionId, 'Runtime.releaseObject', { objectId: elementsObjectId }).catch(() => {});
       }
-      return nodes;
+      return { nodes };
     }
 
     const indexToBackend = new Map<number, number>();
@@ -251,6 +302,9 @@ async function augmentFrameWithDom(
       ...data.hiddenGhostIndices,
       ...Object.keys(data.urls).map(Number),
       ...data.extras.map((e) => e.idx),
+      ...(data.viewportBands
+        ? [...data.viewportBands.above, ...data.viewportBands.inside, ...data.viewportBands.below]
+        : []),
     ]);
 
     if (elementsObjectId) {
@@ -319,8 +373,28 @@ async function augmentFrameWithDom(
       if (bid !== undefined) urlByBackend.set(bid, href);
     }
 
+    const aboveIds = new Set<number>();
+    const insideIds = new Set<number>();
+    const belowIds = new Set<number>();
+    if (data.viewportBands) {
+      for (const idx of data.viewportBands.above) {
+        const bid = indexToBackend.get(idx);
+        if (bid !== undefined) aboveIds.add(bid);
+      }
+      for (const idx of data.viewportBands.inside) {
+        const bid = indexToBackend.get(idx);
+        if (bid !== undefined) insideIds.add(bid);
+      }
+      for (const idx of data.viewportBands.below) {
+        const bid = indexToBackend.get(idx);
+        if (bid !== undefined) belowIds.add(bid);
+      }
+    }
+
     const existingBackendIds = new Set<number>();
     const filtered: AxNode[] = [];
+    let omittedAbove = 0;
+    let omittedBelow = 0;
     for (const node of nodes) {
       const bid = node.backendNodeId;
       const sameSession = (sessionOfAxNode(node) ?? undefined) === sessionId;
@@ -335,6 +409,17 @@ async function augmentFrameWithDom(
         if (href && /^link$/i.test(node.role)) {
           node.url = href;
         }
+        if (options.viewportFilter && !node.hiddenInput) {
+          if (aboveIds.has(bid)) {
+            omittedAbove += 1;
+            continue;
+          }
+          if (belowIds.has(bid)) {
+            omittedBelow += 1;
+            continue;
+          }
+          if (insideIds.has(bid)) node.inViewport = true;
+        }
       }
       filtered.push(node);
     }
@@ -342,6 +427,16 @@ async function augmentFrameWithDom(
     for (const extra of data.extras) {
       const bid = indexToBackend.get(extra.idx);
       if (bid === undefined || existingBackendIds.has(bid)) continue;
+      if (options.viewportFilter && !extra.hiddenInput) {
+        if (aboveIds.has(bid)) {
+          omittedAbove += 1;
+          continue;
+        }
+        if (belowIds.has(bid)) {
+          omittedBelow += 1;
+          continue;
+        }
+      }
       existingBackendIds.add(bid);
       const extraNode: AxNode = {
         role: extra.role,
@@ -352,24 +447,33 @@ async function augmentFrameWithDom(
         ...(options.frameId ? { frameId: options.frameId } : {}),
         ...(extra.cursorInteractive ? { cursorInteractive: true } : {}),
         ...(extra.hiddenInput ? { hiddenInput: true } : {}),
+        ...(insideIds.has(bid) ? { inViewport: true } : {}),
         ...(data.boxes?.[extra.idx] ? { box: data.boxes[extra.idx] } : {}),
       };
       tagAxNodeSession(extraNode, sessionId);
       filtered.push(extraNode);
     }
 
-    return filtered;
+    const viewport = data.viewport
+      ? {
+          ...data.viewport,
+          ...(omittedAbove > 0 ? { omittedAbove } : {}),
+          ...(omittedBelow > 0 ? { omittedBelow } : {}),
+        }
+      : undefined;
+    return { nodes: filtered, viewport };
   } catch {
-    return nodes;
+    return { nodes };
   }
 }
 
-export async function snapshot(
+export async function snapshotWithMeta(
   ctx: PageContext,
   options: SnapshotOptions & { limit?: number; interestingOnly?: boolean } = {},
-): Promise<AxNode[]> {
-  const scope = options.scope ?? 'viewport';
-  const limit = options.limit ?? (scope === 'full_page' ? 2000 : 600);
+): Promise<{ nodes: AxNode[]; viewport?: ViewportMetrics }> {
+  // 默认保持 full_page 兼容 + 附带视口滚动进度；显式传 `scope: 'viewport'` 时开启真视口过滤
+  const scope = options.scope ?? 'full_page';
+  const limit = options.limit ?? (scope === 'viewport' ? 600 : 2000);
   const frames = await readAxFrames(ctx);
   let onlyFrame: string | undefined = options.frame ?? ctx.activeFrameId?.();
   let allowed: Set<number> | null = null;
@@ -445,30 +549,33 @@ export async function snapshot(
     if (out.length >= limit) break;
   }
 
-  // DOM 补盲（密码定宽脱敏 + 幽灵节点剔除 + 按需 cursor/file-input 救回与 -u URL 解析）
-  // 主 frame 遍历主文档及同源 contentDocument，OOPIF 子会话逐个在各自 sessionId 下执行
   const augmentOpts = {
     urls: options.urls,
     includeCursor: options.includeCursor ?? Boolean(options.interactiveOnly),
     boxes: options.boxes,
+    viewportFilter: scope === 'viewport',
   };
+  let viewport: ViewportMetrics | undefined;
   const mainFrame = frames.find((f) => !f.sessionId);
   if (!onlyFrame || (mainFrame && onlyFrame === mainFrame.frameId)) {
-    out = await augmentFrameWithDom(ctx, out, {
+    const aug = await augmentFrameWithDom(ctx, out, {
       ...augmentOpts,
       frameId: mainFrame?.frameId,
       loaderId: mainFrame?.loaderId,
     });
+    out = aug.nodes;
+    viewport = aug.viewport;
   }
   for (const childFrame of frames) {
     if (!childFrame.sessionId) continue;
     if (onlyFrame && onlyFrame !== childFrame.frameId) continue;
-    out = await augmentFrameWithDom(ctx, out, {
+    const aug = await augmentFrameWithDom(ctx, out, {
       ...augmentOpts,
       frameId: childFrame.frameId,
       loaderId: childFrame.loaderId,
       sessionId: childFrame.sessionId,
     });
+    out = aug.nodes;
   }
   if (options.interactiveOnly) {
     out = out.filter((n) => INTERACTIVE_ROLE_RE.test(n.role) || n.cursorInteractive || n.hiddenInput);
@@ -477,7 +584,6 @@ export async function snapshot(
     out = out.filter((n) => roles.has(n.role.toLowerCase()));
   }
 
-  // 若显式要求 boxes，有界并发补齐尚未带 box 的可交互节点坐标
   if (options.boxes) {
     const needBox = out.filter((n) => !n.box && n.backendNodeId && isActionableRole(n.role));
     let cursor = 0;
@@ -507,7 +613,14 @@ export async function snapshot(
     if (options.includeStableLocator) n.locator = stableLocator(n);
     if (options.includeActionMarks) n.actions = actionMarks(n.role);
   }
-  return out.slice(0, limit);
+  return { nodes: out.slice(0, limit), ...(viewport ? { viewport } : {}) };
+}
+
+export async function snapshot(
+  ctx: PageContext,
+  options: SnapshotOptions & { limit?: number; interestingOnly?: boolean } = {},
+): Promise<AxNode[]> {
+  return (await snapshotWithMeta(ctx, options)).nodes;
 }
 
 /**
@@ -529,6 +642,7 @@ export function assignRefs(ctx: PageContext, nodes: AxNode[], options: { include
             sessionId: sessionOfAxNode(node),
             role: node.role,
             name: node.name,
+            ...(node.containerScope ? { containerScope: node.containerScope } : {}),
           }
         : undefined,
     ),

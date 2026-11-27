@@ -14,11 +14,15 @@ import { isSensitiveHeader, isSensitiveKey } from '../redact.ts';
 const SECRET_VALUE_RE = /(?:bearer\s+[a-z0-9._-]{12,}|sk-[a-z0-9]{16,}|ghp_[a-z0-9]{20,}|password\s*[:=]\s*\S+)/i;
 
 export interface FlowStepCandidate {
+  ref?: string;
+  stepId?: string;
+  stepLabel?: string;
   method: 'GET';
   url: string;
   status: number;
   resourceType: string;
   suggestedTemplate: string;
+  matchedParams?: Array<{ param: string; value: string; sourceStepId: string }>;
 }
 
 /** 校验并清洗 Flow 名称（仅允许小写字母、数字、点、下划线、连字符）。 */
@@ -199,8 +203,133 @@ export interface RunFlowResult {
 }
 
 /**
- * 执行一条只读 Saved Flow：在页面上下文内发 GET `fetch`（复用当前环境 Session），
- * 解析 JSON 并应用 `extractPath` / `--where` / `--fields` / `--limit` 及字段漂移检测。
+ * 从示例 JSON 响应体自动推断最显著的记录数组路径 `extractPath` 与前 12 个标量字段 `fields`。
+ */
+export function inferFlowSchema(payload: unknown): { extractPath?: string; fields?: string[] } {
+  const pickScalarFields = (sample: Record<string, unknown>): string[] =>
+    Object.entries(sample)
+      .filter(([, v]) => v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+      .map(([k]) => k)
+      .slice(0, 12);
+
+  if (Array.isArray(payload)) {
+    const first = payload.find((it) => it && typeof it === 'object' && !Array.isArray(it)) as
+      Record<string, unknown> | undefined;
+    return first ? { fields: pickScalarFields(first) } : {};
+  }
+  if (!payload || typeof payload !== 'object') return {};
+
+  let best: { path: string; rows: Record<string, unknown>[] } | null = null;
+  const walk = (node: unknown, prefix: string, depth: number) => {
+    if (depth > 4 || !node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      const objs = node.filter((it): it is Record<string, unknown> =>
+        Boolean(it && typeof it === 'object' && !Array.isArray(it)),
+      );
+      if (objs.length > 0 && (!best || objs.length > best.rows.length)) {
+        best = { path: prefix, rows: objs };
+      }
+      return;
+    }
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      walk(v, prefix ? `${prefix}.${k}` : k, depth + 1);
+    }
+  };
+  walk(payload, '', 0);
+  if (!best) return {};
+  const found = best as { path: string; rows: Record<string, unknown>[] };
+  const fields = found.rows[0] ? pickScalarFields(found.rows[0]) : undefined;
+  return {
+    ...(found.path ? { extractPath: found.path } : {}),
+    ...(fields && fields.length > 0 ? { fields } : {}),
+  };
+}
+
+/**
+ * 零手写模板保存：基于已录制的只读 GET 请求（如 `s3r1`）与用户指定的 `--param key=sampleValue`
+ * 自动把 URL 中的查询参数/字面量值参数化为 `{{key}}`，并结合响应样本自动推断 `extractPath`/`fields`。
+ */
+export function buildFlowSpecFromRecordedRequest(
+  recordedUrl: string,
+  options: {
+    params?: Record<string, string>;
+    extractPath?: string;
+    fields?: string[];
+    description?: string;
+    sampleBody?: string;
+  } = {},
+): { site: string; spec: SavedFlowSpec } {
+  let u: URL;
+  try {
+    u = new URL(recordedUrl);
+  } catch {
+    throw richErr('BAD_REQUEST', `录制的请求 URL 非法：${recordedUrl}`);
+  }
+  const templateUrl = new URL(`${u.origin}${u.pathname}`);
+  const explicitParams = options.params ?? {};
+
+  const matchedExplicit = new Set<string>();
+  for (const [k, v] of u.searchParams) {
+    if (isSensitiveHeader(k) || isSensitiveKey(k)) continue;
+    let placeholderName: string | undefined;
+    if (k in explicitParams) {
+      placeholderName = k;
+      matchedExplicit.add(k);
+    } else {
+      for (const [pName, pSample] of Object.entries(explicitParams)) {
+        if (pSample && v.toLowerCase() === pSample.toLowerCase()) {
+          placeholderName = pName;
+          matchedExplicit.add(pName);
+          break;
+        }
+      }
+    }
+    templateUrl.searchParams.set(k, placeholderName ? `{{${placeholderName}}}` : v);
+  }
+
+  let urlTemplate = decodeURIComponent(templateUrl.toString());
+  for (const [pName, pSample] of Object.entries(explicitParams)) {
+    if (matchedExplicit.has(pName) || !pSample) continue;
+    const escaped = pSample.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const segRe = new RegExp(`(?<=/)${escaped}(?=/|$|\\?)`);
+    if (segRe.test(urlTemplate)) {
+      urlTemplate = urlTemplate.replace(segRe, `{{${pName}}}`);
+      matchedExplicit.add(pName);
+    }
+  }
+
+  let inferred: { extractPath?: string; fields?: string[] } = {};
+  if (options.sampleBody) {
+    try {
+      inferred = inferFlowSchema(JSON.parse(options.sampleBody));
+    } catch {
+      inferred = {};
+    }
+  }
+
+  return sanitizeFlowSpec({
+    method: 'GET',
+    urlTemplate,
+    extractPath: options.extractPath ?? inferred.extractPath,
+    fields: options.fields && options.fields.length > 0 ? options.fields : inferred.fields,
+    description: options.description,
+  });
+}
+
+function collectRowKeys(rows: readonly unknown[]): string[] {
+  const keys = new Set<string>();
+  for (const item of rows.slice(0, 10)) {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      for (const k of Object.keys(item as Record<string, unknown>)) keys.add(k);
+    }
+  }
+  return [...keys];
+}
+
+/**
+ * 执行一条只读 Saved Flow：在页面或环境 Session 内发 GET `fetch`（复用隔离登录态），
+ * 解析 JSON 并应用状态码分类（401/403/429）、`extractPath`、宽容子串/精确 `--where`、
+ * 字段合法性校验、`--fields` 投影、`--limit` 截断及字段漂移检测。
  */
 export async function executeSavedFlow(
   record: SavedFlowRecord,
@@ -212,6 +341,19 @@ export async function executeSavedFlow(
     method: 'GET',
     ...(record.spec.headers ? { headers: record.spec.headers } : {}),
   });
+  if (res.status === 401 || res.status === 403) {
+    throw richErr(
+      'FLOW_AUTH_EXPIRED',
+      `Flow "${record.name}" 鉴权失败（HTTP ${res.status}），请先在目标环境重新登录 ${record.site} 后重试`,
+    );
+  }
+  if (res.status === 429) {
+    throw richErr('FLOW_RATE_LIMITED', `Flow "${record.name}" 触发站点限流（HTTP 429），请稍后降频重试`);
+  }
+  if (res.status >= 400 || res.status === 0) {
+    throw richErr('FLOW_HTTP_ERROR', `Flow "${record.name}" 请求失败（HTTP ${res.status} ${res.statusText || ''}）`);
+  }
+
   let payload: unknown = res.body ?? '';
   if (typeof res.body === 'string') {
     try {
@@ -225,13 +367,27 @@ export async function executeSavedFlow(
 
   if (Array.isArray(extracted)) {
     let rows: unknown[] = extracted;
-    if (options.where && Object.keys(options.where).length > 0) {
+    if (options.where && Object.keys(options.where).length > 0 && rows.length > 0) {
+      const availableKeys = collectRowKeys(rows);
+      for (const rawKey of Object.keys(options.where)) {
+        const key = rawKey.endsWith('=') ? rawKey.slice(0, -1).trim() : rawKey.trim();
+        const rootField = key.split('.')[0]!;
+        if (availableKeys.length > 0 && !availableKeys.includes(rootField)) {
+          throw richErr(
+            'FLOW_UNKNOWN_FIELD',
+            `Flow "${record.name}" 中不存在过滤字段 "${key}"；可用字段：${availableKeys.slice(0, 20).join(', ')}`,
+          );
+        }
+      }
       rows = rows.filter((item) => {
         if (!item || typeof item !== 'object') return false;
         const rec = item as Record<string, unknown>;
-        return Object.entries(options.where!).every(([k, want]) => {
-          const actual = getByPath(rec, k);
-          return String(actual ?? '').toLowerCase() === want.toLowerCase();
+        return Object.entries(options.where!).every(([rawKey, want]) => {
+          const exact = rawKey.endsWith('=');
+          const key = exact ? rawKey.slice(0, -1).trim() : rawKey.trim();
+          const actual = String(getByPath(rec, key) ?? '').toLowerCase();
+          const needle = String(want ?? '').toLowerCase();
+          return exact ? actual === needle : actual.includes(needle);
         });
       });
     }

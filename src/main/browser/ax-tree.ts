@@ -138,8 +138,12 @@ function statesOf(node: Record<string, unknown>) {
 const TRANSPARENT_ROLE_RE =
   /^(RootWebArea|generic|none|presentation|LayoutTable|LayoutTableRow|LayoutTableCell|InlineTextBox|LineBreak)$/i;
 
+/** 语义容器角色：作为 `containerScope` 传给子树，供同名控件 ref 自愈优先在同容器内匹配。 */
+const SCOPE_CONTAINER_ROLE_RE =
+  /^(dialog|alertdialog|form|region|navigation|main|complementary|banner|contentinfo|table|row|listitem|article|tabpanel|menu|listbox)$/i;
+
 /**
- * 基于 `childIds` 深度优先遍历单帧 AX 树，还原真实语义缩进 `depth`，
+ * 基于 `childIds` 深度优先遍历单帧 AX 树，还原真实语义缩进 `depth` 与 `containerScope`，
  * 同时完成：
  * 1. `MenuListPopup` / `<select>` 的选项摘要合并到父 `combobox.optionsSummary`；
  * 2. 剪除与父按钮/链接完全同名的冗余子 `StaticText`；
@@ -220,7 +224,7 @@ export function buildHierarchicalAxNodes(
     return opts;
   };
 
-  const dfs = (nodeId: string, depth: number, parentRole: string, parentNameNorm: string) => {
+  const dfs = (nodeId: string, depth: number, parentRole: string, parentNameNorm: string, containerScope: string) => {
     if (out.length >= limit || visited.has(nodeId)) return;
     visited.add(nodeId);
     const node = byId.get(nodeId);
@@ -228,7 +232,7 @@ export function buildHierarchicalAxNodes(
     const kids = (node.childIds as unknown[] | undefined)?.map(String) ?? [];
 
     if (node.ignored) {
-      for (const kid of kids) dfs(kid, depth, parentRole, parentNameNorm);
+      for (const kid of kids) dfs(kid, depth, parentRole, parentNameNorm, containerScope);
       return;
     }
 
@@ -259,6 +263,10 @@ export function buildHierarchicalAxNodes(
     let nextDepth = depth;
     let nextParentRole = parentRole;
     let nextParentName = parentNameNorm;
+    let nextContainerScope = containerScope;
+    if (SCOPE_CONTAINER_ROLE_RE.test(role) && (nameNorm || /^(dialog|alertdialog|form|main)$/i.test(role))) {
+      nextContainerScope = nameNorm ? `${role.toLowerCase()}:${nameNorm.slice(0, 40)}` : role.toLowerCase();
+    }
 
     if (isMeaningful) {
       // 合并同一深度连续的 StaticText，削减碎片段
@@ -295,6 +303,7 @@ export function buildHierarchicalAxNodes(
         description: (node.description as { value?: string } | undefined)?.value,
         depth,
         loaderId: frame.loaderId,
+        ...(containerScope ? { containerScope } : {}),
         ...(optionsSummary ? { optionsSummary } : {}),
         ...statesOf(node),
         ...(includeFrameId ? { frameId: frame.frameId } : {}),
@@ -307,13 +316,13 @@ export function buildHierarchicalAxNodes(
     }
 
     for (const kid of kids) {
-      dfs(kid, nextDepth, nextParentRole, nextParentName);
+      dfs(kid, nextDepth, nextParentRole, nextParentName, nextContainerScope);
       if (out.length >= limit) break;
     }
   };
 
   for (const r of roots) {
-    dfs(r, 0, '', '');
+    dfs(r, 0, '', '', '');
     if (out.length >= limit) break;
   }
   return out;

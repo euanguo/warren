@@ -513,6 +513,13 @@ export async function resolveLocatorTarget(
     const freshNodes = await readAxNodes(ctx, 2000).catch(() => []);
     const healed = ctx.refs.tryHeal(norm.ref, freshNodes);
     if (healed) {
+      const meta = ctx.refs.getMeta(norm.ref);
+      ctx.noteHealedRef?.({
+        ref: meta?.ref ?? norm.ref,
+        role: meta?.role ?? 'element',
+        name: meta?.name ?? '',
+        ...(meta?.containerScope ? { containerScope: meta.containerScope } : {}),
+      });
       const healedSession =
         healed.sessionId ?? (await frameOfBackendId(ctx, healed.backendId).catch(() => undefined))?.sessionId;
       return { backendNodeId: healed.backendId, sessionId: healedSession };

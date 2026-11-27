@@ -3,8 +3,15 @@
  */
 import type { BrowserShortcut } from '../../shared/types.ts';
 import { asTargetInput } from '../browser/parse-params.ts';
+import { execStateStore, writeExecCheckpoint } from '../env/exec-state.ts';
 import type { RpcContext, RpcDomainTable, RpcEndpointDef } from './types.ts';
 import { RpcError } from './types.ts';
+
+function execScopeKey(ctx: RpcContext): string {
+  const id = ctx.str('id');
+  const session = ctx.optStr('session')?.trim() || 'default';
+  return `${id}:${ctx.space}:${session}`;
+}
 
 function debugEndpoint(spec: Omit<RpcEndpointDef, 'gate'> & { windowCommand?: boolean }): RpcEndpointDef {
   return {
@@ -58,6 +65,34 @@ export const systemRpcEndpoints: RpcDomainTable = {
     params: [],
     gate: 'none',
     handler: ({ deps }) => ({ reclaimed: deps.memoryMonitor?.reclaimShellSurfaces(0) ?? 0 }),
+  },
+  'exec.state.get': {
+    kind: 'read',
+    summary: '读取当前环境/会话的 warren exec 持久化内存 state',
+    params: ['id', 'session?'],
+    gate: 'read',
+    handler: (ctx) => execStateStore.get(execScopeKey(ctx)),
+  },
+  'exec.state.set': {
+    kind: 'change',
+    summary: '写入当前环境/会话的 warren exec 持久化内存 state',
+    params: ['id', 'state', 'session?', 'leaseId'],
+    gate: 'write',
+    handler: (ctx) => execStateStore.set(execScopeKey(ctx), ctx.params.state),
+  },
+  'exec.state.clear': {
+    kind: 'change',
+    summary: '清空当前环境/会话的 warren exec 持久化内存 state',
+    params: ['id', 'session?', 'leaseId'],
+    gate: 'write',
+    handler: (ctx) => execStateStore.clear(execScopeKey(ctx)),
+  },
+  'exec.checkpoint': {
+    kind: 'change',
+    summary: '将 warren exec 中间结果原子落盘至受控 checkpoint 目录',
+    params: ['id', 'name', 'value', 'leaseId'],
+    gate: 'write',
+    handler: (ctx) => writeExecCheckpoint(ctx.str('id'), ctx.str('name'), ctx.params.value),
   },
   'debug.layout': debugEndpoint({
     kind: 'read',

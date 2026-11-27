@@ -13,6 +13,7 @@ import { dispatchRpc, findRpcMethods, RPC_REGISTRY, type DispatchDeps } from '..
 const READ_ONLY = new Set([
   'tab.list',
   'browser.snapshot',
+  'browser.readBatch',
   'browser.get',
   'browser.is',
   'browser.diff',

@@ -41,8 +41,10 @@ export function withSnapshotText(snapshot) {
  */
 const PROBED_PROPS = new Set(['then', 'toJSON', 'inspect']);
 
+import { suggestClosestMethods } from './exec-api-schema.mjs';
+
 /**
- * 包一层 Proxy：**只有访问不存在的属性**才报 `UNSUPPORTED_PAGE_API`。
+ * 包一层 Proxy：**只有访问不存在的属性**才报 `UNSUPPORTED_PAGE_API`，并附带最相近的合法方法推荐。
  *
  * 已存在的属性（含原型上的）原样返回；`in`、`ownKeys`、`JSON.stringify` 全都透传，
  * 所以 `JSON.stringify(page)`、`Object.keys(page)`、解构都不会受影响。
@@ -54,10 +56,19 @@ export function guardApi(api, label) {
     get(target, prop, receiver) {
       if (typeof prop === 'symbol' || prop in target) return Reflect.get(target, prop, receiver);
       if (PROBED_PROPS.has(prop)) return undefined;
-      throw Object.assign(
-        new Error(`UNSUPPORTED_PAGE_API: ${label}.${String(prop)} 不存在，可用方法见 warren exec --capabilities`),
-        { code: 'UNSUPPORTED_PAGE_API' },
+      const suggestions = suggestClosestMethods(
+        String(prop),
+        Object.keys(target).filter((k) => typeof target[k] === 'function'),
+        3,
       );
+      const hint =
+        suggestions.length > 0
+          ? `；最相近的合法方法：${suggestions.join(', ')}（可用 help("${suggestions[0]}") 或 warren exec --capabilities --detailed）`
+          : '，可用 help() 或 warren exec --capabilities --detailed 查清单';
+      throw Object.assign(new Error(`UNSUPPORTED_PAGE_API: ${label}.${String(prop)} 不存在${hint}`), {
+        code: 'UNSUPPORTED_PAGE_API',
+        ...(suggestions.length > 0 ? { suggestions } : {}),
+      });
     },
   });
 }

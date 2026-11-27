@@ -61,17 +61,23 @@ export function isRetryable(error: unknown): boolean {
   return RETRYABLE.has((error as { code?: string })?.code ?? '');
 }
 
+export interface ActionRetryOptions<T> {
+  name: string;
+  timeoutMs?: number;
+  /** 遇到联动表单短暂 disabled（如上级下拉触发下级解锁）时的最小宽限等待窗口 ms（默认 1500）。 */
+  disabledGraceMs?: number;
+  attempt: (retry: number) => Promise<T>;
+}
+
 /**
  * 动作重试循环。每次 attempt **重新解析目标**——DOM 重渲染后拿到的是新节点。
  * 不可重试的错误直接抛原错，不要把它们拖到超时。
  */
-export async function runAction<T>(options: {
-  name: string;
-  timeoutMs?: number;
-  attempt: (retry: number) => Promise<T>;
-}): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? ACTION_TIMEOUT_DEFAULT;
-  const deadline = Date.now() + timeoutMs;
+export async function runAction<T>(options: ActionRetryOptions<T>): Promise<T> {
+  const baseTimeoutMs = options.timeoutMs ?? ACTION_TIMEOUT_DEFAULT;
+  const startedAt = Date.now();
+  let deadline = startedAt + baseTimeoutMs;
+  const disabledGraceMs = options.disabledGraceMs ?? (options.timeoutMs === undefined ? 1500 : 0);
   const history: string[] = [];
   let lastDetails: Record<string, unknown> | undefined;
   for (let retry = 0; ; retry++) {
@@ -84,10 +90,13 @@ export async function runAction<T>(options: {
       if (errObj?.details?.data) lastDetails = errObj.details.data;
       history.push(`#${retry + 1} ${code}: ${message.slice(0, 200)}`);
       if (!isRetryable(error)) throw error;
+      if (disabledGraceMs > 0 && /disabled/i.test(message)) {
+        deadline = Math.max(deadline, startedAt + disabledGraceMs);
+      }
       if (Date.now() >= deadline) {
         throw richErr(
           'TIMEOUT',
-          `${options.name} 超时 ${timeoutMs}ms（${retry + 1} 次尝试）\n  ${history.slice(-10).join('\n  ')}`,
+          `${options.name} 超时 ${Math.max(baseTimeoutMs, deadline - startedAt)}ms（${retry + 1} 次尝试）\n  ${history.slice(-10).join('\n  ')}`,
           lastDetails ? { data: lastDetails } : undefined,
         );
       }

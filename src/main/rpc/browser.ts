@@ -14,6 +14,8 @@ import {
   mouseUp,
   mouseWheel,
 } from '../browser/keymouse.ts';
+import { markSnapshotFresh, runWithActionDelta } from '../browser/ops/action-delta.ts';
+import { actionTraceRing } from '../browser/ops/action-trace.ts';
 import {
   executeBatch,
   executeFindAction,
@@ -23,10 +25,12 @@ import {
   parseBatchLines,
   type BatchStep,
 } from '../browser/ops/batch.ts';
+import { sessionContextTracker } from '../browser/ops/context-tracker.ts';
 import { auditAccessibility, collectVitals, inspectReactTree, printPdf } from '../browser/ops/diagnostics.ts';
 import { diffScreenshots, diffSnapshots, getLastSnapshot, rememberSnapshot } from '../browser/ops/diff.ts';
 import { applyEmulationSetting } from '../browser/ops/emulation.ts';
 import { targetFromBy, type InspectProp, type InspectState } from '../browser/ops/inspector.ts';
+import { actionLoopDetector } from '../browser/ops/loop-detector.ts';
 import { callWebMcpTool, listWebMcpTools } from '../browser/ops/webmcp.ts';
 import { readPage } from '../browser/ops/reader.ts';
 import { formatCompactSnapshot } from '../browser/ops/snapshot-compact.ts';
@@ -53,10 +57,102 @@ import {
   asWaitOptions,
   asWaitPredicate,
 } from '../browser/parse-params.ts';
-import { RpcError, type RpcDomainTable } from './types.ts';
+import { RpcError, type RpcContext, type RpcDomainTable } from './types.ts';
 
 function asArgsRecord(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function scopeKeyOf(ctx: RpcContext, id: string): string {
+  return `${id}:${ctx.space}:${ctx.tab ?? 'active'}`;
+}
+
+function targetKeyOf(params: Record<string, unknown>): string {
+  if (typeof params.target === 'string') return params.target;
+  if (typeof params.url === 'string') return params.url;
+  if (typeof params.key === 'string') return params.key;
+  if (typeof params.chord === 'string') return params.chord;
+  if (params.target && typeof params.target === 'object') {
+    try {
+      return JSON.stringify(params.target);
+    } catch {
+      return 'target';
+    }
+  }
+  return '';
+}
+
+function lastNetworkIdOf(ctx: RpcContext, id: string): number {
+  const list = typeof ctx.deps.manager.networkEntries === 'function' ? ctx.deps.manager.networkEntries(id) : [];
+  if (!Array.isArray(list) || list.length === 0) return 0;
+  const last = list[list.length - 1];
+  return typeof last?.id === 'number' ? last.id : 0;
+}
+
+/**
+ * 为单步写动作统一挂接：
+ * 1. 自动动作轨迹录制（供 `flow steps` / 零模板 `flow save` 使用，严格不记密码/isSecret）；
+ * 2. 当 `includeDelta: true` 时采集统一 `ActionDelta` 回执、首访上下文与死循环探测。
+ */
+async function withOptionalDelta<T>(ctx: RpcContext, fn: () => Promise<T> | T, actionName?: string): Promise<unknown> {
+  const id = ctx.optStr('id');
+  const action = actionName ?? ctx.method.replace(/^browser\./, '');
+  const targetKey = targetKeyOf(ctx.params);
+  const netBeforeId = id ? lastNetworkIdOf(ctx, id) : 0;
+  const controller = id ? ctx.controller(id) : undefined;
+  const urlBefore = controller ? controller.currentUrl() : '';
+
+  const recordTrace = () => {
+    if (!id || !controller) return;
+    const rawValue = typeof ctx.params.value === 'string' ? ctx.params.value : undefined;
+    const isSecret = Boolean(ctx.params.isSecret);
+    actionTraceRing.record(id, {
+      action,
+      ...(targetKey ? { target: targetKey } : {}),
+      ...(rawValue !== undefined ? { value: rawValue } : {}),
+      isSecret,
+      urlBefore,
+      urlAfter: controller.currentUrl(),
+      netBeforeId,
+      netAfterId: lastNetworkIdOf(ctx, id),
+    });
+  };
+
+  if (ctx.params.includeDelta !== true || !id || !controller) {
+    const res = await fn();
+    recordTrace();
+    return res;
+  }
+
+  const scopeKey = scopeKeyOf(ctx, id);
+  const res = await runWithActionDelta(
+    {
+      client: controller,
+      scopeKey,
+      networkEntries: () => ctx.deps.manager.networkEntries(id),
+      networkEntriesSince:
+        typeof ctx.deps.manager.networkEntriesSince === 'function'
+          ? (afterId) => ctx.deps.manager.networkEntriesSince(id, afterId)
+          : undefined,
+      resolveContextHints: (url) => {
+        const siteNotes = ctx.deps.store.matchSiteNotesForUrl?.(url) ?? [];
+        const savedFlows = ctx.deps.store.matchSavedFlowsForUrl?.(url) ?? [];
+        if (siteNotes.length === 0 && savedFlows.length === 0) return undefined;
+        const consumed = sessionContextTracker.consumeHints(scopeKey, url, { siteNotes, savedFlows });
+        return { siteNotes: consumed.siteNotes, savedFlows: consumed.savedFlows };
+      },
+      recordLoopProbe: (probe) =>
+        actionLoopDetector.record(scopeKey, {
+          action,
+          targetKey,
+          ...probe,
+        }),
+      includeText: ctx.params.includeText !== false,
+    },
+    async () => fn(),
+  );
+  recordTrace();
+  return res;
 }
 
 export const browserRpcEndpoints: RpcDomainTable = {
@@ -64,42 +160,51 @@ export const browserRpcEndpoints: RpcDomainTable = {
   'browser.navigate': {
     kind: 'change',
     summary: '导航到指定 URL',
-    params: ['id', 'url', 'leaseId', 'waitUntil?'],
+    params: ['id', 'url', 'leaseId', 'waitUntil?', 'includeDelta?'],
     gate: 'write',
     wake: true,
-    handler: (ctx) => ctx.controller().navigate(ctx.str('url'), asNavigateOptions(ctx.params)),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () => ctx.controller().navigate(ctx.str('url'), asNavigateOptions(ctx.params))),
   },
   'browser.reload': {
     kind: 'change',
     summary: '刷新当前页',
-    params: ['id', 'leaseId', 'waitUntil?'],
+    params: ['id', 'leaseId', 'waitUntil?', 'includeDelta?'],
     gate: 'write',
     wake: true,
-    handler: (ctx) => ctx.controller().reload(asNavigateOptions(ctx.params)),
+    handler: (ctx) => withOptionalDelta(ctx, () => ctx.controller().reload(asNavigateOptions(ctx.params))),
   },
   'browser.goBack': {
     kind: 'change',
     summary: '后退',
-    params: ['id', 'leaseId'],
+    params: ['id', 'leaseId', 'includeDelta?'],
     gate: 'write',
     wake: true,
-    handler: (ctx) => {
-      const c = ctx.controller();
-      c.goBack();
-      return c.navigationState();
-    },
+    handler: (ctx) =>
+      withOptionalDelta(ctx, async () => {
+        const c = ctx.controller();
+        c.goBack();
+        if (ctx.params.includeDelta === true) {
+          await c.waitForLoadState('domcontentloaded', { timeoutMs: 3000 }).catch(() => {});
+        }
+        return c.navigationState();
+      }),
   },
   'browser.goForward': {
     kind: 'change',
     summary: '前进',
-    params: ['id', 'leaseId'],
+    params: ['id', 'leaseId', 'includeDelta?'],
     gate: 'write',
     wake: true,
-    handler: (ctx) => {
-      const c = ctx.controller();
-      c.goForward();
-      return c.navigationState();
-    },
+    handler: (ctx) =>
+      withOptionalDelta(ctx, async () => {
+        const c = ctx.controller();
+        c.goForward();
+        if (ctx.params.includeDelta === true) {
+          await c.waitForLoadState('domcontentloaded', { timeoutMs: 3000 }).catch(() => {});
+        }
+        return c.navigationState();
+      }),
   },
   'browser.set': {
     kind: 'change',
@@ -212,18 +317,18 @@ export const browserRpcEndpoints: RpcDomainTable = {
   'browser.acceptDialog': {
     kind: 'change',
     summary: '确认当前 JS 对话框',
-    params: ['id', 'prompt?', 'leaseId'],
+    params: ['id', 'prompt?', 'leaseId', 'includeDelta?'],
     gate: 'dialog',
     wake: true,
-    handler: (ctx) => ctx.controller().acceptDialog(ctx.optStr('prompt')),
+    handler: (ctx) => withOptionalDelta(ctx, () => ctx.controller().acceptDialog(ctx.optStr('prompt'))),
   },
   'browser.dismissDialog': {
     kind: 'change',
     summary: '取消当前 JS 对话框',
-    params: ['id', 'leaseId'],
+    params: ['id', 'leaseId', 'includeDelta?'],
     gate: 'dialog',
     wake: true,
-    handler: (ctx) => ctx.controller().dismissDialog(),
+    handler: (ctx) => withOptionalDelta(ctx, () => ctx.controller().dismissDialog()),
   },
   'browser.dialogPolicy': {
     kind: 'change',
@@ -242,96 +347,119 @@ export const browserRpcEndpoints: RpcDomainTable = {
   // ── 页面输入动作（input：租约 + 临时在屏挂接 + 弹窗保护）───────
   'browser.click': {
     kind: 'change',
-    summary: '等待可用性并点击元素（支持 newTab/humanize）',
-    params: ['id', 'target', 'leaseId', 'newTab?', 'humanize?'],
+    summary: '等待可用性并点击元素（支持 newTab/humanize/ActionDelta）',
+    params: ['id', 'target', 'leaseId', 'newTab?', 'humanize?', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => ctx.controller().click(asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () =>
+        ctx.controller().click(asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+      ),
   },
   'browser.dblclick': {
     kind: 'change',
     summary: '真实两连击状态机双击元素',
-    params: ['id', 'target', 'leaseId'],
+    params: ['id', 'target', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => ctx.controller().dblclick(asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () =>
+        ctx.controller().dblclick(asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+      ),
   },
   'browser.hover': {
     kind: 'change',
     summary: '悬停元素',
-    params: ['id', 'target', 'leaseId'],
+    params: ['id', 'target', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => ctx.controller().hover(asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () =>
+        ctx.controller().hover(asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+      ),
   },
   'browser.drag': {
     kind: 'change',
     summary: '拖拽元素（支持 before/after/center 与 HTML5 降级）',
-    params: ['id', 'source', 'target', 'leaseId', 'placement?'],
+    params: ['id', 'source', 'target', 'leaseId', 'placement?', 'includeDelta?'],
     gate: 'input',
     wake: true,
     handler: (ctx) =>
-      ctx
-        .controller()
-        .drag(asTargetInput(ctx.params.source), asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+      withOptionalDelta(ctx, () =>
+        ctx
+          .controller()
+          .drag(asTargetInput(ctx.params.source), asTargetInput(ctx.params.target), asClickOptions(ctx.params)),
+      ),
   },
   'browser.drop': {
     kind: 'change',
     summary: '向拖放区注入本地文件 DataTransfer',
-    params: ['id', 'target', 'paths', 'leaseId'],
+    params: ['id', 'target', 'paths', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
     handler: (ctx) =>
-      ctx.controller().dropFiles(asTargetInput(ctx.params.target), asStringArray(ctx.params.paths), {
-        timeoutMs: ctx.num('timeoutMs'),
-      }),
+      withOptionalDelta(ctx, () =>
+        ctx.controller().dropFiles(asTargetInput(ctx.params.target), asStringArray(ctx.params.paths), {
+          timeoutMs: ctx.num('timeoutMs'),
+        }),
+      ),
   },
   'browser.fill': {
     kind: 'change',
-    summary: '智能清空并填写表单/富文本（支持 --submit）',
-    params: ['id', 'target', 'value', 'leaseId', 'submit?'],
+    summary: '智能清空并填写表单/富文本/表格单元格（支持 --submit）',
+    params: ['id', 'target', 'value', 'leaseId', 'submit?', 'includeDelta?'],
     gate: 'input',
     wake: true,
     handler: (ctx) => {
       if (typeof ctx.params.value !== 'string') {
         throw Object.assign(new Error('missing string param: value'), { code: 'BAD_REQUEST' });
       }
-      return ctx.controller().fill(asTargetInput(ctx.params.target), ctx.params.value, asFillOptions(ctx.params));
+      return withOptionalDelta(ctx, () =>
+        ctx.controller().fill(asTargetInput(ctx.params.target), ctx.params.value as string, asFillOptions(ctx.params)),
+      );
     },
   },
   'browser.selectOption': {
     kind: 'change',
-    summary: '选择下拉选项（原生 select + ARIA combobox/listbox）',
-    params: ['id', 'target', 'value', 'leaseId', 'by?'],
+    summary: '选择下拉选项（原生 select + ARIA combobox/listbox/多值 chip）',
+    params: ['id', 'target', 'value', 'leaseId', 'by?', 'includeDelta?'],
     gate: 'input',
     wake: true,
     handler: (ctx) =>
-      ctx.controller().selectOption(asTargetInput(ctx.params.target), asSelectValue(ctx.params.value), {
-        timeoutMs: ctx.num('timeoutMs'),
-        by:
-          ctx.params.by === 'value' ||
-          ctx.params.by === 'label' ||
-          ctx.params.by === 'index' ||
-          ctx.params.by === 'auto'
-            ? ctx.params.by
-            : undefined,
-      }),
+      withOptionalDelta(ctx, () =>
+        ctx.controller().selectOption(asTargetInput(ctx.params.target), asSelectValue(ctx.params.value), {
+          timeoutMs: ctx.num('timeoutMs'),
+          by:
+            ctx.params.by === 'value' ||
+            ctx.params.by === 'label' ||
+            ctx.params.by === 'index' ||
+            ctx.params.by === 'auto'
+              ? ctx.params.by
+              : undefined,
+        }),
+      ),
   },
   'browser.check': {
     kind: 'change',
     summary: '幂等勾选 checkbox/radio/switch',
-    params: ['id', 'target', 'leaseId'],
+    params: ['id', 'target', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => ctx.controller().check(asTargetInput(ctx.params.target), { timeoutMs: ctx.num('timeoutMs') }),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () =>
+        ctx.controller().check(asTargetInput(ctx.params.target), { timeoutMs: ctx.num('timeoutMs') }),
+      ),
   },
   'browser.uncheck': {
     kind: 'change',
     summary: '幂等取消勾选 checkbox/switch',
-    params: ['id', 'target', 'leaseId'],
+    params: ['id', 'target', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => ctx.controller().uncheck(asTargetInput(ctx.params.target), { timeoutMs: ctx.num('timeoutMs') }),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () =>
+        ctx.controller().uncheck(asTargetInput(ctx.params.target), { timeoutMs: ctx.num('timeoutMs') }),
+      ),
   },
   'browser.scrollIntoView': {
     kind: 'change',
@@ -344,33 +472,39 @@ export const browserRpcEndpoints: RpcDomainTable = {
   'browser.focus': {
     kind: 'change',
     summary: '聚焦目标元素',
-    params: ['id', 'target', 'leaseId'],
+    params: ['id', 'target', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => ctx.controller().focus(asTargetInput(ctx.params.target), asFocusOptions(ctx.params)),
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () =>
+        ctx.controller().focus(asTargetInput(ctx.params.target), asFocusOptions(ctx.params)),
+      ),
   },
   'browser.press': {
     kind: 'change',
     summary: '发送按键/组合键',
-    params: ['id', 'target?', 'key|chord', 'leaseId'],
+    params: ['id', 'target?', 'key|chord', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
-    handler: (ctx) => {
-      if (ctx.params.target === undefined) return ctx.controller().press(ctx.str('key'));
-      return ctx.controller().press(asTargetInput(ctx.params.target), ctx.str('chord'), {
-        delay: ctx.num('delay'),
-        timeoutMs: ctx.num('timeoutMs'),
-      });
-    },
+    handler: (ctx) =>
+      withOptionalDelta(ctx, () => {
+        if (ctx.params.target === undefined) return ctx.controller().press(ctx.str('key'));
+        return ctx.controller().press(asTargetInput(ctx.params.target), ctx.str('chord'), {
+          delay: ctx.num('delay'),
+          timeoutMs: ctx.num('timeoutMs'),
+        });
+      }),
   },
   'browser.setInputFiles': {
     kind: 'change',
     summary: '向 file input 注入本地文件',
-    params: ['id', 'target', 'paths', 'leaseId'],
+    params: ['id', 'target', 'paths', 'leaseId', 'includeDelta?'],
     gate: 'input',
     wake: true,
     handler: (ctx) =>
-      ctx.controller().setInputFiles(asTargetInput(ctx.params.target), asStringOrList(ctx.params.paths)),
+      withOptionalDelta(ctx, () =>
+        ctx.controller().setInputFiles(asTargetInput(ctx.params.target), asStringOrList(ctx.params.paths)),
+      ),
   },
   'browser.mouseClick': {
     kind: 'change',
@@ -542,6 +676,7 @@ export const browserRpcEndpoints: RpcDomainTable = {
       'maxTokens?',
       'selector?',
       'boxes?',
+      'noFold?',
     ],
     gate: 'read',
     wake: true,
@@ -549,43 +684,82 @@ export const browserRpcEndpoints: RpcDomainTable = {
       const id = ctx.str('id');
       const controller = ctx.controller(id);
       const opts = asSnapshotOptions(ctx.params);
-      const nodes = await controller.snapshotWithRefs(opts);
+      const snapMeta =
+        typeof controller.snapshotWithRefsMeta === 'function'
+          ? await controller.snapshotWithRefsMeta(opts)
+          : { nodes: await controller.snapshotWithRefs(opts), viewport: undefined };
+      const { nodes, viewport } = snapMeta;
       const url = controller.currentUrl();
       const title = await controller.title();
-      const siteNotes = ctx.deps.store.matchSiteNotesForUrl?.(url) ?? [];
+      const rawSiteNotes = ctx.deps.store.matchSiteNotesForUrl?.(url) ?? [];
+      const rawSavedFlows = ctx.deps.store.matchSavedFlowsForUrl?.(url) ?? [];
       const webmcp =
         ctx.params.compact && controller.page ? await listWebMcpTools(controller.page).catch(() => null) : null;
-      const scopeKey = `${id}:${ctx.space}:${ctx.tab ?? 'active'}`;
-      rememberSnapshot(scopeKey, { url, title, nodes });
+      const scopeKey = scopeKeyOf(ctx, id);
+      rememberSnapshot(scopeKey, { url, title, nodes, ...(viewport ? { viewport } : {}) });
+      markSnapshotFresh(scopeKey);
       if (ctx.params.compact) {
+        const hints = sessionContextTracker.consumeHints(scopeKey, url, {
+          siteNotes: rawSiteNotes,
+          savedFlows: rawSavedFlows,
+          webmcpTools: webmcp?.tools ?? [],
+        });
         return {
           url,
           title,
-          ...(siteNotes.length > 0 ? { siteNotes } : {}),
-          ...(webmcp?.tools?.length ? { webmcpTools: webmcp.tools } : {}),
+          ...(viewport ? { viewport } : {}),
+          ...(hints.siteNotes.length > 0 ? { siteNotes: hints.siteNotes } : {}),
+          ...(hints.savedFlows.length > 0 ? { savedFlows: hints.savedFlows } : {}),
+          ...(hints.webmcpTools.length > 0 ? { webmcpTools: hints.webmcpTools } : {}),
           compact: formatCompactSnapshot({
             url,
             title,
             nodes,
-            siteNotes,
-            webmcpTools: webmcp?.tools,
+            viewport,
+            scope: opts.scope ?? 'full_page',
+            siteNotes: hints.siteNotes,
+            notesAlreadyLoadedLines: hints.notesAlreadyLoadedLines,
+            savedFlows: hints.savedFlows,
+            webmcpTools: hints.webmcpTools,
             interactiveOnly: opts.interactiveOnly,
             maxDepth: opts.maxDepth,
             maxNodes: opts.limit,
             maxTokens: opts.maxTokens,
             urls: opts.urls,
             filter: opts.filter,
+            noFold: opts.noFold,
           }),
           ...(ctx.params.includeNodes === true ? { nodes } : {}),
         };
       }
-      return { url, title, ...(siteNotes.length > 0 ? { siteNotes } : {}), nodes };
+      return {
+        url,
+        title,
+        ...(viewport ? { viewport } : {}),
+        ...(rawSiteNotes.length > 0 ? { siteNotes: rawSiteNotes } : {}),
+        ...(rawSavedFlows.length > 0 ? { savedFlows: rawSavedFlows } : {}),
+        nodes,
+      };
     },
   },
   'browser.read': {
     kind: 'read',
-    summary: '抽取页面干净正文、大纲、过滤行、结构化 JSON 与链接（支持 Shadow DOM 与 llms.txt）',
-    params: ['id', 'selector?', 'data?', 'links?', 'scroll?', 'match?', 'outline?', 'filter?', 'llms?'],
+    summary: '抽取页面干净正文、大纲、表格、过滤行、结构化 JSON（支持块/字段切片）与链接',
+    params: [
+      'id',
+      'selector?',
+      'data?',
+      'links?',
+      'scroll?',
+      'match?',
+      'outline?',
+      'filter?',
+      'llms?',
+      'block?',
+      'fields?',
+      'where?',
+      'limit?',
+    ],
     gate: 'custom',
     wake: true,
     handler: (ctx) => {
@@ -594,6 +768,13 @@ export const browserRpcEndpoints: RpcDomainTable = {
       if (ctx.params.scroll) ctx.assertWritable(id);
       const c = ctx.controller(id);
       const siteNotes = ctx.deps.store.matchSiteNotesForUrl?.(c.currentUrl()) ?? [];
+      const fields = Array.isArray(ctx.params.fields) ? (ctx.params.fields as unknown[]).map(String) : undefined;
+      const where =
+        ctx.params.where && typeof ctx.params.where === 'object' && !Array.isArray(ctx.params.where)
+          ? Object.fromEntries(
+              Object.entries(ctx.params.where as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+            )
+          : undefined;
       return readPage(c, {
         selector: ctx.optStr('selector'),
         data: Boolean(ctx.params.data),
@@ -605,7 +786,64 @@ export const browserRpcEndpoints: RpcDomainTable = {
         outline: Boolean(ctx.params.outline),
         filter: ctx.optStr('filter'),
         llms: ctx.params.llms === 'index' || ctx.params.llms === 'full' ? ctx.params.llms : undefined,
+        block:
+          typeof ctx.params.block === 'number' || typeof ctx.params.block === 'string' ? ctx.params.block : undefined,
+        fields,
+        where,
+        limit: ctx.num('limit'),
         siteNotes,
+      });
+    },
+  },
+  'browser.readBatch': {
+    kind: 'read',
+    summary: '在环境隔离离屏读池并发读取多条 URL（不干扰当前 Tab）',
+    params: [
+      'id',
+      'urls',
+      'concurrency?',
+      'timeoutMs?',
+      'maxCharsPerPage?',
+      'selector?',
+      'data?',
+      'links?',
+      'outline?',
+      'filter?',
+      'block?',
+      'fields?',
+      'where?',
+      'limit?',
+    ],
+    gate: 'read',
+    wake: true,
+    handler: async (ctx) => {
+      const id = ctx.str('id');
+      const urls = asStringArray(ctx.params.urls, 'urls');
+      const fields = Array.isArray(ctx.params.fields) ? (ctx.params.fields as unknown[]).map(String) : undefined;
+      const where =
+        ctx.params.where && typeof ctx.params.where === 'object' && !Array.isArray(ctx.params.where)
+          ? Object.fromEntries(
+              Object.entries(ctx.params.where as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+            )
+          : undefined;
+      if (typeof ctx.deps.manager.readUrlsBatch !== 'function') {
+        throw new RpcError('UNAVAILABLE', '当前运行时不支持离屏并发读池 browser.readBatch');
+      }
+      return ctx.deps.manager.readUrlsBatch(id, urls, {
+        concurrency: ctx.num('concurrency'),
+        timeoutMs: ctx.num('timeoutMs'),
+        maxCharsPerPage: ctx.num('maxCharsPerPage'),
+        selector: ctx.optStr('selector'),
+        data: Boolean(ctx.params.data),
+        links:
+          typeof ctx.params.links === 'boolean' || typeof ctx.params.links === 'string' ? ctx.params.links : undefined,
+        outline: Boolean(ctx.params.outline),
+        filter: ctx.optStr('filter'),
+        block:
+          typeof ctx.params.block === 'number' || typeof ctx.params.block === 'string' ? ctx.params.block : undefined,
+        fields,
+        where,
+        limit: ctx.num('limit'),
       });
     },
   },

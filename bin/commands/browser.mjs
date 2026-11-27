@@ -4,14 +4,23 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { usageOf } from '../commands.mjs';
-import { emitUntrustedText, formatFrameLine, formatScreenshotLine, parseJsonArg, print } from '../formatters.mjs';
+import { formatActionResultText, formatBatchResultText } from '../delta-formatter.mjs';
+import {
+  emitUntrustedText,
+  formatFrameLine,
+  formatScreenshotLine,
+  parseJsonArg,
+  parseKvFlags,
+  print,
+} from '../formatters.mjs';
+import { createOutputBuffer, isHardStopError } from '../output-buffer.mjs';
 import { toCsv } from '../output-guard.mjs';
 
 export async function runBatchCommand({ args, flags, asJson, call, readStdin, withLease }) {
   const environmentId = args[1] ?? process.env.WARREN_ENV;
   if (!environmentId) {
     console.error(
-      "用法: warren batch <env> [--bail] [--no-changes] [--auto-dialog=accept|dismiss] [--json] <<'EOF' ... EOF",
+      "用法: warren batch <env> [--bail] [--no-changes] [--no-text] [--auto-dialog=accept|dismiss] [--json] <<'EOF' ... EOF",
     );
     return 1;
   }
@@ -27,11 +36,20 @@ export async function runBatchCommand({ args, flags, asJson, call, readStdin, wi
       leaseId,
       bail: Boolean(flags.bail),
       noChanges: Boolean(flags['no-changes']),
+      noText: Boolean(flags['no-text']),
       ...(typeof flags['auto-dialog'] === 'string' ? { autoDialog: flags['auto-dialog'] } : {}),
       ...params,
     }),
   );
-  print(result, asJson);
+  if (asJson) {
+    print(result, true);
+  } else if (result?.hardStop && isHardStopError(result.hardStop.code)) {
+    const buf = createOutputBuffer();
+    buf.markHardStop(result.hardStop, { completedSteps: result.hardStop.completedSteps });
+    emitUntrustedText(buf.render(), flags, { source: 'batch-hard-stop', url: result.delta?.url });
+  } else {
+    emitUntrustedText(formatBatchResultText(result), flags, { source: 'batch', url: result?.delta?.url });
+  }
   return result && result.ok === false ? 1 : 0;
 }
 
@@ -40,6 +58,28 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
   const environmentId = args[2] ?? process.env.WARREN_ENV;
   const autoDialogOpt = typeof flags['auto-dialog'] === 'string' ? { autoDialog: flags['auto-dialog'] } : {};
   const commonTimeout = typeof flags.timeout === 'string' ? { timeoutMs: Number(flags.timeout) } : {};
+  const deltaOpt = {
+    includeDelta: !flags['no-changes'],
+    includeText: !flags['no-text'],
+  };
+  const emitAction = (label, res) => {
+    if (asJson) {
+      print(res, true);
+      return;
+    }
+    emitUntrustedText(formatActionResultText(label, res), flags, {
+      source: 'action',
+      url: res?.delta?.url ?? res?.url,
+    });
+  };
+  const emitObserved = (source, value) => {
+    if (asJson) {
+      print(value, true);
+      return;
+    }
+    const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    emitUntrustedText(text, flags, { source });
+  };
 
   switch (sub) {
     case 'open': {
@@ -49,6 +89,7 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
           leaseId,
           url: args[3],
           waitUntil: typeof flags['wait-until'] === 'string' ? flags['wait-until'] : undefined,
+          ...(flags.read ? {} : deltaOpt),
           ...commonTimeout,
         }),
       );
@@ -62,46 +103,48 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         if (asJson) print({ navigation: navRes, read: readRes }, true);
         else emitUntrustedText(readRes.text ?? '', flags, { source: 'read', url: readRes.url });
       } else {
-        print(navRes, asJson);
+        emitAction(`open ${args[3] ?? ''}`.trim(), navRes);
       }
       return 0;
     }
     case 'back':
-      print(
+      emitAction(
+        'back',
         await withLease(environmentId, flags, 'warren browser back', (leaseId) =>
-          call('browser.goBack', { id: environmentId, leaseId }),
+          call('browser.goBack', { id: environmentId, leaseId, ...deltaOpt }),
         ),
-        asJson,
       );
       return 0;
     case 'forward':
-      print(
+      emitAction(
+        'forward',
         await withLease(environmentId, flags, 'warren browser forward', (leaseId) =>
-          call('browser.goForward', { id: environmentId, leaseId }),
+          call('browser.goForward', { id: environmentId, leaseId, ...deltaOpt }),
         ),
-        asJson,
       );
       return 0;
     case 'reload':
-      print(
+      emitAction(
+        'reload',
         await withLease(environmentId, flags, 'warren browser reload', (leaseId) =>
           call('browser.reload', {
             id: environmentId,
             leaseId,
             waitUntil: typeof flags['wait-until'] === 'string' ? flags['wait-until'] : undefined,
+            ...deltaOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     case 'click': {
       const target = args[3];
       if (!target) {
-        console.error('用法: warren browser click <env> <target> [--new-tab] [--humanize] [--no-wait]');
+        console.error('用法: warren browser click <env> <target> [--new-tab] [--humanize] [--no-wait] [--no-changes]');
         return 1;
       }
-      print(
+      emitAction(
+        `click ${target}`,
         await withLease(environmentId, flags, 'warren browser click', (leaseId) =>
           call('browser.click', {
             id: environmentId,
@@ -111,11 +154,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
             newTab: Boolean(flags['new-tab']),
             humanize: flags.humanize ? true : undefined,
             noWaitAfter: Boolean(flags['no-wait']),
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -125,7 +168,8 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser dblclick <env> <target>');
         return 1;
       }
-      print(
+      emitAction(
+        `dblclick ${target}`,
         await withLease(environmentId, flags, 'warren browser dblclick', (leaseId) =>
           call('browser.dblclick', {
             id: environmentId,
@@ -133,11 +177,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
             target,
             humanize: flags.humanize ? true : undefined,
             noWaitAfter: Boolean(flags['no-wait']),
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -147,18 +191,19 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser hover <env> <target>');
         return 1;
       }
-      print(
+      emitAction(
+        `hover ${target}`,
         await withLease(environmentId, flags, 'warren browser hover', (leaseId) =>
           call('browser.hover', {
             id: environmentId,
             leaseId,
             target,
             humanize: flags.humanize ? true : undefined,
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -168,11 +213,18 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser focus <env> <target>');
         return 1;
       }
-      print(
+      emitAction(
+        `focus ${target}`,
         await withLease(environmentId, flags, 'warren browser focus', (leaseId) =>
-          call('browser.focus', { id: environmentId, leaseId, target, ...autoDialogOpt, ...commonTimeout }),
+          call('browser.focus', {
+            id: environmentId,
+            leaseId,
+            target,
+            ...deltaOpt,
+            ...autoDialogOpt,
+            ...commonTimeout,
+          }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -183,7 +235,8 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser fill <env> <target> <value> [--submit] [--clear=false]');
         return 1;
       }
-      print(
+      emitAction(
+        `fill ${target}`,
         await withLease(environmentId, flags, 'warren browser fill', (leaseId) =>
           call('browser.fill', {
             id: environmentId,
@@ -192,11 +245,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
             value,
             submit: Boolean(flags.submit),
             clearFirst: flags.clear === 'false' ? false : undefined,
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -207,7 +260,8 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser type <env> <target> <text> [--delay=30]');
         return 1;
       }
-      print(
+      emitAction(
+        `type ${target}`,
         await withLease(environmentId, flags, 'warren browser type', async (leaseId) => {
           await call('browser.focus', { id: environmentId, leaseId, target, ...autoDialogOpt, ...commonTimeout });
           return call('browser.keyboardType', {
@@ -218,7 +272,6 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
             ...autoDialogOpt,
           });
         }),
-        asJson,
       );
       return 0;
     }
@@ -230,18 +283,19 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser press <env> [target] <chord>');
         return 1;
       }
-      print(
+      emitAction(
+        `press ${key}`,
         await withLease(environmentId, flags, 'warren browser press', (leaseId) =>
           call('browser.press', {
             id: environmentId,
             leaseId,
             ...(target ? { target, chord: key } : { key }),
             delay: typeof flags.delay === 'string' ? Number(flags.delay) : undefined,
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -252,22 +306,31 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error(`用法: warren browser ${sub} <env> <target>`);
         return 1;
       }
-      print(
+      emitAction(
+        `${sub} ${target}`,
         await withLease(environmentId, flags, `warren browser ${sub}`, (leaseId) =>
-          call(`browser.${sub}`, { id: environmentId, leaseId, target, ...autoDialogOpt, ...commonTimeout }),
+          call(`browser.${sub}`, {
+            id: environmentId,
+            leaseId,
+            target,
+            ...deltaOpt,
+            ...autoDialogOpt,
+            ...commonTimeout,
+          }),
         ),
-        asJson,
       );
       return 0;
     }
     case 'select': {
       const target = args[3];
-      const value = args[4];
-      if (!target || value === undefined) {
-        console.error('用法: warren browser select <env> <target> <value> [--by=auto|value|label|index]');
+      const values = args.slice(4);
+      if (!target || values.length === 0) {
+        console.error('用法: warren browser select <env> <target> <value...> [--by=auto|value|label|index]');
         return 1;
       }
-      print(
+      const value = values.length === 1 ? values[0] : values;
+      emitAction(
+        `select ${target}`,
         await withLease(environmentId, flags, 'warren browser select', (leaseId) =>
           call('browser.selectOption', {
             id: environmentId,
@@ -275,11 +338,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
             target,
             value,
             by: typeof flags.by === 'string' ? flags.by : undefined,
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -290,7 +353,8 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser drag <env> <source> <target> [--placement=center|before|after]');
         return 1;
       }
-      print(
+      emitAction(
+        `drag ${source} -> ${target}`,
         await withLease(environmentId, flags, 'warren browser drag', (leaseId) =>
           call('browser.drag', {
             id: environmentId,
@@ -299,11 +363,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
             target,
             placement: typeof flags.placement === 'string' ? flags.placement : undefined,
             steps: typeof flags.steps === 'string' ? Number(flags.steps) : undefined,
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -314,18 +378,19 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser drop <env> <target> <file...>');
         return 1;
       }
-      print(
+      emitAction(
+        `drop ${target}`,
         await withLease(environmentId, flags, 'warren browser drop', (leaseId) =>
           call('browser.drop', {
             id: environmentId,
             leaseId,
             target,
             paths: files,
+            ...deltaOpt,
             ...autoDialogOpt,
             ...commonTimeout,
           }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -365,11 +430,18 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser upload <env> <target> <file...>');
         return 1;
       }
-      print(
+      emitAction(
+        `upload ${target}`,
         await withLease(environmentId, flags, 'warren browser upload', (leaseId) =>
-          call('browser.setInputFiles', { id: environmentId, leaseId, target, paths: files, ...autoDialogOpt }),
+          call('browser.setInputFiles', {
+            id: environmentId,
+            leaseId,
+            target,
+            paths: files,
+            ...deltaOpt,
+            ...autoDialogOpt,
+          }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -451,20 +523,20 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
     case 'dialog': {
       const action = args[3];
       if (action === 'accept') {
-        print(
+        emitAction(
+          'dialog accept',
           await withLease(environmentId, flags, 'warren browser dialog accept', (leaseId) =>
-            call('browser.acceptDialog', { id: environmentId, leaseId, prompt: args[4] }),
+            call('browser.acceptDialog', { id: environmentId, leaseId, prompt: args[4], ...deltaOpt }),
           ),
-          asJson,
         );
         return 0;
       }
       if (action === 'dismiss') {
-        print(
+        emitAction(
+          'dialog dismiss',
           await withLease(environmentId, flags, 'warren browser dialog dismiss', (leaseId) =>
-            call('browser.dismissDialog', { id: environmentId, leaseId }),
+            call('browser.dismissDialog', { id: environmentId, leaseId, ...deltaOpt }),
           ),
-          asJson,
         );
         return 0;
       }
@@ -487,11 +559,11 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         return 1;
       }
       const fn = /^\s*(?:async\s*)?(?:\(|[A-Za-z_$][\w$]*\s*=>|function\b)/.test(expr) ? expr : `() => (${expr})`;
-      print(
+      emitObserved(
+        'eval',
         await withLease(environmentId, flags, 'warren browser eval', (leaseId) =>
           call('browser.evaluate', { id: environmentId, leaseId, fn, ...commonTimeout }),
         ),
-        asJson,
       );
       return 0;
     }
@@ -611,25 +683,33 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
       return 1;
     }
     case 'vitals':
-      print(await call('browser.vitals', { id: environmentId }), asJson);
+      emitObserved('vitals', await call('browser.vitals', { id: environmentId }));
       return 0;
     case 'a11y':
-      print(await call('browser.a11y', { id: environmentId }), asJson);
+      emitObserved('a11y', await call('browser.a11y', { id: environmentId }));
       return 0;
     case 'react':
-      print(
+      emitObserved(
+        'react',
         await call('browser.react', {
           id: environmentId,
           maxNodes: typeof flags['max-nodes'] === 'string' ? Number(flags['max-nodes']) : undefined,
         }),
-        asJson,
       );
       return 0;
     case 'snapshot': {
       const compact = Boolean(flags.interactive || flags.compact) && !asJson;
+      const scope =
+        typeof flags.scope === 'string'
+          ? flags.scope
+          : flags.viewport
+            ? 'viewport'
+            : flags['full-page']
+              ? 'full_page'
+              : undefined;
       const res = await call('browser.snapshot', {
         id: environmentId,
-        scope: typeof flags.scope === 'string' ? flags.scope : undefined,
+        scope,
         limit: typeof flags.limit === 'string' ? Number(flags.limit) : undefined,
         maxDepth: typeof flags.depth === 'string' ? Number(flags.depth) : undefined,
         maxTokens: typeof flags['max-tokens'] === 'string' ? Number(flags['max-tokens']) : undefined,
@@ -639,6 +719,7 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         boxes: Boolean(flags.boxes),
         includeCursor: flags.cursor ? true : undefined,
         filter: typeof flags.filter === 'string' ? flags.filter : undefined,
+        noFold: Boolean(flags['no-fold']),
         includeActionMarks: Boolean(flags['action-marks']),
         includeStableLocator: Boolean(flags.locator),
         interactiveOnly: Boolean(flags.interactive),
@@ -651,6 +732,21 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
     }
     case 'read': {
       const extraUrls = args.slice(3).filter((u) => /^https?:\/\//i.test(u));
+      if (flags.stdin) {
+        const stdinText = await readStdin();
+        for (const line of stdinText.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (/^https?:\/\//i.test(trimmed)) extraUrls.push(trimmed);
+        }
+      }
+      const fields =
+        typeof flags.fields === 'string'
+          ? flags.fields
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined;
+      const where = flags.where ? parseKvFlags(flags.where) : undefined;
       const readOpts = {
         selector: typeof flags.selector === 'string' ? flags.selector : undefined,
         data: Boolean(flags.data),
@@ -660,36 +756,101 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         outline: Boolean(flags.outline),
         filter: typeof flags.filter === 'string' ? flags.filter : undefined,
         llms: typeof flags.llms === 'string' ? flags.llms : undefined,
+        block: typeof flags.block === 'string' ? flags.block : undefined,
+        fields,
+        where: where && Object.keys(where).length > 0 ? where : undefined,
+        limit: typeof flags.limit === 'string' ? Number(flags.limit) : undefined,
       };
-      if (extraUrls.length > 0) {
-        const items = await withLease(environmentId, flags, 'warren browser read urls', async (leaseId) => {
-          const collected = [];
-          for (const u of extraUrls) {
-            await call('browser.navigate', { id: environmentId, leaseId, url: u, ...commonTimeout });
-            collected.push(await call('browser.read', { id: environmentId, leaseId, ...readOpts }));
-          }
-          return collected;
-        });
+
+      const emitBatchRead = (batch) => {
+        const items = Array.isArray(batch?.items) ? batch.items : [];
         if (typeof flags.out === 'string' && flags.out.trim()) {
           const dest = path.resolve(flags.out.trim());
           mkdirSync(path.dirname(dest), { recursive: true });
           const body = dest.endsWith('.csv')
-            ? toCsv(items.map((r) => ({ url: r.url, title: r.title, text: r.text })))
-            : JSON.stringify(items, null, 2);
+            ? toCsv(
+                items.map((r) => ({
+                  url: r.url,
+                  ok: r.ok,
+                  title: r.title ?? '',
+                  text: r.text ?? '',
+                  error: r.error ?? '',
+                })),
+              )
+            : JSON.stringify(batch, null, 2);
           writeFileSync(dest, body + '\n', 'utf8');
-          print({ out: dest, pages: items.length }, asJson);
+          print(
+            { out: dest, total: batch.total, ok: batch.ok, failed: batch.failed, durationMs: batch.durationMs },
+            asJson,
+          );
         } else if (asJson) {
-          print(items, true);
+          print(batch, true);
         } else {
-          emitUntrustedText(JSON.stringify(items, null, 2), flags, { source: 'read' });
+          const blocks = [
+            `read-batch: ${batch.ok}/${batch.total} ok (concurrency=${batch.concurrency}, ${batch.durationMs}ms)`,
+            ...items.map((it) =>
+              it.ok
+                ? `\n=== ${it.title || it.url} (${it.url}) ===\n${it.text ?? ''}`
+                : `\n=== [FAILED] ${it.url} ===\n${it.error ?? 'unknown error'}`,
+            ),
+          ];
+          emitUntrustedText(blocks.join('\n'), flags, { source: 'read-batch' });
         }
+      };
+
+      const batchParams = {
+        concurrency: typeof flags.concurrency === 'string' ? Number(flags.concurrency) : undefined,
+        ...commonTimeout,
+        selector: readOpts.selector,
+        data: readOpts.data,
+        links: readOpts.links,
+        outline: readOpts.outline,
+        filter: readOpts.filter,
+        block: readOpts.block,
+        fields: readOpts.fields,
+        where: readOpts.where,
+        limit: readOpts.limit,
+      };
+
+      if (extraUrls.length > 0) {
+        const batch = await call('browser.readBatch', {
+          id: environmentId,
+          urls: extraUrls,
+          ...batchParams,
+        });
+        emitBatchRead(batch);
         return 0;
       }
+
       const res = readOpts.scroll
         ? await withLease(environmentId, flags, 'warren browser read --scroll', (leaseId) =>
             call('browser.read', { id: environmentId, leaseId, ...readOpts }),
           )
         : await call('browser.read', { id: environmentId, ...readOpts });
+
+      if (
+        typeof flags.links === 'string' &&
+        flags.links.trim() &&
+        !flags.list &&
+        Array.isArray(res.links) &&
+        res.links.length > 0
+      ) {
+        const urls = res.links
+          .map((l) => l.href)
+          .filter((u) => /^https?:\/\//i.test(u))
+          .slice(0, 20);
+        if (urls.length > 0) {
+          const batch = await call('browser.readBatch', {
+            id: environmentId,
+            urls,
+            ...batchParams,
+            links: undefined,
+          });
+          emitBatchRead(batch);
+          return 0;
+        }
+      }
+
       const textOut =
         res.siteNotes?.length && !asJson
           ? `# site-notes\n${res.siteNotes.map((n) => `- [${n.site}] ${n.content}`).join('\n')}\n\n${res.text}`
@@ -699,19 +860,37 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         mkdirSync(path.dirname(dest), { recursive: true });
         const body = dest.endsWith('.csv')
           ? toCsv(
-              Array.isArray(res.links)
-                ? res.links
-                : Array.isArray(res.outline)
-                  ? res.outline
-                  : [{ url: res.url, title: res.title, text: res.text }],
+              Array.isArray(res.dataSlice?.rows)
+                ? res.dataSlice.rows
+                : Array.isArray(res.links)
+                  ? res.links
+                  : Array.isArray(res.outline)
+                    ? res.outline
+                    : [{ url: res.url, title: res.title, text: res.text }],
             )
-          : asJson || flags.data || flags.links
+          : asJson || flags.data || flags.links || res.dataSlice
             ? JSON.stringify(res, null, 2)
             : textOut;
         writeFileSync(dest, body + '\n', 'utf8');
         print({ out: dest, bytes: Buffer.byteLength(body), url: res.url, title: res.title }, asJson);
       } else if (asJson) {
         print(res, true);
+      } else if (res.dataSlice) {
+        emitUntrustedText(JSON.stringify(res.dataSlice, null, 2), flags, { source: 'read-data', url: res.url });
+      } else if (flags.data && res.dataSummary) {
+        emitUntrustedText(
+          JSON.stringify(
+            {
+              url: res.url,
+              blocks: res.dataSummary,
+              hint: '加 --block=<idx|source> --fields=... --where=k=v 切片读取',
+            },
+            null,
+            2,
+          ),
+          flags,
+          { source: 'read-data', url: res.url },
+        );
       } else if (flags.data || flags.links) {
         emitUntrustedText(JSON.stringify(res, null, 2), flags, { source: 'read', url: res.url });
       } else {
@@ -741,7 +920,7 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
       const out = readActions.has(action)
         ? await execFind(undefined)
         : await withLease(environmentId, flags, `warren browser find ${action}`, execFind);
-      print(out, asJson);
+      emitObserved('find', out);
       return 0;
     }
     case 'get': {
@@ -750,14 +929,14 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         console.error('用法: warren browser get <env> <url|title|text|html|value|attr|box> [target] [--attr=name]');
         return 1;
       }
-      print(
+      emitObserved(
+        'get',
         await call('browser.get', {
           id: environmentId,
           prop,
           target: args[4],
           attr: typeof flags.attr === 'string' ? flags.attr : args[5],
         }),
-        asJson,
       );
       return 0;
     }
@@ -814,13 +993,13 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
         );
         return 0;
       }
-      print(
+      emitObserved(
+        'diff',
         await call('browser.diff', {
           id: environmentId,
           kind: 'snapshot',
           interactiveOnly: Boolean(flags.interactive),
         }),
-        asJson,
       );
       return 0;
     }
@@ -828,13 +1007,13 @@ export async function runBrowserCommand({ args, flags, asJson, call, readStdin, 
       print(await call('browser.info', { id: environmentId }), asJson);
       return 0;
     case 'events':
-      print(await call('browser.events', { id: environmentId }), asJson);
+      emitObserved('events', await call('browser.events', { id: environmentId }));
       return 0;
     case 'console':
-      print(await call('browser.console', { id: environmentId }), asJson);
+      emitObserved('console', await call('browser.console', { id: environmentId }));
       return 0;
     case 'network':
-      print(await call('browser.network', { id: environmentId }), asJson);
+      emitObserved('network', await call('browser.network', { id: environmentId }));
       return 0;
     case 'screenshot':
       print(

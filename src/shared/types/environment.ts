@@ -25,6 +25,10 @@ export interface TabState {
   muted: boolean;
   /** 是否处于标签级休眠/惰性占位态（已释放 WebContentsView 与渲染进程，点击或操作时透明重载）。 */
   sleeping?: boolean;
+  /** 单调递增的稳定短引用（如 `t1`, `t2`），关掉其他标签也不会像数字序号那样漂移。 */
+  shortRef?: string;
+  /** 标签打开来源（区分人工、Agent 与页面弹窗，支持 `tab close --agent-only` 安全清理）。 */
+  openedBy?: 'human' | 'agent' | 'popup';
   /**
    * 主框架加载失败的原因（`did-fail-load`）。导航重新开始时清掉。
    *
@@ -35,7 +39,7 @@ export interface TabState {
   createdAt: string;
 }
 
-/** 标签寻址：1-based 序号（和 ⌘1..9 一致）或 tabId。IPC / CLI / UI 共用。 */
+/** 标签寻址：1-based 序号（和 ⌘1..9 一致）、稳定短引用 `t1` 或 tabId。IPC / CLI / UI 共用。 */
 export type TabRef = number | string;
 
 /**

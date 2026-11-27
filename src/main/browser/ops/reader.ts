@@ -24,7 +24,31 @@ export interface ReadPageOptions {
   filter?: string;
   /** 拉取站点 `/llms.txt`（`index`）或 `/llms-full.txt`（`full`）作为文档优先通道。 */
   llms?: 'index' | 'full';
+  /** 配合 `--data` 定位指定 JSON 块（索引号或 source 名）。 */
+  block?: number | string;
+  /** 配合 `--data` 对目标块数组记录投影指定字段。 */
+  fields?: string[];
+  /** 配合 `--data` 对目标块数组记录做大小写不敏感筛选（`k=v` 子串，`k==v` 精确）。 */
+  where?: Record<string, string>;
+  /** 配合 `--data` 限制切片输出条数。 */
+  limit?: number;
   siteNotes?: SiteNote[];
+}
+
+export interface EmbeddedDataBlockSummary {
+  index: number;
+  source: string;
+  kind: 'array' | 'object' | 'primitive';
+  count: number;
+  keys?: string[];
+}
+
+export interface EmbeddedDataSlice {
+  block: string;
+  arrayPath?: string;
+  total: number;
+  count: number;
+  rows: unknown[];
 }
 
 export interface ReadPageResult {
@@ -35,6 +59,8 @@ export interface ReadPageResult {
   outline?: Array<{ level: number; text: string }>;
   links?: Array<{ text: string; href: string }>;
   data?: Array<{ source: string; payload: unknown }>;
+  dataSummary?: EmbeddedDataBlockSummary[];
+  dataSlice?: EmbeddedDataSlice;
   scrolled?: { steps: number; container: string; matched?: boolean };
   llmsSource?: string;
 }
@@ -108,11 +134,21 @@ const READ_EXTRACTION_FN = `(opts) => {
         if (t) blocks.push('- ' + t);
         return;
       }
-      if (tag === 'TR') {
-        const cells = Array.from(node.querySelectorAll('th, td'))
+      const role = (node.getAttribute('role') || '').toLowerCase();
+      if (tag === 'TR' || role === 'row') {
+        const cells = Array.from(node.querySelectorAll('th, td, [role="columnheader"], [role="rowheader"], [role="gridcell"], [role="cell"]'))
           .filter((c) => isVisible(c))
           .map((c) => normalize(c.innerText ?? c.textContent));
         if (cells.some(Boolean)) blocks.push(cells.join(' | '));
+        return;
+      }
+      if (tag === 'TABLE' || role === 'grid' || role === 'table') {
+        const ariaRows = Number(node.getAttribute('aria-rowcount') || 0);
+        const domRows = node.querySelectorAll('tr, [role="row"]').length;
+        for (const child of node.children) walk(child);
+        if (ariaRows > domRows && domRows > 0) {
+          blocks.push('(table showing ' + domRows + ' of ' + ariaRows + ' virtualized rows)');
+        }
         return;
       }
       if (tag === 'PRE') {
@@ -186,6 +222,17 @@ const READ_EXTRACTION_FN = `(opts) => {
       if (el.id === '__NEXT_DATA__' || !el.textContent) return;
       pushScript(el.id || el.getAttribute('type') || 'json-' + idx, el.textContent);
     });
+    for (const winKey of ['__INITIAL_STATE__', '__NUXT__', '__APOLLO_STATE__', '__PRELOADED_STATE__']) {
+      try {
+        const v = window[winKey];
+        if (v && typeof v === 'object') {
+          const serialized = JSON.stringify(v);
+          if (serialized && serialized.length <= 512000) {
+            found.push({ source: 'window.' + winKey, payload: JSON.parse(serialized) });
+          }
+        }
+      } catch {}
+    }
     data = found;
   }
 
@@ -272,10 +319,129 @@ export function toCsv(rows: Array<Record<string, unknown>>): string {
   return [headers.map(esc).join(','), ...rows.map((r) => headers.map((h) => esc(r[h])).join(','))].join('\n');
 }
 
+function readPath(obj: unknown, dotPath: string): unknown {
+  let cur: unknown = obj;
+  for (const part of dotPath.split('.').filter(Boolean)) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+function findPrimaryObjectArray(
+  payload: unknown,
+  maxDepth = 4,
+): { path?: string; rows: Record<string, unknown>[] } | null {
+  if (
+    Array.isArray(payload) &&
+    payload.length > 0 &&
+    payload.every((it) => it && typeof it === 'object' && !Array.isArray(it))
+  ) {
+    return { rows: payload as Record<string, unknown>[] };
+  }
+  let best: { path: string; rows: Record<string, unknown>[] } | null = null;
+  const walk = (node: unknown, prefix: string, depth: number) => {
+    if (depth > maxDepth || !node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      const objs = node.filter((it): it is Record<string, unknown> =>
+        Boolean(it && typeof it === 'object' && !Array.isArray(it)),
+      );
+      if (objs.length > 0 && (!best || objs.length > best.rows.length)) {
+        best = { path: prefix, rows: objs };
+      }
+      return;
+    }
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      walk(v, prefix ? `${prefix}.${k}` : k, depth + 1);
+    }
+  };
+  walk(payload, '', 0);
+  return best;
+}
+
+function summarizeEmbeddedData(blocks: Array<{ source: string; payload: unknown }>): EmbeddedDataBlockSummary[] {
+  return blocks.map((b, index) => {
+    const p = b.payload;
+    if (Array.isArray(p)) {
+      const firstObj = p.find((it) => it && typeof it === 'object' && !Array.isArray(it)) as
+        Record<string, unknown> | undefined;
+      return {
+        index,
+        source: b.source,
+        kind: 'array',
+        count: p.length,
+        ...(firstObj ? { keys: Object.keys(firstObj).slice(0, 12) } : {}),
+      };
+    }
+    if (p && typeof p === 'object') {
+      const keys = Object.keys(p as Record<string, unknown>);
+      return { index, source: b.source, kind: 'object', count: keys.length, keys: keys.slice(0, 12) };
+    }
+    return { index, source: b.source, kind: 'primitive', count: 1 };
+  });
+}
+
+function sliceEmbeddedData(
+  blocks: Array<{ source: string; payload: unknown }>,
+  options: Pick<ReadPageOptions, 'block' | 'fields' | 'where' | 'limit'>,
+): EmbeddedDataSlice | undefined {
+  if (
+    blocks.length === 0 ||
+    (options.block === undefined && !options.fields?.length && !options.where && !options.limit)
+  ) {
+    return undefined;
+  }
+  let chosen = blocks[0]!;
+  if (options.block !== undefined) {
+    const asNum =
+      typeof options.block === 'number' ? options.block : /^\d+$/.test(options.block) ? Number(options.block) : NaN;
+    if (Number.isFinite(asNum) && asNum >= 0 && asNum < blocks.length) {
+      chosen = blocks[asNum]!;
+    } else {
+      const needle = String(options.block).toLowerCase();
+      chosen = blocks.find((b) => b.source.toLowerCase().includes(needle)) ?? chosen;
+    }
+  }
+  const primary = findPrimaryObjectArray(chosen.payload);
+  let rows: unknown[] = primary ? primary.rows : [chosen.payload];
+  const total = rows.length;
+
+  if (options.where && Object.keys(options.where).length > 0) {
+    rows = rows.filter((item) => {
+      if (!item || typeof item !== 'object') return false;
+      return Object.entries(options.where!).every(([rawKey, rawVal]) => {
+        const exact = rawKey.endsWith('=');
+        const key = exact ? rawKey.slice(0, -1).trim() : rawKey.trim();
+        const actual = String(readPath(item, key) ?? '').toLowerCase();
+        const want = String(rawVal ?? '').toLowerCase();
+        return exact ? actual === want : actual.includes(want);
+      });
+    });
+  }
+  if (options.limit && options.limit > 0) {
+    rows = rows.slice(0, options.limit);
+  }
+  if (options.fields && options.fields.length > 0) {
+    rows = rows.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const projected: Record<string, unknown> = {};
+      for (const f of options.fields!) projected[f] = readPath(item, f);
+      return projected;
+    });
+  }
+  return {
+    block: chosen.source,
+    ...(primary?.path ? { arrayPath: primary.path } : {}),
+    total,
+    count: rows.length,
+    rows,
+  };
+}
+
 /**
- * 干净网页阅读器：支持 `-s` 局部、实时 DOM/Shadow DOM 正文提取、`--outline` 标题大纲、
- * `--filter` 文本/正则过滤、`--data`（Next.js/JSON-LD）、`--links` 链接过滤、
- * 智能容器 `--scroll` + `--match` 命中停、以及 `--llms index|full` 文档通道。
+ * 干净网页阅读器：支持 `-s` 局部、实时 DOM/Shadow DOM 正文与表格提取、`--outline` 标题大纲、
+ * `--filter` 文本/正则过滤、`--data`（Next.js/JSON-LD/window.* 与 `--block/--fields/--where/--limit` 切片）、
+ * `--links` 链接过滤、智能容器 `--scroll` + `--match` 命中停、以及 `--llms index|full` 文档通道。
  */
 export async function readPage(controller: ReadablePageClient, options: ReadPageOptions = {}): Promise<ReadPageResult> {
   // 可选优先走 `/llms.txt` 或 `/llms-full.txt`
@@ -331,10 +497,13 @@ export async function readPage(controller: ReadablePageClient, options: ReadPage
   }
 
   const includeLinks = options.links !== undefined && options.links !== false;
+  const includeData = Boolean(
+    options.data || options.block !== undefined || options.fields?.length || options.where || options.limit,
+  );
   const raw = (await controller.evaluate(READ_EXTRACTION_FN, {
     selector: options.selector,
     includeLinks,
-    includeData: Boolean(options.data),
+    includeData,
   })) as {
     text?: string;
     outline?: Array<{ level: number; text: string }>;
@@ -363,6 +532,9 @@ export async function readPage(controller: ReadablePageClient, options: ReadPage
       .join('\n');
   }
 
+  const dataSummary = raw?.data && raw.data.length > 0 ? summarizeEmbeddedData(raw.data) : undefined;
+  const dataSlice = raw?.data && raw.data.length > 0 ? sliceEmbeddedData(raw.data, options) : undefined;
+
   return {
     url: controller.currentUrl(),
     title: await controller.title(),
@@ -371,6 +543,8 @@ export async function readPage(controller: ReadablePageClient, options: ReadPage
     ...(options.outline && outline ? { outline } : {}),
     ...(links ? { links } : {}),
     ...(raw?.data ? { data: raw.data } : {}),
+    ...(dataSummary ? { dataSummary } : {}),
+    ...(dataSlice ? { dataSlice } : {}),
     ...(scrolled ? { scrolled } : {}),
   };
 }

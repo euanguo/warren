@@ -4,6 +4,7 @@
  */
 import type { WebContents } from 'electron';
 import {
+  ActionSideEffects,
   AxNode,
   ClickOptions,
   DragOptions,
@@ -15,6 +16,7 @@ import {
   PageEvent,
   PageInfo,
   PressOptions,
+  RefHealNotice,
   ScreenshotOptions,
   ScreenshotResult,
   SelectValue,
@@ -22,6 +24,7 @@ import {
   SnapshotOptions,
   TargetInput,
   UrlMatcher,
+  ViewportMetrics,
   ViewportPresetId,
   WaitEventKind,
   WaitPredicate,
@@ -56,7 +59,7 @@ import {
   send,
   sendOn,
 } from './session.ts';
-import { assignRefs, snapshot } from './snapshot.ts';
+import { assignRefs, snapshot, snapshotWithMeta } from './snapshot.ts';
 import {
   awaitLoad,
   readyState,
@@ -91,6 +94,7 @@ export class BrowserController {
   #ctx: Ctx;
   #pageCtx?: PageContext;
   #refs = new RefTable();
+  #healedRefs: RefHealNotice[] = [];
   #holding = false;
   /** 当前限定的活动 frameId（空表示全部/主文档）。 */
   #activeFrameId?: string;
@@ -153,6 +157,17 @@ export class BrowserController {
       lastNavigationError: this.#ctx.lastNavigationError,
       activeFrameId: () => this.#activeFrameId,
       record: this.#ctx.record,
+      noteHealedRef: (notice: RefHealNotice) => {
+        if (!this.#healedRefs.some((h) => h.ref === notice.ref && h.role === notice.role && h.name === notice.name)) {
+          this.#healedRefs.push(notice);
+        }
+      },
+      consumeHealedRefs: () => {
+        if (this.#healedRefs.length === 0) return [];
+        const out = [...this.#healedRefs];
+        this.#healedRefs = [];
+        return out;
+      },
       onVisualAction: this.#ctx.onVisualAction,
     };
     return this.#pageCtx;
@@ -379,9 +394,17 @@ export class BrowserController {
 
   /** agent 专用：取快照并分配 `@N`。 */
   async snapshotWithRefs(options: SnapshotOptions & { limit?: number } = {}): Promise<AxNode[]> {
-    const nodes = await snapshot(this.page, options);
-    assignRefs(this.page, nodes, { includeStableLocator: options.includeStableLocator });
+    const { nodes } = await this.snapshotWithRefsMeta(options);
     return nodes;
+  }
+
+  /** agent 专用：取快照（带视口滚动进度与省略计数）并分配 `@N`。 */
+  async snapshotWithRefsMeta(
+    options: SnapshotOptions & { limit?: number } = {},
+  ): Promise<{ nodes: AxNode[]; viewport?: ViewportMetrics }> {
+    const res = await snapshotWithMeta(this.page, options);
+    assignRefs(this.page, res.nodes, { includeStableLocator: options.includeStableLocator });
+    return res;
   }
 
   screenshot(opts: ScreenshotOptions = {}): Promise<ScreenshotResult> {
@@ -461,6 +484,18 @@ export class BrowserController {
 
   smartSettle(opts?: { maxWaitMs?: number; quietMs?: number }) {
     return smartSettle(this.page, opts);
+  }
+
+  peekUnhandledSideEffects(): ActionSideEffects {
+    return this.#ctx.pending.peekUnhandled?.() ?? {};
+  }
+
+  consumeHealedRefs(): RefHealNotice[] {
+    return this.page.consumeHealedRefs?.() ?? [];
+  }
+
+  lastNavigationError(): { url: string; error: string; at: string } | null {
+    return this.#ctx.lastNavigationError();
   }
 
   async events(): Promise<PageEvent[]> {
@@ -632,7 +667,7 @@ export class BrowserController {
   }
 
   evaluate(fn: string, arg?: unknown, opts: { timeoutMs?: number } = {}): Promise<unknown> {
-    return evaluate(this.page, fn, arg, opts);
+    return this.#mutating(() => evaluate(this.page, fn, arg, opts));
   }
 
   fetch(url: string, opts: FetchOptions = {}): Promise<FetchResult> {

@@ -68,10 +68,17 @@ export async function runFlowCommand({ args, flags, asJson, callerLabel, call })
     case 'save': {
       const name = args[2];
       const urlTemplate = args[3];
-      if (!name || !urlTemplate) {
+      const outputRef = typeof flags.output === 'string' && flags.output.trim() ? flags.output.trim() : undefined;
+      const envId = typeof flags.env === 'string' ? flags.env : process.env.WARREN_ENV;
+      if (!name || (!urlTemplate && !outputRef)) {
         console.error(
-          '用法: warren flow save <name> <urlTemplate> [--extract=data.items] [--fields=a,b] [--desc=说明]',
+          '用法: warren flow save <name> <urlTemplate> [--extract=data.items] [--fields=a,b] [--desc=说明]\n' +
+            '      warren flow save <name> --env=<env> --output=s3r1 [--param=q=shoes] [--desc=说明]',
         );
+        return 1;
+      }
+      if (outputRef && !envId) {
+        console.error('使用 --output=s3r1 自动保存时需通过 --env=<env> 指定录制环境');
         return 1;
       }
       const fields =
@@ -84,13 +91,24 @@ export async function runFlowCommand({ args, flags, asJson, callerLabel, call })
       print(
         await call('flow.save', {
           name,
-          spec: {
-            method: 'GET',
-            urlTemplate,
-            ...(typeof flags.extract === 'string' ? { extractPath: flags.extract } : {}),
-            ...(fields?.length ? { fields } : {}),
-            ...(typeof flags.desc === 'string' ? { description: flags.desc } : {}),
-          },
+          ...(outputRef
+            ? {
+                id: envId,
+                outputRef,
+                params: parseKvFlags(flags.param),
+                ...(typeof flags.extract === 'string' ? { extractPath: flags.extract } : {}),
+                ...(fields?.length ? { fields } : {}),
+                ...(typeof flags.desc === 'string' ? { description: flags.desc } : {}),
+              }
+            : {
+                spec: {
+                  method: 'GET',
+                  urlTemplate,
+                  ...(typeof flags.extract === 'string' ? { extractPath: flags.extract } : {}),
+                  ...(fields?.length ? { fields } : {}),
+                  ...(typeof flags.desc === 'string' ? { description: flags.desc } : {}),
+                },
+              }),
           updatedBy: callerLabel,
         }),
         asJson,

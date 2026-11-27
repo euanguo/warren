@@ -5,9 +5,20 @@
  * exec 脚本来自 agent，给它文件通道等于绕开 lease / 授权。
  */
 
+import { EXEC_API_SCHEMA, helpApi } from './exec-api-schema.mjs';
 import { guardApi, guardPage, withSnapshotText } from './page-contract.mjs';
 
-export const EXEC_GLOBALS = ['page', 'console', 'setTimeout', 'clearTimeout', 'emitResult'];
+export const EXEC_GLOBALS = [
+  'page',
+  'console',
+  'setTimeout',
+  'clearTimeout',
+  'emitResult',
+  'state',
+  'checkpoint',
+  'help',
+  'sleep',
+];
 
 export const RESULT_SENTINEL = '__CONSOLE_E2E_RESULT__';
 
@@ -18,14 +29,32 @@ export function createEmitResult(write = (line) => console.log(line)) {
   };
 }
 
+export function createSleep() {
+  return (ms = 0) => {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n < 0 || n > 60_000) {
+      return Promise.reject(
+        Object.assign(new Error('sleep(ms) 仅接受 0..60000 之间的毫秒数'), { code: 'BAD_REQUEST' }),
+      );
+    }
+    return new Promise((resolve) => setTimeout(resolve, n));
+  };
+}
+
 /**
  * `page` 的形状。Playwright 形状的**子集** + Warren 高级能力：
  * 没有 `context()` / `expect()` / `route()` / `setViewportSize()`，未知方法直接报 `UNSUPPORTED_PAGE_API`。
  */
-export function createPageApi(call, { environmentId, leaseId, tabRef } = {}) {
+export function createPageApi(call, { environmentId, leaseId, tabRef, onMutate, onObserve } = {}) {
   const scope = tabRef === undefined ? {} : { tabId: tabRef };
-  const write = (method, params) => call(method, { id: environmentId, leaseId, ...scope, ...params });
-  const read = (method, params) => call(method, { id: environmentId, ...scope, ...params });
+  const write = (method, params) => {
+    onMutate?.(method);
+    return call(method, { id: environmentId, leaseId, ...scope, ...params });
+  };
+  const read = (method, params) => {
+    onObserve?.(method);
+    return call(method, { id: environmentId, ...scope, ...params });
+  };
 
   const locatorOf = (target) =>
     guardApi(
@@ -53,6 +82,10 @@ export function createPageApi(call, { environmentId, leaseId, tabRef } = {}) {
     // 观察
     snapshot: async (options) => withSnapshotText(await read('browser.snapshot', options ?? {})),
     read: (options) => read('browser.read', options ?? {}),
+    readAll: (urlsOrOpts) => {
+      const payload = Array.isArray(urlsOrOpts) ? { urls: urlsOrOpts } : (urlsOrOpts ?? {});
+      return read('browser.readBatch', payload);
+    },
     get: (prop, target, attr) => read('browser.get', { prop, target, attr }),
     is: (state, target) => read('browser.is', { state, target }).then((r) => Boolean(r?.ok)),
     diff: (options) => read('browser.diff', options ?? {}),
@@ -165,20 +198,29 @@ function methodsOf(target) {
     .sort();
 }
 
-export function describeCapabilities(page) {
+export function describeCapabilities(page, { detailed = false } = {}) {
   let locator = [];
   try {
     locator = methodsOf(page.locator('body'));
   } catch {
     locator = [];
   }
-  return {
+  const base = {
     globals: [...EXEC_GLOBALS],
     page: methodsOf(page),
     locator,
     mouse: methodsOf(page.mouse),
     keyboard: methodsOf(page.keyboard),
   };
+  if (!detailed) return base;
+  return {
+    ...base,
+    signatures: EXEC_API_SCHEMA,
+  };
+}
+
+export function createHelp() {
+  return (topic) => helpApi(topic);
 }
 
 export function createExecSandbox(globals) {

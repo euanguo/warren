@@ -19,6 +19,8 @@ export interface RefEntry {
   sessionId?: string;
   role?: string;
   name?: string;
+  /** 最近有名称的语义容器作用域（如 `dialog:"编辑用户"`），防跨容器误自愈。 */
+  containerScope?: string;
 }
 
 export interface StableRefInput {
@@ -28,6 +30,7 @@ export interface StableRefInput {
   sessionId?: string;
   role?: string;
   name?: string;
+  containerScope?: string;
 }
 
 const MAX_RETAINED_REFS = 2000;
@@ -141,6 +144,7 @@ export class RefTable {
         existing.name = item.name ?? existing.name;
         existing.sessionId = item.sessionId ?? existing.sessionId;
         existing.loaderId = item.loaderId ?? existing.loaderId;
+        existing.containerScope = item.containerScope ?? existing.containerScope;
         touched.add(existing.ref);
         assigned.push({ ref: existing.ref, isNew: false });
       } else {
@@ -154,6 +158,7 @@ export class RefTable {
           sessionId: item.sessionId,
           role: item.role,
           name: item.name,
+          ...(item.containerScope ? { containerScope: item.containerScope } : {}),
         };
         this.#map.set(ref, entry);
         this.#reverse.set(revKey, ref);
@@ -229,14 +234,19 @@ export class RefTable {
     const targetRole = entry.role.toLowerCase();
     const targetName = norm(entry.name);
 
-    const candidates = currentNodes.filter((n) => {
+    const allMatches = currentNodes.filter((n) => {
       if (typeof n.backendNodeId !== 'number') return false;
       if (entry.frameId && n.frameId && n.frameId !== entry.frameId) return false;
       return n.role.toLowerCase() === targetRole && norm(n.name) === targetName;
     });
-    if (candidates.length !== 1) return null;
+    // 若原节点属于命名容器（dialog/form/row/region），优先限定在同一容器内唯一命中，防止弹窗与背景层同名控件错自愈
+    const scopedMatches =
+      entry.containerScope && allMatches.some((n) => Boolean(n.containerScope))
+        ? allMatches.filter((n) => n.containerScope === entry.containerScope)
+        : allMatches;
+    if (scopedMatches.length !== 1) return null;
 
-    const healedId = candidates[0]!.backendNodeId!;
+    const healedId = scopedMatches[0]!.backendNodeId!;
     this.#reverse.delete(`${entry.frameId ?? ''}::${entry.backendId}`);
     entry.backendId = healedId;
     this.#reverse.set(`${entry.frameId ?? ''}::${healedId}`, ref);

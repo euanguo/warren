@@ -4,7 +4,7 @@
  */
 import type { WebContents } from 'electron';
 import type { RefTable } from './refs.ts';
-import type { TargetInput, ActionReceipt, PageEvent } from '../../shared/types.ts';
+import type { ActionReceipt, ActionSideEffects, PageEvent, RefHealNotice, TargetInput } from '../../shared/types.ts';
 
 /**
  * 环境级待处理队列（popup / download）与 dialog 的读取口。
@@ -22,8 +22,10 @@ export interface PendingSink {
     backendNodeId?: number;
     at: string;
   } | null;
-  /** `since` 是 `Date.now()` 毫秒；只报动作开始之后产生的 popup/dialog。 */
+  /** `since` 是 `Date.now()` 毫秒；只报动作开始之后产生的 popup/download/dialog。 */
   receiptSince(since: number): ActionReceipt;
+  /** 只读窥视未处理的 popup/download/dialog（绝不消费队列，用于尾部冒泡提醒）。 */
+  peekUnhandled?(): ActionSideEffects;
 }
 
 export interface VisualActionEvent {
@@ -70,6 +72,10 @@ export interface PageContext {
   /** 当前限定的活动 frameId（空表示全部/主文档）。 */
   activeFrameId?: () => string | undefined;
   record: (type: string, message: string) => void;
+  /** 可选：记录目标 ref 重绘自愈事件，由动作回执与 ActionDelta 统一消费汇报。 */
+  noteHealedRef?: (notice: RefHealNotice) => void;
+  /** 可选：读取并清空本次动作期间累积的自愈通知。 */
+  consumeHealedRefs?: () => RefHealNotice[];
   /** 可选：上报 AI 动作在主 frame 视口内的坐标与控件框，供透明遮罩渲染轨迹动画（绝不携带输入明文）。 */
   onVisualAction?: (action: VisualActionEvent) => void;
 }

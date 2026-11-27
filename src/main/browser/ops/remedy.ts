@@ -89,6 +89,34 @@ export function resolveErrorDetails(error: unknown, ctx: RemedyContext = {}): Er
       hint ??= '目标标签不是当前激活标签，请先切换到目标标签再执行输入操作';
       remedy ??= `warren tab list ${env}`;
       break;
+    case 'TAB_GONE':
+      hint ??= '固定或指定的标签已关闭，禁止静默切到其他标签；请列出并选择新标签';
+      remedy ??= `warren tab list ${env}`;
+      break;
+    case 'FLOW_AUTH_EXPIRED':
+      hint ??= '目标站点会话或登录态已失效，请在目标环境中重新登录后再运行 Flow';
+      remedy ??= `warren browser info ${env}`;
+      break;
+    case 'FLOW_RATE_LIMITED':
+      hint ??= '接口触发站点频率限制（HTTP 429），请降低请求频率稍后重试';
+      remedy ??= `warren flow list`;
+      break;
+    case 'FLOW_UNKNOWN_FIELD':
+      hint ??= '过滤字段名不在返回记录中，请参考报错列出的可用字段名重试';
+      remedy ??= `warren flow list`;
+      break;
+    case 'GRID_EDIT_REJECTED':
+      hint ??= '数据表格单元格编辑被校验拒绝并已按 Escape 取消，请检查输入格式后重试';
+      remedy ??= `warren browser snapshot ${env} -i`;
+      break;
+    case 'SECRET_REJECTED':
+      hint ??= '禁止把密码/TOTP/私钥写入 state 或 checkpoint，凭据请改用账号管理插件';
+      remedy ??= `warren browser detect-login ${env}`;
+      break;
+    case 'STATE_TOO_LARGE':
+      hint ??= 'exec state 超过体积限制，请用 checkpoint 落盘或清理大数组';
+      remedy ??= `warren exec --capabilities`;
+      break;
     case 'FILL_UNCONFIRMED':
       hint ??= '输入后回读未匹配期望值，可能被受控组件拦截或焦点偏移，请先检查页面快照';
       remedy ??= `warren browser snapshot ${env} -i`;
@@ -125,6 +153,13 @@ export function sampleBuiltInRemedies(): string[] {
     'ENV_BUSY',
     'ENV_NOT_VISIBLE',
     'TAB_NOT_VISIBLE',
+    'TAB_GONE',
+    'FLOW_AUTH_EXPIRED',
+    'FLOW_RATE_LIMITED',
+    'FLOW_UNKNOWN_FIELD',
+    'GRID_EDIT_REJECTED',
+    'SECRET_REJECTED',
+    'STATE_TOO_LARGE',
     'FILL_UNCONFIRMED',
     'TIMEOUT',
   ];

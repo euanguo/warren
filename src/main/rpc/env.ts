@@ -1,8 +1,12 @@
 /**
  * 环境、扩展、标签与分组域 RPC 端点。
  */
+import { actionTraceRing } from '../browser/ops/action-trace.ts';
+import { sessionContextTracker } from '../browser/ops/context-tracker.ts';
+import { actionLoopDetector } from '../browser/ops/loop-detector.ts';
 import type { EnvironmentPatch } from '../domain/environment.ts';
 import { runDoctor } from '../doctor.ts';
+import { execStateStore } from '../env/exec-state.ts';
 import type { RpcContext, RpcDomainTable } from './types.ts';
 import { RpcError } from './types.ts';
 
@@ -47,7 +51,12 @@ export const envRpcEndpoints: RpcDomainTable = {
     params: ['id'],
     gate: 'none',
     handler: async (ctx) => {
-      await ctx.deps.manager.remove(ctx.str('id'));
+      const id = ctx.str('id');
+      await ctx.deps.manager.remove(id);
+      sessionContextTracker.resetByPrefix(`${id}:`);
+      actionLoopDetector.resetByPrefix(`${id}:`);
+      execStateStore.clearEnv(id);
+      actionTraceRing.clear(id);
       return { ok: true };
     },
   },
@@ -88,7 +97,12 @@ export const envRpcEndpoints: RpcDomainTable = {
     params: ['id'],
     gate: 'none',
     handler: (ctx) => {
-      ctx.deps.manager.stop(ctx.str('id'));
+      const id = ctx.str('id');
+      ctx.deps.manager.stop(id);
+      sessionContextTracker.resetByPrefix(`${id}:`);
+      actionLoopDetector.resetByPrefix(`${id}:`);
+      execStateStore.clearEnv(id);
+      actionTraceRing.clear(id);
       return { ok: true };
     },
   },
@@ -277,7 +291,10 @@ export const envRpcEndpoints: RpcDomainTable = {
       ctx.deps.manager.newTab(
         ctx.str('id'),
         ctx.optStr('url'),
-        { activate: ctx.params.background !== true },
+        {
+          activate: ctx.params.background !== true,
+          openedBy: ctx.space === 'agent' ? 'agent' : 'human',
+        },
         ctx.space,
       ),
   },
@@ -291,11 +308,15 @@ export const envRpcEndpoints: RpcDomainTable = {
   },
   'tab.close': {
     kind: 'change',
-    summary: '关闭指定标签',
-    params: ['id', 'ref', 'leaseId?', 'space?'],
+    summary: '关闭指定标签（或通过 agentOnly=true 一键清理 Agent/Popup 打开的临时标签）',
+    params: ['id', 'ref?', 'agentOnly?', 'leaseId?', 'space?'],
     gate: 'tab',
     wake: true,
     handler: (ctx) => {
+      if (ctx.params.agentOnly === true) {
+        const closed = ctx.deps.manager.closeAgentTabs?.(ctx.str('id'), ctx.space) ?? 0;
+        return { ok: true, closed };
+      }
       ctx.deps.manager.closeTab(ctx.str('id'), ctx.space, ctx.tabRef('ref'));
       return { ok: true };
     },

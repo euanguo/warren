@@ -5,7 +5,7 @@
  */
 import type { WebContents } from 'electron';
 import { peekDialog, takeDialog, takeFileChooser } from './session.ts';
-import type { ActionReceipt, PageEvent } from '../../shared/types.ts';
+import type { ActionReceipt, ActionSideEffects, PageEvent } from '../../shared/types.ts';
 import type { PendingSink } from './ctx.ts';
 
 export interface PopupRecord {
@@ -107,9 +107,34 @@ export class EnvPending {
           .filter((p) => Date.parse(p.at) >= since)
           .map(({ tabId, index, url, title }) => ({ tabId, index, url, title }));
         if (popups.length > 0) receipt.popups = popups;
+        const downloads = this.#downloads
+          .filter((dl) => Date.parse(dl.at) >= since)
+          .map(({ downloadId, url, filename }) => ({ downloadId, url, filename }));
+        if (downloads.length > 0) receipt.downloads = downloads;
         const d = dialogOf();
         if (d) receipt.dialog = { type: d.type, message: d.message, url: d.url };
         return receipt;
+      },
+      peekUnhandled: (): ActionSideEffects => {
+        const out: ActionSideEffects = {};
+        if (this.#popups.length > 0) {
+          out.unhandledPopups = this.#popups.slice(-5).map(({ tabId, index, url, title }) => ({
+            tabId,
+            index,
+            url,
+            title,
+          }));
+        }
+        if (this.#downloads.length > 0) {
+          out.activeDownloads = this.#downloads.slice(-5).map(({ downloadId, url, filename }) => ({
+            downloadId,
+            url,
+            filename,
+          }));
+        }
+        const d = dialogOf();
+        if (d) out.openDialog = { type: d.type, message: d.message, url: d.url };
+        return out;
       },
     };
   }

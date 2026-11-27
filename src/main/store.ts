@@ -15,6 +15,7 @@ import type {
   Group,
   SavedFlowRecord,
   SavedFlowSpec,
+  SavedFlowSummary,
   SiteNote,
   UrlHistoryEntry,
   ViewportPresetId,
@@ -197,6 +198,7 @@ export class Store {
 
   getSavedFlow = (name: string): SavedFlowRecord | undefined => this.#memory.getSavedFlow(name);
   listSavedFlows = (): SavedFlowRecord[] => this.#memory.listSavedFlows();
+  matchSavedFlowsForUrl = (rawUrl: string): SavedFlowSummary[] => this.#memory.matchSavedFlowsForUrl(rawUrl);
   saveFlow = (name: string, site: string, spec: SavedFlowSpec, updatedBy = 'agent'): SavedFlowRecord =>
     this.#memory.saveFlow(name, site, spec, updatedBy);
   removeSavedFlow = (name: string): boolean => this.#memory.removeSavedFlow(name);

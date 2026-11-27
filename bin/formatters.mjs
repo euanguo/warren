@@ -128,9 +128,11 @@ export const formatGroupLine = (group) =>
 export function formatTabLine(tab) {
   const flag = tab.active ? '●' : '○';
   const loading = tab.loading ? '↻' : ' ';
-  return `${flag}${loading} ${String(tab.index + 1).padStart(2)}  ${String(tab.title || '—')
-    .slice(0, 36)
-    .padEnd(36)} ${tab.url}`;
+  const ref = tab.shortRef ? `${String(tab.shortRef).padEnd(4)} ` : '';
+  const source = tab.openedBy ? `[${tab.openedBy}]`.padEnd(8) : '';
+  return `${flag}${loading} ${String(tab.index + 1).padStart(2)}  ${ref}${source}${String(tab.title || '—')
+    .slice(0, 32)
+    .padEnd(32)} ${tab.url}`;
 }
 
 function formatNetActionLine(action) {
@@ -225,7 +227,15 @@ export const formatSkillLine = (item) => {
 };
 export const formatFlowLine = (item) =>
   `${String(item.name).padEnd(22)} ${String(item.site).padEnd(26)} ${item.spec?.urlTemplate ?? ''}`;
-export const formatFlowStepLine = (item) => `GET ${String(item.status).padEnd(4)} ${item.suggestedTemplate}`;
+export const formatFlowStepLine = (item) => {
+  const ref = item.ref ? `${String(item.ref).padEnd(6)} ` : '';
+  const step = item.stepLabel ? `(${item.stepLabel}) -> ` : '';
+  const matched =
+    Array.isArray(item.matchedParams) && item.matchedParams.length > 0
+      ? `  [param: ${item.matchedParams.map((m) => `${m.param}<-${m.sourceStepId}`).join(', ')}]`
+      : '';
+  return `${ref}${step}GET ${String(item.status).padEnd(4)} ${item.suggestedTemplate}${matched}`;
+};
 export const formatFrameLine = (item) =>
   `${item.active ? '●' : '○'} [${item.index}] ${item.frameId}${item.crossOrigin ? ' [OOPIF]' : ''}  ${item.url}`;
 

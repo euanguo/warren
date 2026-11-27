@@ -359,6 +359,14 @@ export class EnvViewCoordinator {
     }
     const controller = tabs.controllerFor(ref);
     if (!controller) {
+      if (ref !== undefined) {
+        throw Object.assign(
+          new Error(
+            `固定或指定的标签 ${String(ref)} 已关闭或不存在（请运行 warren tab list ${id} 重新选择，绝不静默切换其他标签）`,
+          ),
+          { code: 'TAB_GONE' },
+        );
+      }
       throw Object.assign(new Error(`tab not found: ${String(ref ?? 'active')}`), { code: 'TAB_NOT_FOUND' });
     }
     return controller;
@@ -371,12 +379,16 @@ export class EnvViewCoordinator {
   newTab(
     id: string,
     url?: string,
-    options: { activate?: boolean } = {},
+    options: { activate?: boolean; openedBy?: 'human' | 'agent' | 'popup' } = {},
     space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id),
   ): TabListItem {
     const tabs = this.#requireTabs(id, space);
     const target = url ?? newTabUrl(id);
-    const tab = tabs.create({ url: target, activate: options.activate ?? true });
+    const tab = tabs.create({
+      url: target,
+      activate: options.activate ?? true,
+      openedBy: options.openedBy ?? (space === 'agent' ? 'agent' : 'human'),
+    });
     this.#deps.store.record(makeEvent('tab.created', `${id} 新建标签：${target}`, 'human', id));
     this.#deps.emitBusEvent('tab.created', id, { tabId: tab.id, space, url: redactUrl(target) });
     this.#afterTabChange(id);
@@ -413,6 +425,12 @@ export class EnvViewCoordinator {
   closeTabs(id: string, space: SpaceId, ref: TabRef, mode: 'others' | 'right'): void {
     this.#requireTabs(id, space).closeMany(ref, mode);
     this.#afterTabChange(id);
+  }
+
+  closeAgentTabs(id: string, space: SpaceId): number {
+    const closed = this.#requireTabs(id, space).closeAgentOpened();
+    if (closed > 0) this.#afterTabChange(id);
+    return closed;
   }
 
   reopenTab(id: string, space: SpaceId = this.#deps.getLifecycle().activeSpaceOf(id)): TabListItem {

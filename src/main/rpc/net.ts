@@ -2,9 +2,16 @@
  * 网络拦截、只读 Saved Flows 与证据采集域 RPC 端点。
  */
 import type { SavedFlowSpec } from '../../shared/types.ts';
-import { executeSavedFlow, extractFlowCandidates, normalizeFlowName, sanitizeFlowSpec } from '../browser/ops/flow.ts';
+import { actionTraceRing, correlateStepsWithNetwork } from '../browser/ops/action-trace.ts';
+import {
+  buildFlowSpecFromRecordedRequest,
+  executeSavedFlow,
+  extractFlowCandidates,
+  normalizeFlowName,
+  sanitizeFlowSpec,
+} from '../browser/ops/flow.ts';
 import { captureEvidence } from '../evidence.ts';
-import type { RpcDomainTable } from './types.ts';
+import type { RpcContext, RpcDomainTable } from './types.ts';
 import { RpcError } from './types.ts';
 
 function stringRecord(raw: unknown): Record<string, string> | undefined {
@@ -117,10 +124,16 @@ export const netRpcEndpoints: RpcDomainTable = {
   },
   'flow.steps': {
     kind: 'read',
-    summary: '从环境遥测筛选只读 GET API 候选流',
+    summary: '关联已录制动作轨迹与环境只读 GET API 候选流（带 s<N>r<M> 引用与参数线索）',
     params: ['id'],
     gate: 'read',
-    handler: (ctx) => extractFlowCandidates(ctx.deps.manager.networkEntries(ctx.str('id'))),
+    handler: (ctx) => {
+      const id = ctx.str('id');
+      const entries = ctx.deps.manager.networkEntries(id);
+      const steps = actionTraceRing.list(id);
+      const correlated = correlateStepsWithNetwork(steps, entries);
+      return correlated.length > 0 ? correlated : extractFlowCandidates(entries);
+    },
   },
   'flow.list': {
     kind: 'read',
@@ -142,11 +155,49 @@ export const netRpcEndpoints: RpcDomainTable = {
   },
   'flow.save': {
     kind: 'change',
-    summary: '保存只读 GET 参数化 Flow（严禁凭据与写请求）',
-    params: ['name', 'urlTemplate', 'extractPath?', 'fields?', 'description?'],
+    summary: '保存只读 GET 参数化 Flow（支持手写模板或 --output=s3r1 零模板自动推断）',
+    params: ['name', 'urlTemplate?', 'id?', 'outputRef?', 'params?', 'extractPath?', 'fields?', 'description?'],
     gate: 'none',
-    handler: (ctx) => {
+    handler: async (ctx) => {
       const name = normalizeFlowName(ctx.str('name'));
+      const outputRef = ctx.optStr('outputRef');
+      if (outputRef) {
+        const envId = ctx.str('id');
+        const entries = ctx.deps.manager.networkEntries(envId);
+        const candidates = correlateStepsWithNetwork(actionTraceRing.list(envId), entries);
+        const picked = candidates.find((c) => c.ref.toLowerCase() === outputRef.trim().toLowerCase());
+        if (!picked) {
+          throw new RpcError(
+            'NOT_FOUND',
+            `找不到录制请求 ${outputRef}（当前可用：${
+              candidates
+                .map((c) => c.ref)
+                .slice(0, 10)
+                .join(', ') || '无'
+            }）`,
+          );
+        }
+        let sampleBody: string | undefined;
+        if (typeof ctx.deps.manager.fetchInEnvSession === 'function') {
+          sampleBody = await ctx.deps.manager
+            .fetchInEnvSession(envId, picked.url, { method: 'GET' })
+            .then((r) => (r.ok ? r.body : undefined))
+            .catch(() => undefined);
+        }
+        const rawSpec = (
+          ctx.params.spec && typeof ctx.params.spec === 'object' ? ctx.params.spec : ctx.params
+        ) as Partial<SavedFlowSpec>;
+        const fields = Array.isArray(rawSpec.fields) ? rawSpec.fields.map(String) : undefined;
+        const { site, spec } = buildFlowSpecFromRecordedRequest(picked.url, {
+          params: stringRecord(ctx.params.params),
+          extractPath: rawSpec.extractPath,
+          fields,
+          description: rawSpec.description,
+          sampleBody,
+        });
+        return ctx.deps.store.saveFlow(name, site, spec, ctx.optStr('updatedBy') ?? 'agent');
+      }
+
       const rawSpec = (
         ctx.params.spec && typeof ctx.params.spec === 'object' ? ctx.params.spec : ctx.params
       ) as Partial<SavedFlowSpec>;
@@ -163,7 +214,7 @@ export const netRpcEndpoints: RpcDomainTable = {
   },
   'flow.run': {
     kind: 'read',
-    summary: '在指定环境会话内执行只读 Flow 并支持过滤投影与漂移检测',
+    summary: '在指定环境会话内执行只读 Flow 并支持跨页后台复跑、宽容过滤、投影与漂移检测',
     params: ['id', 'name', 'params?', 'fields?', 'where?', 'limit?'],
     gate: 'read',
     handler: (ctx) => {
@@ -171,9 +222,27 @@ export const netRpcEndpoints: RpcDomainTable = {
       const name = normalizeFlowName(ctx.str('name'));
       const record = ctx.deps.store.getSavedFlow(name);
       if (!record) throw new RpcError('NOT_FOUND', `未找到已保存的 flow：${name}`);
-      const c = ctx.controller(id);
       const fields = Array.isArray(ctx.params.fields) ? (ctx.params.fields as unknown[]).map(String) : undefined;
-      return executeSavedFlow(record, (url, opts) => c.fetch(url, opts), {
+
+      const fetcher = async (url: string, opts: { method: 'GET'; headers?: Record<string, string> }) => {
+        let sameOrigin = false;
+        let controller: ReturnType<RpcContext['controller']> | null = null;
+        try {
+          controller = ctx.controller(id);
+          const curUrl = controller.currentUrl();
+          if (curUrl) sameOrigin = new URL(curUrl).origin === new URL(url).origin;
+        } catch {
+          controller = null;
+        }
+        if (sameOrigin && controller) return controller.fetch(url, opts);
+        if (typeof ctx.deps.manager.fetchInEnvSession === 'function') {
+          return ctx.deps.manager.fetchInEnvSession(id, url, opts);
+        }
+        if (controller) return controller.fetch(url, opts);
+        throw new RpcError('UNAVAILABLE', `无法为环境 ${id} 执行 Flow 请求`);
+      };
+
+      return executeSavedFlow(record, fetcher, {
         params: stringRecord(ctx.params.params),
         fields,
         where: stringRecord(ctx.params.where),

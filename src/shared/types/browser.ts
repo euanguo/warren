@@ -48,12 +48,32 @@ export interface AxNode {
   locator?: string;
   /** 节点所属 frame（多 frame 时才有，便于判断它在不在主文档里）。 */
   frameId?: string;
+  /** 节点当前是否位于视口内（带边缘缓冲）；由真视口感知探针填充。 */
+  inViewport?: boolean;
+  /** 最近命名语义容器作用域（如 `dialog:"编辑用户"`），用于防误跨容器自愈。 */
+  containerScope?: string;
+}
+
+/** 视口与滚动空间几何指标。 */
+export interface ViewportMetrics {
+  width: number;
+  height: number;
+  scrollX: number;
+  scrollY: number;
+  scrollWidth: number;
+  scrollHeight: number;
+  abovePx: number;
+  belowPx: number;
+  scrollPercentY: number;
+  omittedAbove?: number;
+  omittedBelow?: number;
 }
 
 export interface SnapshotResult {
   url: string;
   title: string;
   nodes: AxNode[];
+  viewport?: ViewportMetrics;
 }
 
 export interface ConsoleEntry {
@@ -142,6 +162,8 @@ export interface SnapshotOptions {
   filter?: string;
   /** 限定只采集某个 frameId（为空时按当前激活 frame 或全部 frame）。 */
   frame?: string;
+  /** 关闭同类长列表与禁用控件折叠。 */
+  noFold?: boolean;
 }
 
 export interface ScreenshotAnnotation {
@@ -283,10 +305,75 @@ export interface PressOptions {
   timeoutMs?: number;
 }
 
-/** 写动作统一收据：只报派发 + 即时 popup/dialog，不验证应用态。 */
+/** 目标 ref 在页面重绘后自动自愈的通知。 */
+export interface RefHealNotice {
+  ref: string;
+  role: string;
+  name: string;
+  containerScope?: string;
+}
+
+/** 动作 Delta 中的单个交互节点摘要。 */
+export interface CompactDeltaItem {
+  role: string;
+  name: string;
+  ref?: string;
+  value?: string;
+  checked?: boolean | 'mixed';
+  disabled?: boolean;
+  selected?: boolean;
+  beforeValue?: string;
+  beforeChecked?: boolean | 'mixed';
+  beforeDisabled?: boolean;
+}
+
+/** 未处理页面副作用快照（只读窥视，不消费事件队列）。 */
+export interface ActionSideEffects {
+  unhandledPopups?: Array<{ tabId: string; index: number; url: string; title?: string }>;
+  activeDownloads?: Array<{ downloadId: string; url: string; filename: string }>;
+  openDialog?: { type: string; message: string; url: string } | null;
+}
+
+/** 供上下文主动注入的已保存 Flow 摘要。 */
+export interface SavedFlowSummary {
+  name: string;
+  site: string;
+  params: string[];
+  description?: string;
+}
+
+/** 统一动作变化回执（单步写动作与 batch 共享）。 */
+export interface ActionDelta {
+  changed: boolean;
+  urlChanged: boolean;
+  titleChanged: boolean;
+  url: string;
+  title: string;
+  navError?: string;
+  healed?: RefHealNotice[];
+  nodes: {
+    added: CompactDeltaItem[];
+    changed: CompactDeltaItem[];
+    removed: CompactDeltaItem[];
+    foldedGroups?: string[];
+  };
+  network: string[];
+  openedText?: string;
+  contextHints?: {
+    siteNotes?: Array<{ site: string; content: string }>;
+    savedFlows?: SavedFlowSummary[];
+  };
+  sideEffects: ActionSideEffects;
+  loopWarning?: string;
+}
+
+/** 写动作统一收据：派发结果 + 即时 popup/download/dialog/自愈 + 可选 ActionDelta。 */
 export interface ActionReceipt {
   popups?: Array<{ tabId: string; index: number; url: string; title?: string }>;
+  downloads?: Array<{ downloadId: string; url: string; filename: string }>;
   dialog?: { type: string; message: string; url: string } | null;
+  healed?: RefHealNotice[];
+  delta?: ActionDelta;
 }
 
 export interface PageInfo {

@@ -46,6 +46,13 @@ export async function runTabCommand({ args, flags, asJson, call, withLease }) {
       );
       return 0;
     case 'close':
+      if (flags['agent-only']) {
+        print(
+          await withTabWrite((leaseId) => call('tab.close', { id: environmentId, leaseId, space, agentOnly: true })),
+          asJson,
+        );
+        return 0;
+      }
       print(
         await withTabWrite((leaseId) => call('tab.close', { id: environmentId, leaseId, space, ref: args[3] })),
         asJson,
@@ -55,7 +62,7 @@ export async function runTabCommand({ args, flags, asJson, call, withLease }) {
       print(await withTabWrite((leaseId) => call('tab.reopen', { id: environmentId, leaseId, space })), asJson);
       return 0;
     default:
-      console.error(usageOf('tab', ' <env> [序号|tabId] [url]'));
+      console.error(usageOf('tab', ' <env> [序号|t1|tabId] [url]'));
       return 1;
   }
 }

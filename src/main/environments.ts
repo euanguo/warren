@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron';
 import type { BrowserController } from './browser/controller.ts';
 import type { CookieFilter, CookieInput } from './browser/cookies.ts';
 import { wireDownloads } from './browser/downloads.ts';
+import { readUrlsConcurrently, type BatchReadOptions, type BatchReadResult } from './browser/ops/batch-reader.ts';
 import { makeEvent, type EnvironmentPatch } from './domain/environment.ts';
 import type { RawEnvProcessInfo, RawShellProcessInfo } from './domain/memory.ts';
 import { LeaseCoordinator, type LeaseHandle } from './env/lease-coordinator.ts';
@@ -253,7 +254,12 @@ export class EnvironmentManager {
   tabsOf(id: string, space?: SpaceId): TabListItem[] {
     return this.#views.tabsOf(id, space);
   }
-  newTab(id: string, url?: string, options?: { activate?: boolean }, space?: SpaceId): TabListItem {
+  newTab(
+    id: string,
+    url?: string,
+    options?: { activate?: boolean; openedBy?: 'human' | 'agent' | 'popup' },
+    space?: SpaceId,
+  ): TabListItem {
     return this.#views.newTab(id, url, options, space);
   }
   muteTab(id: string, space: SpaceId, ref: TabRef, muted: boolean): TabListItem {
@@ -270,6 +276,9 @@ export class EnvironmentManager {
   }
   closeTabs(id: string, space: SpaceId, ref: TabRef, mode: 'others' | 'right'): void {
     this.#views.closeTabs(id, space, ref, mode);
+  }
+  closeAgentTabs(id: string, space: SpaceId): number {
+    return this.#views.closeAgentTabs(id, space);
   }
   reopenTab(id: string, space?: SpaceId): TabListItem {
     return this.#views.reopenTab(id, space);
@@ -578,6 +587,16 @@ export class EnvironmentManager {
       devtoolsRightSize: settings.devtoolsRightSize,
       devtoolsBottomSize: settings.devtoolsBottomSize,
     });
+  }
+
+  /** 在环境独立 Session 下以离屏隐藏并发池读取多条 URL（不干扰当前 Tab）。 */
+  readUrlsBatch(id: string, urls: readonly string[], options: BatchReadOptions = {}): Promise<BatchReadResult> {
+    return readUrlsConcurrently(urls, options, () => this.#sessions.openOffscreenReaderPage(id));
+  }
+
+  /** 在环境独立 Session 下直接发起同环境登录态只读 GET（供 Saved Flow 跨 Tab 后台安全复跑）。 */
+  fetchInEnvSession(id: string, url: string, opts: { method?: string; headers?: Record<string, string> } = {}) {
+    return this.#sessions.fetchInSession(id, url, opts);
   }
 
   // ── 内部装配 ───────────────────────────────────────────────────────

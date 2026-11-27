@@ -60,12 +60,36 @@ export async function runCli(argv = process.argv.slice(2), deps = {}) {
   const rpc = deps.rpc ?? createRpcClient({ callerLabel });
   const readStdin = deps.readStdin ?? defaultReadStdin;
   const asJson = Boolean(flags.json);
+  const explicitTab = typeof flags.tab === 'string' && flags.tab.trim() ? flags.tab.trim() : undefined;
+  let pinnedTabId = explicitTab;
+  const wrappedCall = async (method, params = {}) => {
+    if (
+      method.startsWith('browser.') &&
+      params &&
+      typeof params === 'object' &&
+      params.tabId === undefined &&
+      (pinnedTabId !== undefined || flags['pin-tab'])
+    ) {
+      if (pinnedTabId === undefined && flags['pin-tab'] && typeof params.id === 'string') {
+        const tabs = await rpc.call('tab.list', {
+          id: params.id,
+          space: params.space === 'person' ? 'person' : 'agent',
+        });
+        const active = Array.isArray(tabs) ? tabs.find((t) => t.active) : undefined;
+        if (active) pinnedTabId = active.shortRef || active.id;
+      }
+      if (pinnedTabId !== undefined) {
+        return rpc.call(method, { ...params, tabId: pinnedTabId });
+      }
+    }
+    return rpc.call(method, params);
+  };
   const ctx = {
     args,
     flags,
     asJson,
     callerLabel,
-    call: rpc.call,
+    call: wrappedCall,
     withLease: rpc.withLease,
     acquire: rpc.acquire,
     startLeaseRenewer: rpc.startLeaseRenewer,

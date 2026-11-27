@@ -1,7 +1,7 @@
 import { WebContentsView, type BrowserWindow, type Session, type WebContents } from 'electron';
 import type { X509Certificate } from 'node:crypto';
 import path from 'node:path';
-import { TabList, closeSet } from './domain/tabs.ts';
+import { TabList, closeAgentOnlySet, closeSet } from './domain/tabs.ts';
 import { leafSignedByCa } from './domain/trusted-ca.ts';
 import { browserShortcut } from './browser-shortcuts';
 import type { BrowserController } from './browser/controller.ts';
@@ -57,6 +57,8 @@ type CreateWindowOptions = Electron.BrowserWindowConstructorOptions & {
 interface TabOptions {
   session: Session;
   space: SpaceId;
+  shortRef?: string;
+  openedBy?: 'human' | 'agent' | 'popup';
   /** 该环境额外信任的 CA 或动态解析器；用于每张 webContents 的证书兜底。 */
   trustedCa?: X509Certificate | (() => X509Certificate | undefined);
   /** `window.open` 场景下 Electron 已经建好的 guest，必须复用它 */
@@ -72,6 +74,8 @@ interface TabOptions {
 export class Tab {
   readonly id: string;
   readonly space: SpaceId;
+  readonly shortRef?: string;
+  readonly openedBy?: 'human' | 'agent' | 'popup';
   readonly view: WebContentsView;
   #createdAt = new Date().toISOString();
   #error?: string;
@@ -79,6 +83,8 @@ export class Tab {
   constructor(id: string, options: TabOptions) {
     this.id = id;
     this.space = options.space;
+    this.shortRef = options.shortRef;
+    this.openedBy = options.openedBy;
     // 传了 guest 就必须复用；自己新建会阻塞 opener 的同步 window.open
     // （见 docs/TAB-MODULE-PLAN.md §10 坑 2/3）
     this.view = options.webContents
@@ -135,6 +141,8 @@ export class Tab {
     return {
       id: this.id,
       space: this.space,
+      ...(this.shortRef ? { shortRef: this.shortRef } : {}),
+      ...(this.openedBy ? { openedBy: this.openedBy } : {}),
       title: live?.getTitle() ?? '',
       url: live?.getURL() ?? '',
       loading: live?.isLoading() ?? false,
@@ -271,6 +279,7 @@ export class TabManager {
    * 那是「环境没了」，不是「手滑关了个标签」。
    */
   #closed: Array<{ url: string; title: string }> = [];
+  #nextShortSeq = 1;
 
   constructor(options: TabManagerOptions) {
     this.#options = options;
@@ -378,9 +387,13 @@ export class TabManager {
       return this.create({ url: options.url, activate: true }).state;
     }
     const id = crypto.randomUUID();
+    const shortRef = `t${this.#nextShortSeq++}`;
+    const openedBy: 'human' | 'agent' = this.#options.space === 'agent' ? 'agent' : 'human';
     const state: TabState = {
       id,
       space: this.#options.space,
+      shortRef,
+      openedBy,
       title: options.title || options.url || '休眠标签',
       url: options.url,
       ...(options.favicon ? { favicon: options.favicon } : {}),
@@ -406,6 +419,8 @@ export class TabManager {
     const tab = new Tab(id, {
       session: this.#options.session,
       space: this.#options.space,
+      shortRef: state.shortRef,
+      openedBy: state.openedBy,
       trustedCa: this.#options.trustedCa,
       url: state.url,
     });
@@ -536,9 +551,13 @@ export class TabManager {
    */
   create(options: Partial<TabOptions> & { activate?: boolean } = {}): Tab {
     const id = crypto.randomUUID();
+    const shortRef = options.shortRef ?? `t${this.#nextShortSeq++}`;
+    const openedBy = options.openedBy ?? (this.#options.space === 'agent' ? 'agent' : 'human');
     const tab = new Tab(id, {
       session: this.#options.session,
       space: this.#options.space,
+      shortRef,
+      openedBy,
       trustedCa: this.#options.trustedCa,
       webContents: options.webContents,
       webPreferences: options.webPreferences,
@@ -579,6 +598,13 @@ export class TabManager {
     if (!id || (!this.#tabs.has(id) && !this.#list.get(id))) return false;
     this.#remove(id, true);
     return true;
+  }
+
+  /** 仅关闭由 Agent 或页面弹窗打开的临时标签，保留人工标签（或至少保留 1 个标签避免停环境）。 */
+  closeAgentOpened(): number {
+    const targets = closeAgentOnlySet(this.#list.list, this.#list.activeId);
+    for (const target of targets) this.#remove(target, true);
+    return targets.length;
   }
 
   /** 拖拽排序：只改顺序，**不重新挂视图**（重挂会让页面闪一下）。 */
@@ -896,6 +922,7 @@ export class TabManager {
               webPreferences: opts.webPreferences,
               url: details.url,
               activate,
+              openedBy: 'popup',
             });
             const collapsed = details.disposition === 'new-window' ? '（弹窗收敛成标签）' : '';
             this.#options.onEvent(

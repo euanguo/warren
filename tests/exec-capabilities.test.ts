@@ -34,7 +34,17 @@ function probePage() {
 const CAPS = describeCapabilities(probePage());
 
 test('EXEC_GLOBALS 就是 VM 里的全部全局', () => {
-  assert.deepEqual([...EXEC_GLOBALS].sort(), ['clearTimeout', 'console', 'emitResult', 'page', 'setTimeout']);
+  assert.deepEqual([...EXEC_GLOBALS].sort(), [
+    'checkpoint',
+    'clearTimeout',
+    'console',
+    'emitResult',
+    'help',
+    'page',
+    'setTimeout',
+    'sleep',
+    'state',
+  ]);
 });
 
 test('沙箱按 EXEC_GLOBALS 装配，且拿不到 fs / require / process', () => {
@@ -44,10 +54,17 @@ test('沙箱按 EXEC_GLOBALS 装配，且拿不到 fs / require / process', () =
     setTimeout: () => 0,
     clearTimeout: () => undefined,
     emitResult: () => undefined,
+    state: {},
+    checkpoint: async () => ({}),
+    help: () => '',
+    sleep: async () => undefined,
   }) as Record<string, unknown>;
 
   assert.deepEqual(Object.keys(sandbox).sort(), [...EXEC_GLOBALS].sort());
   assert.equal(typeof sandbox.emitResult, 'function');
+  assert.equal(typeof sandbox.checkpoint, 'function');
+  assert.equal(typeof sandbox.help, 'function');
+  assert.equal(typeof sandbox.sleep, 'function');
   for (const forbidden of [
     'require',
     'process',
@@ -69,6 +86,10 @@ test('createExecSandbox 少给一个全局就报错（不允许静默注入 unde
         console: {},
         setTimeout: () => 0,
         clearTimeout: () => undefined,
+        state: {},
+        checkpoint: async () => ({}),
+        help: () => '',
+        sleep: async () => undefined,
       }),
     /emitResult/,
   );

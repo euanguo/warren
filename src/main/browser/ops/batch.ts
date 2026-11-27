@@ -1,6 +1,15 @@
-import type { NetworkEntry, SiteNote, SnapshotResult, TargetInput } from '../../../shared/types.ts';
+import type {
+  ActionDelta,
+  ActionSideEffects,
+  NetworkEntry,
+  RefHealNotice,
+  SiteNote,
+  SnapshotResult,
+  TargetInput,
+} from '../../../shared/types.ts';
 import type { PageContext } from '../ctx.ts';
 import { mouseWheel } from '../keymouse.ts';
+import { foldDeltaItems, summarizeApiNetworkDelta } from './action-delta.ts';
 import { diffSnapshots, type SnapshotDiffResult } from './diff.ts';
 import {
   checkTargetState,
@@ -64,6 +73,16 @@ export interface BatchDeltaReceipt {
   events: unknown[];
   networkSummary: string[];
   interactiveDelta: SnapshotDiffResult;
+  /** 统一精简 ActionDelta 视图，供紧凑回执渲染器直接消费。 */
+  actionDelta?: ActionDelta;
+}
+
+export interface BatchHardStop {
+  code: string;
+  step: number;
+  completedSteps: number;
+  message: string;
+  details?: unknown;
 }
 
 export interface BatchClient {
@@ -110,6 +129,9 @@ export interface BatchClient {
   evaluate(fn: string, arg?: unknown): Promise<unknown>;
   getProp?(prop: InspectProp, target?: TargetInput, attr?: string): Promise<unknown>;
   checkState?(state: InspectState, target: TargetInput): Promise<boolean>;
+  peekUnhandledSideEffects?(): ActionSideEffects;
+  consumeHealedRefs?(): RefHealNotice[];
+  lastNavigationError?(): { url: string; error: string; at: string } | null;
 }
 
 export interface BatchNoteStore {
@@ -579,6 +601,8 @@ async function runBatchStep(
   }
 }
 
+const HARD_STOP_CODES = new Set(['CONTROL_REVOKED', 'ENV_BUSY', 'SPACE_FORBIDDEN']);
+
 /**
  * 批量顺序执行多个浏览器/笔记步骤；支持 `--bail` 遇错立即中止，
  * 使用事件驱动 `smartSettle` 收敛后以 `snapshotWithRefs` 产出自带 `@N` 的 Delta Receipt。
@@ -587,6 +611,7 @@ export async function executeBatch(options: {
   steps: BatchStep[];
   bail?: boolean;
   noChanges?: boolean;
+  noText?: boolean;
   controller: BatchClient;
   store?: BatchNoteStore;
   networkEntries?: () => NetworkEntry[];
@@ -594,7 +619,13 @@ export async function executeBatch(options: {
   prepareInput?: <T>(fn: () => Promise<T>) => Promise<T>;
   prepareScreenshot?: <T>(fn: () => Promise<T>) => Promise<T>;
   settleMs?: number;
-}): Promise<{ ok: boolean; abortedAt?: number; results: BatchStepResult[]; delta: BatchDeltaReceipt }> {
+}): Promise<{
+  ok: boolean;
+  abortedAt?: number;
+  hardStop?: BatchHardStop;
+  results: BatchStepResult[];
+  delta: BatchDeltaReceipt;
+}> {
   const bail = Boolean(options.bail);
   const runInput = options.prepareInput ?? ((fn) => fn());
   const runScreenshot = options.prepareScreenshot ?? ((fn) => fn());
@@ -613,6 +644,7 @@ export async function executeBatch(options: {
   const results: BatchStepResult[] = [];
   let ok = true;
   let abortedAt: number | undefined;
+  let hardStop: BatchHardStop | undefined;
 
   for (let i = 0; i < options.steps.length; i += 1) {
     const step = options.steps[i]!;
@@ -622,16 +654,29 @@ export async function executeBatch(options: {
     } catch (error) {
       ok = false;
       const errObj = error as { code?: string; message?: string; details?: unknown };
+      const code = errObj.code ?? 'ERROR';
+      const message = errObj.message ?? String(error);
       results.push({
         step: i + 1,
         cmd: step.cmd,
         ok: false,
         error: {
-          code: errObj.code ?? 'ERROR',
-          message: errObj.message ?? String(error),
+          code,
+          message,
           ...(errObj.details ? { details: errObj.details } : {}),
         },
       });
+      if (HARD_STOP_CODES.has(code) || (bail && code === 'DIALOG_OPEN')) {
+        abortedAt = i + 1;
+        hardStop = {
+          code,
+          step: i + 1,
+          completedSteps: results.filter((r) => r.ok).length,
+          message,
+          ...(errObj.details ? { details: errObj.details } : {}),
+        };
+        break;
+      }
       if (bail) {
         abortedAt = i + 1;
         break;
@@ -654,18 +699,92 @@ export async function executeBatch(options: {
     ? []
     : await options.controller.snapshotWithRefs({ interactiveOnly: true }).catch(() => []);
   const afterEvents = await options.controller.events().catch(() => []);
+  const afterNetAll =
+    options.networkEntriesSince && beforeLastNetId > 0
+      ? options.networkEntriesSince(beforeLastNetId)
+      : options.networkEntries
+        ? options.networkEntries()
+        : [];
   const netDelta =
     options.networkEntriesSince && beforeLastNetId > 0
-      ? summarizeNetworkDelta([], options.networkEntriesSince(beforeLastNetId))
-      : summarizeNetworkDelta(netBefore, options.networkEntries ? options.networkEntries() : []);
+      ? summarizeNetworkDelta([], afterNetAll)
+      : summarizeNetworkDelta(netBefore, afterNetAll);
+  const apiNetDelta =
+    options.networkEntriesSince && beforeLastNetId > 0
+      ? summarizeApiNetworkDelta([], afterNetAll)
+      : summarizeApiNetworkDelta(netBefore, afterNetAll);
 
   const interactiveDelta = options.noChanges
     ? diffSnapshots({ url: beforeUrl, title: beforeTitle, nodes: [] }, { url: afterUrl, title: afterTitle, nodes: [] })
     : diffSnapshots(beforeSnap, { url: afterUrl, title: afterTitle, nodes: afterNodes });
 
+  const foldedAdded = foldDeltaItems(
+    interactiveDelta.added.map((n) => ({
+      role: n.role,
+      name: n.name,
+      ...(n.ref ? { ref: n.ref } : {}),
+      ...(n.value ? { value: n.value } : {}),
+    })),
+  );
+  const foldedRemoved = foldDeltaItems(
+    interactiveDelta.removed.map((n) => ({
+      role: n.role,
+      name: n.name,
+      ...(n.value ? { value: n.value } : {}),
+    })),
+  );
+  const changedItems = interactiveDelta.changed.slice(0, 20).map((n) => ({
+    role: n.role,
+    name: n.name,
+    ...(n.ref ? { ref: n.ref } : {}),
+    ...(n.after.value !== undefined ? { value: n.after.value } : {}),
+    ...(n.after.checked !== undefined ? { checked: n.after.checked } : {}),
+    ...(n.after.disabled !== undefined ? { disabled: n.after.disabled } : {}),
+    ...(n.after.selected !== undefined ? { selected: n.after.selected } : {}),
+    ...(n.before.value !== undefined ? { beforeValue: n.before.value } : {}),
+    ...(n.before.checked !== undefined ? { beforeChecked: n.before.checked } : {}),
+    ...(n.before.disabled !== undefined ? { beforeDisabled: n.before.disabled } : {}),
+  }));
+  const healed = options.controller.consumeHealedRefs?.() ?? [];
+  const sideEffects = options.controller.peekUnhandledSideEffects?.() ?? {};
+  const navErrorRec = afterUrl.startsWith('chrome-error://') ? options.controller.lastNavigationError?.() : null;
+  const foldedGroups = [...foldedAdded.foldedGroups, ...foldedRemoved.foldedGroups.map((g) => g.replace(/^\+ /, '- '))];
+  const changed = Boolean(
+    beforeUrl !== afterUrl ||
+    beforeTitle !== afterTitle ||
+    interactiveDelta.addedCount > 0 ||
+    interactiveDelta.removedCount > 0 ||
+    interactiveDelta.changedCount > 0 ||
+    apiNetDelta.length > 0 ||
+    afterEvents.length > 0 ||
+    sideEffects.openDialog ||
+    sideEffects.unhandledPopups?.length ||
+    sideEffects.activeDownloads?.length,
+  );
+  const actionDelta: ActionDelta | undefined = options.noChanges
+    ? undefined
+    : {
+        changed,
+        urlChanged: beforeUrl !== afterUrl,
+        titleChanged: beforeTitle !== afterTitle,
+        url: afterUrl,
+        title: afterTitle,
+        ...(navErrorRec?.error ? { navError: navErrorRec.error } : {}),
+        ...(healed.length > 0 ? { healed } : {}),
+        nodes: {
+          added: foldedAdded.items.slice(0, 40),
+          changed: changedItems,
+          removed: foldedRemoved.items.slice(0, 20),
+          ...(foldedGroups.length > 0 ? { foldedGroups } : {}),
+        },
+        network: apiNetDelta,
+        sideEffects,
+      };
+
   return {
     ok,
     ...(abortedAt !== undefined ? { abortedAt } : {}),
+    ...(hardStop ? { hardStop } : {}),
     results,
     delta: {
       urlChanged: beforeUrl !== afterUrl,
@@ -675,6 +794,7 @@ export async function executeBatch(options: {
       events: afterEvents,
       networkSummary: netDelta,
       interactiveDelta,
+      ...(actionDelta ? { actionDelta } : {}),
     },
   };
 }

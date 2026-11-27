@@ -1,4 +1,4 @@
-import type { AxNode, SiteNote } from '../../../shared/types.ts';
+import type { AxNode, SavedFlowSummary, SiteNote, SnapshotScope, ViewportMetrics } from '../../../shared/types.ts';
 import { INTERACTIVE_ROLE_RE } from '../roles.ts';
 
 /** 语义上下文容器角色（在缩进树与 `--filter` 剪枝时保留作结构锚点）。 */
@@ -9,13 +9,23 @@ const KEY_SEMANTIC_ROLE_RE = /^(heading|alert|status|dialog|alertdialog|img)$/i;
 
 const CHECKABLE_ROLE_RE = /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio)$/i;
 
+/** 同构长列表折叠角色（刻意排除根部普通 button 按钮组，避免隐藏独立动作按钮）。 */
+const FOLDABLE_LIST_ROLE_RE = /^(option|menuitem|listitem|treeitem|row|link|tab|gridcell)$/i;
+
 export interface CompactSnapshotOptions {
   url: string;
   title: string;
   nodes: AxNode[];
   siteNotes?: SiteNote[];
+  /** 同站点笔记已在当前会话注入且未变化时仅输出单行极简锚点。 */
+  notesAlreadyLoadedLines?: number;
+  /** 命中当前域名的只读 Saved Flows 摘要（首访自动提示）。 */
+  savedFlows?: SavedFlowSummary[];
   /** WebMCP 探测到的工具摘要（纯提示，标记为 untrusted）。 */
   webmcpTools?: Array<{ name: string; description?: string }>;
+  /** 视口与滚动进度元数据（开启 `--viewport` 时同时附带上下屏外省略统计）。 */
+  viewport?: ViewportMetrics;
+  scope?: SnapshotScope;
   interactiveOnly?: boolean;
   /** 最大树缩进深度（从 0 起算，对应 `node.depth` 而非 heading `level`）。 */
   maxDepth?: number;
@@ -26,6 +36,8 @@ export interface CompactSnapshotOptions {
   urls?: boolean;
   /** 按子串或 `/regex/` 过滤节点（同时保留其语义祖先链）。 */
   filter?: string;
+  /** 禁用长列表与连续禁用节点自动折叠（`--no-fold`）。 */
+  noFold?: boolean;
 }
 
 function cleanText(raw?: string): string {
@@ -90,6 +102,13 @@ interface RenderRow {
   line: string;
   tier: 1 | 2 | 3;
   depth: number;
+  parentIdx: number;
+  role: string;
+  name: string;
+  ref?: string;
+  disabled?: boolean;
+  selected?: boolean;
+  checked?: boolean | 'mixed';
   isInteractive: boolean;
 }
 
@@ -100,10 +119,99 @@ function estimateTokens(lines: readonly string[]): number {
 }
 
 /**
+ * 折叠连续同构长列表（>=8 项）与连续禁用节点（>=4 项），保留首尾与选中/勾选态，显著压低快照噪音。
+ */
+function foldCompactRows(rows: readonly RenderRow[], hasTreeDepth: boolean): RenderRow[] {
+  const afterDisabled: RenderRow[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const cur = rows[i]!;
+    if (cur.disabled) {
+      let j = i + 1;
+      while (
+        j < rows.length &&
+        rows[j]!.disabled &&
+        rows[j]!.depth === cur.depth &&
+        rows[j]!.parentIdx === cur.parentIdx &&
+        rows[j]!.role.toLowerCase() === cur.role.toLowerCase()
+      ) {
+        j += 1;
+      }
+      const runLen = j - i;
+      if (runLen >= 4) {
+        afterDisabled.push(cur);
+        const indent = hasTreeDepth ? '  '.repeat(Math.min(cur.depth, 10)) : '';
+        afterDisabled.push({
+          line: `${indent}... (${runLen - 1} more disabled ${cur.role} folded; use --no-fold to expand)`,
+          tier: 2,
+          depth: cur.depth,
+          parentIdx: cur.parentIdx,
+          role: 'fold',
+          name: '',
+          isInteractive: false,
+        });
+        i = j;
+        continue;
+      }
+    }
+    afterDisabled.push(cur);
+    i += 1;
+  }
+
+  const out: RenderRow[] = [];
+  i = 0;
+  while (i < afterDisabled.length) {
+    const cur = afterDisabled[i]!;
+    if (FOLDABLE_LIST_ROLE_RE.test(cur.role)) {
+      let j = i + 1;
+      while (
+        j < afterDisabled.length &&
+        afterDisabled[j]!.depth === cur.depth &&
+        afterDisabled[j]!.parentIdx === cur.parentIdx &&
+        afterDisabled[j]!.role.toLowerCase() === cur.role.toLowerCase()
+      ) {
+        j += 1;
+      }
+      const runLen = j - i;
+      if (runLen >= 8) {
+        const run = afterDisabled.slice(i, j);
+        const head = run.slice(0, 3);
+        const tail = run[run.length - 1]!;
+        const special = run
+          .slice(3, -1)
+          .filter((r) => r.selected || r.checked === true || r.checked === 'mixed')
+          .slice(0, 3);
+        const omitted = runLen - head.length - special.length - 1;
+        const firstRef = run.find((r) => r.ref)?.ref;
+        const lastRef = [...run].reverse().find((r) => r.ref)?.ref;
+        const refRange = firstRef && lastRef && firstRef !== lastRef ? ` ${firstRef}..${lastRef}` : '';
+        const indent = hasTreeDepth ? '  '.repeat(Math.min(cur.depth, 10)) : '';
+        out.push(...head, ...special);
+        out.push({
+          line: `${indent}... (${omitted} more ${cur.role} folded${refRange}; use --no-fold or --filter to expand)`,
+          tier: 2,
+          depth: cur.depth,
+          parentIdx: cur.parentIdx,
+          role: 'fold',
+          name: '',
+          isInteractive: false,
+        });
+        out.push(tail);
+        i = j;
+        continue;
+      }
+    }
+    out.push(cur);
+    i += 1;
+  }
+  return out;
+}
+
+/**
  * 将 AX 节点数组格式化为带真实 2 空格缩进的紧凑语义树：
  * - 修复 `-d`（按真实 `node.depth` 裁剪，不再误比 heading `level`）；
  * - 完整输出 3 态 `checked`/`unchecked`/`checked=mixed` 与重复 `(role, name)` 的 `nth=N`；
- * - 支持 `-u` 链接 URL、`--filter` 剪枝（保留祖先链）与密码定宽 `"••••••••"` 脱敏；
+ * - 支持 `-u` 链接 URL、`--filter` 剪枝（保留祖先链）、视口进度提示、长列表/禁用折叠与密码定宽脱敏；
  * - 支持分层 Token 预算 + 80/20 首尾保留，避免截断页面底部弹窗或提交按钮。
  */
 export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
@@ -115,6 +223,18 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
         const trimmed = noteLine.trim();
         if (trimmed) headerLines.push(`- [${note.site}] ${trimmed}`);
       }
+    }
+    headerLines.push('');
+  } else if (options.notesAlreadyLoadedLines && options.notesAlreadyLoadedLines > 0) {
+    headerLines.push(`# site-notes (已加载 ${options.notesAlreadyLoadedLines} 行，未变更)`);
+  }
+
+  if (options.savedFlows && options.savedFlows.length > 0) {
+    headerLines.push('# saved-flows (可用 warren flow run <env> <name> 直接读数据)');
+    for (const flow of options.savedFlows.slice(0, 8)) {
+      const pText = flow.params.length > 0 ? ` [params: ${flow.params.join(', ')}]` : '';
+      const desc = flow.description ? `: ${cleanText(flow.description).slice(0, 80)}` : '';
+      headerLines.push(`- ${flow.name}${pText}${desc}`);
     }
     headerLines.push('');
   }
@@ -130,6 +250,17 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
 
   headerLines.push(`url: ${options.url}`);
   if (options.title) headerLines.push(`title: ${cleanText(options.title)}`);
+  if (options.viewport) {
+    const vp = options.viewport;
+    const pct = Number.isFinite(vp.scrollPercentY)
+      ? Math.max(0, Math.min(100, Math.round(vp.scrollPercentY)))
+      : (() => {
+          const maxScroll = Math.max(0, vp.scrollHeight - vp.height);
+          return maxScroll > 0 ? Math.min(100, Math.round((vp.scrollY / maxScroll) * 100)) : 100;
+        })();
+    const scopeTag = options.scope === 'viewport' ? ' [scope=viewport]' : '';
+    headerLines.push(`viewport: ${vp.width}x${vp.height} scroll=${vp.scrollY}/${vp.scrollHeight} (${pct}%)${scopeTag}`);
+  }
 
   const maxDepth = options.maxDepth;
   const maxNodes = options.maxNodes && options.maxNodes > 0 ? options.maxNodes : 600;
@@ -222,28 +353,45 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
       line: `${indentSpaces}- ${node.role}${namePart}${suffix}${urlPart}`,
       tier,
       depth,
+      parentIdx: parentIndex[i]!,
+      role: node.role,
+      name,
+      ref: node.ref,
+      disabled: node.disabled,
+      selected: node.selected,
+      checked: node.checked,
       isInteractive,
     });
   }
 
-  if (rows.length === 0) {
-    return [...headerLines, '(no matching nodes)'].join('\n');
+  const effectiveRows = !options.noFold && !filterFn ? foldCompactRows(rows, hasTreeDepth) : rows;
+
+  const viewportFooterLines: string[] = [];
+  if (options.viewport && ((options.viewport.omittedAbove ?? 0) > 0 || (options.viewport.omittedBelow ?? 0) > 0)) {
+    const parts: string[] = [];
+    if (options.viewport.omittedAbove) parts.push(`${options.viewport.omittedAbove} above`);
+    if (options.viewport.omittedBelow) parts.push(`${options.viewport.omittedBelow} below`);
+    viewportFooterLines.push(`# viewport-omitted: ${parts.join(', ')} (use browser scroll or snapshot --full-page)`);
+  }
+
+  if (effectiveRows.length === 0) {
+    return [...headerLines, '(no matching nodes)', ...viewportFooterLines].join('\n');
   }
 
   // 先按分层策略与 Token / Node 预算筛选
-  let selectedRows = rows;
+  let selectedRows = effectiveRows;
   let truncatedReason = '';
 
   const maxTokens = options.maxTokens && options.maxTokens > 0 ? options.maxTokens : undefined;
   const headerTokens = estimateTokens(headerLines);
   const bodyTokenBudget = maxTokens ? Math.max(120, maxTokens - headerTokens - 30) : undefined;
 
-  if (bodyTokenBudget !== undefined && estimateTokens(rows.map((r) => r.line)) > bodyTokenBudget) {
+  if (bodyTokenBudget !== undefined && estimateTokens(effectiveRows.map((r) => r.line)) > bodyTokenBudget) {
     // Tier 1（交互）全留 → Tier 2（语义上下文）→ Tier 3（普通文本）
     const tier1Idx = new Set<number>();
     const tier2Idx = new Set<number>();
     const tier3Idx = new Set<number>();
-    rows.forEach((r, idx) => {
+    effectiveRows.forEach((r, idx) => {
       if (r.tier === 1) tier1Idx.add(idx);
       else if (r.tier === 2) tier2Idx.add(idx);
       else tier3Idx.add(idx);
@@ -253,7 +401,7 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
     let usedTokens = 0;
     const addByIndices = (indices: number[]) => {
       for (const idx of indices) {
-        const cost = Math.ceil((rows[idx]!.line.length + 1) / 4);
+        const cost = Math.ceil((effectiveRows[idx]!.line.length + 1) / 4);
         if (usedTokens + cost > bodyTokenBudget) return false;
         chosen.add(idx);
         usedTokens += cost;
@@ -262,14 +410,14 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
     };
 
     const t1List = [...tier1Idx];
-    const t1Tokens = estimateTokens(t1List.map((i) => rows[i]!.line));
+    const t1Tokens = estimateTokens(t1List.map((i) => effectiveRows[i]!.line));
     if (t1Tokens > bodyTokenBudget) {
       // 80/20 首尾保留：同时护住顶部核心操作与底部弹窗/页脚操作栏
       const headBudget = Math.floor(bodyTokenBudget * 0.8);
       const tailBudget = bodyTokenBudget - headBudget;
       let acc = 0;
       for (const idx of t1List) {
-        const cost = Math.ceil((rows[idx]!.line.length + 1) / 4);
+        const cost = Math.ceil((effectiveRows[idx]!.line.length + 1) / 4);
         if (acc + cost > headBudget) break;
         chosen.add(idx);
         acc += cost;
@@ -278,7 +426,7 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
       for (let k = t1List.length - 1; k >= 0; k--) {
         const idx = t1List[k]!;
         if (chosen.has(idx)) break;
-        const cost = Math.ceil((rows[idx]!.line.length + 1) / 4);
+        const cost = Math.ceil((effectiveRows[idx]!.line.length + 1) / 4);
         if (acc + cost > tailBudget) break;
         chosen.add(idx);
         acc += cost;
@@ -289,21 +437,24 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
       addByIndices([...tier3Idx]);
     }
 
-    selectedRows = [...chosen].sort((a, b) => a - b).map((idx) => rows[idx]!);
-    truncatedReason = `... (token-budget truncated: kept ${selectedRows.length}/${rows.length} nodes within ~${maxTokens} tokens; use --selector or --filter to narrow)`;
-  } else if (rows.length > maxNodes) {
+    selectedRows = [...chosen].sort((a, b) => a - b).map((idx) => effectiveRows[idx]!);
+    truncatedReason = `... (token-budget truncated: kept ${selectedRows.length}/${effectiveRows.length} nodes within ~${maxTokens} tokens; use --selector or --filter to narrow)`;
+  } else if (effectiveRows.length > maxNodes) {
     // 超过节点硬上限时同样用 80/20 首尾保留，避免末尾弹窗永远被切掉
     const headCount = Math.floor(maxNodes * 0.8);
     const tailCount = maxNodes - headCount;
-    const head = rows.slice(0, headCount);
-    const tail = tailCount > 0 ? rows.slice(rows.length - tailCount) : [];
-    const omitted = rows.length - head.length - tail.length;
+    const head = effectiveRows.slice(0, headCount);
+    const tail = tailCount > 0 ? effectiveRows.slice(effectiveRows.length - tailCount) : [];
+    const omitted = effectiveRows.length - head.length - tail.length;
     selectedRows = [
       ...head,
       {
-        line: `... (${omitted} middle nodes omitted; kept ${head.length} head + ${tail.length} tail of ${rows.length})`,
+        line: `... (${omitted} middle nodes omitted; kept ${head.length} head + ${tail.length} tail of ${effectiveRows.length})`,
         tier: 2,
         depth: 0,
+        parentIdx: -1,
+        role: 'fold',
+        name: '',
         isInteractive: false,
       },
       ...tail,
@@ -311,7 +462,7 @@ export function formatCompactSnapshot(options: CompactSnapshotOptions): string {
     truncatedReason = `... (truncated at ${maxNodes} nodes; use --selector, --filter, or --max-depth to narrow)`;
   }
 
-  const outLines = [...headerLines, ...selectedRows.map((r) => r.line)];
+  const outLines = [...headerLines, ...selectedRows.map((r) => r.line), ...viewportFooterLines];
   if (truncatedReason) outLines.push(truncatedReason);
   return outLines.join('\n');
 }

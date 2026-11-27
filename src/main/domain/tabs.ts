@@ -84,7 +84,7 @@ export class TabList {
     return true;
   }
 
-  /** 把 UI / CLI 给的引用（1-based 序号或 tabId）解析成 tabId。解析不到返回 undefined，由调用方报错。 */
+  /** 把 UI / CLI 给的引用（1-based 序号、稳定短引用 `t1` 或 tabId）解析成 tabId。解析不到返回 undefined，由调用方报错。 */
   resolve(ref: TabRef): string | undefined {
     if (typeof ref === 'number') {
       if (!Number.isInteger(ref) || ref < 1) return undefined;
@@ -92,6 +92,10 @@ export class TabList {
     }
     const trimmed = ref.trim();
     if (/^\d+$/.test(trimmed)) return this.#tabs[Number(trimmed) - 1]?.id;
+    if (/^t\d+$/i.test(trimmed)) {
+      const lower = trimmed.toLowerCase();
+      return this.#tabs.find((tab) => tab.shortRef?.toLowerCase() === lower)?.id;
+    }
     return this.get(trimmed) ? trimmed : undefined;
   }
 }
@@ -107,4 +111,21 @@ export function closeSet(tabs: readonly TabState[], refId: string, mode: 'others
   if (index < 0) return [];
   const targets = mode === 'others' ? tabs.filter((tab) => tab.id !== refId) : tabs.slice(index + 1);
   return targets.map((tab) => tab.id).reverse();
+}
+
+/**
+ * 计算 `tab close --agent-only` 应关闭的标签 ID 列表（从右往左）：
+ * 只关 `openedBy === 'agent' | 'popup'`；若全部标签均由 Agent 打开，保留当前激活的最后 1 个避免误停环境。
+ */
+export function closeAgentOnlySet(tabs: readonly TabState[], activeId?: string): string[] {
+  const agentTabs = tabs.filter((t) => t.openedBy === 'agent' || t.openedBy === 'popup');
+  if (agentTabs.length === 0) return [];
+  if (agentTabs.length === tabs.length && tabs.length > 0) {
+    const keepId = activeId && tabs.some((t) => t.id === activeId) ? activeId : tabs[0]!.id;
+    return agentTabs
+      .filter((t) => t.id !== keepId)
+      .map((t) => t.id)
+      .reverse();
+  }
+  return agentTabs.map((t) => t.id).reverse();
 }
