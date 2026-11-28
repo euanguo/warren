@@ -1,7 +1,7 @@
 {
   "name": "warren",
   "productName": "Warren",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Agent-first isolated browser environments — one burrow per identity, one egress per burrow",
   "license": "MIT",
   "homepage": "https://github.com/saywhy-dev/warren",
