@@ -94,6 +94,23 @@ export interface OverlayFormRequest {
   fields: OverlayFormField[];
 }
 
+/**
+ * 主窗 DOM 的位置提示，由 `OverlayHost` 画在原生顶层。
+ *
+ * DOM 弹层永远压在网页视图下方，所以 tooltip 必须走这一层：浮层只负责画，
+ * 命中测试交回下面（原生层对 tooltip 开启 ignoreMouseEvents）。
+ */
+export type OverlayTooltipSide = 'top' | 'right' | 'bottom' | 'left';
+
+export interface OverlayTooltipRequest {
+  /** 触发元素在窗口内容区内的矩形（CSS px，与主窗渲染层同一坐标系）。 */
+  anchor: { x: number; y: number; width: number; height: number };
+  side: OverlayTooltipSide;
+  label: string;
+  description?: string;
+  shortcut?: string;
+}
+
 export type OverlayRequest =
   | { kind: 'create-env'; initialGroupId?: string }
   | { kind: 'edit-env'; environment: Environment }

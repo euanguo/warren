@@ -21,6 +21,7 @@ import type { PluginHost } from './plugins/host.ts';
 import type { Store } from './store.ts';
 import type { OverlayHost } from './ui/overlay-host.ts';
 import type { PopoverHost } from './ui/popover-host.ts';
+import type { TooltipHost } from './ui/tooltip-host.ts';
 
 const PRESSURE_SWEEP_MS = 30_000;
 const PRESSURE_COOLDOWN_MS = 60_000;
@@ -31,6 +32,7 @@ export interface MemoryMonitorDeps {
   getWindow: () => BrowserWindow | undefined;
   getOverlayHost: () => OverlayHost | undefined;
   getPopoverHost: () => PopoverHost | undefined;
+  getTooltipHost: () => TooltipHost | undefined;
   getManager: () => EnvironmentManager | undefined;
   getPlugins: () => PluginHost | undefined;
   store: Store;
@@ -72,8 +74,9 @@ export class MemoryMonitor {
   reclaimShellSurfaces(idleMs = 0): number {
     const overlay = this.#deps.getOverlayHost()?.reclaimIdle(idleMs) ?? 0;
     const popover = this.#deps.getPopoverHost()?.reclaimIdle(idleMs) ?? 0;
+    const tooltip = this.#deps.getTooltipHost()?.reclaimIdle(idleMs) ?? 0;
     const shield = this.#deps.getManager()?.reclaimIdleShield(idleMs) ?? 0;
-    return overlay + popover + shield;
+    return overlay + popover + tooltip + shield;
   }
 
   /** 采集按 PID 去重后的完整内存快照（带 2.5s 短期缓存与并发去重，避免多视图同时轮询反复采样）。 */
@@ -117,6 +120,7 @@ export class MemoryMonitor {
     }
     shellProcesses.push(...(this.#deps.getOverlayHost()?.processInfos() ?? []));
     shellProcesses.push(...(this.#deps.getPopoverHost()?.processInfos() ?? []));
+    shellProcesses.push(...(this.#deps.getTooltipHost()?.processInfos() ?? []));
 
     const pluginHost = this.#deps.getPlugins();
     const pluginList = pluginHost ? await pluginHost.list().catch(() => []) : [];

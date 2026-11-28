@@ -31,6 +31,7 @@ import { Store } from './store';
 import { WindowLayerManager } from './ui/layer-manager.ts';
 import { OverlayHost } from './ui/overlay-host.ts';
 import { PopoverHost } from './ui/popover-host.ts';
+import { TooltipHost } from './ui/tooltip-host.ts';
 import { DEFAULT_SKIN_ID, resolveSkinPalette } from '../shared/skin.ts';
 import type { AppSettings } from '../shared/types.ts';
 
@@ -130,6 +131,7 @@ let window: BrowserWindow | undefined;
 let layers: WindowLayerManager | undefined;
 let overlayHost: OverlayHost | undefined;
 let popoverHost: PopoverHost | undefined;
+let tooltipHost: TooltipHost | undefined;
 let memoryMonitor: MemoryMonitor | undefined;
 let tray: Tray | undefined;
 let quitting = false;
@@ -399,7 +401,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = initialSettings.theme ?? 'dark';
   window = createMainWindow(initialSettings);
   layers = new WindowLayerManager(window, initialSettings.pageBorderRadius === false ? 0 : 8);
-  const surfaceLoadUrl = (surface: 'overlay' | 'popover') => {
+  const surfaceLoadUrl = (surface: 'overlay' | 'popover' | 'tooltip') => {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
       const devUrl = new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
       devUrl.searchParams.set('surface', surface);
@@ -426,6 +428,11 @@ app.whenReady().then(async () => {
     onDismissed: (payload) => {
       window?.webContents.send('popover:dismissed', payload);
     },
+  });
+  tooltipHost = new TooltipHost({
+    mainWindow: window,
+    preloadPath: path.join(__dirname, 'preload.cjs'),
+    loadUrl: surfaceLoadUrl,
   });
 
   installTray();
@@ -503,6 +510,7 @@ app.whenReady().then(async () => {
     getWindow: () => window,
     getOverlayHost: () => overlayHost,
     getPopoverHost: () => popoverHost,
+    getTooltipHost: () => tooltipHost,
     getManager: () => manager,
     getPlugins: () => plugins,
     store,
@@ -515,6 +523,7 @@ app.whenReady().then(async () => {
     getWindow: () => window,
     getOverlayHost: () => overlayHost,
     getPopoverHost: () => popoverHost,
+    getTooltipHost: () => tooltipHost,
     getManager: () => manager,
     getPlugins: () => plugins,
     getMemoryMonitor: () => memoryMonitor,
@@ -590,6 +599,7 @@ async function gracefulShutdown(): Promise<void> {
   memoryMonitor = undefined;
   overlayHost?.destroy();
   popoverHost?.destroy();
+  tooltipHost?.destroy();
   tray?.destroy();
   tray = undefined;
   if (suspensionBlocker !== undefined) {

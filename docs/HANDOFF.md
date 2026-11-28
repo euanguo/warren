@@ -192,6 +192,16 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 
 ## 6. 当前状态（实测过的，不是"应该能跑"）
 
+### 原生 tooltip 层（2026-11-28）
+
+- **问题**：主窗 DOM 永远在原生网页视图之下，侧栏/地址栏的 tooltip 越界到网页区域就被盖住（实测 40px 的轨道图标，tooltip 只露出 14px）。
+- **为什么不用 overlay 的 WebContentsView**：Electron 的 `View` / `WebContents` **没有** `setIgnoreMouseEvents`（只有 BaseWindow / BrowserWindow 有），一个盖满内容区的 `View` 会把网页点击全部吃掉。
+- **做法**：`src/main/ui/tooltip-host.ts` 起一个独立透明子窗口（`transparent`、`focusable: false`、`setIgnoreMouseEvents(true)`、`showInactive()`），bounds = 主窗 `getContentBounds()`，与主窗内容区同原点，因此主窗的 `getBoundingClientRect()` 可直接当内部 CSS 坐标。首次悬停懒创建（不预热，遵守内存策略），并接入 `MemoryMonitor.reclaimIdle`。
+- **渲染**：`?surface=tooltip` → `src/renderer/app/tooltip-root.tsx`（`tooltipPlacement` 纯函数 + `NativeTooltip`）。`ActionTooltip` 仍用 base-ui `Tooltip` 的悬停/焦点状态机与 `sr-only` 内容（保 `aria-describedby`），只在 `onOpenChange` 时把锚点矩形交给主进程。
+- **新增 IPC**：`tooltip:show` / `tooltip:hide`（主窗）、`tooltip:current`（三个 surface 都可读），请求由 `src/shared/tooltip-schema.ts` 的 `normalizeTooltipRequest` 在主进程边界校验。
+- **坑**：透明窗口里的 `body` 会吃到 `bg-frame`，必须给 `html[data-surface='tooltip']` 也关掉背景，否则整块网页区域被画成纯黑。
+- 测试：`tests/tooltip-schema.test.ts`、`tests/ui/tooltip-layer.test.tsx`。
+
 ### 插件声明式表单 `shell.openForm`（2026-11-28）
 
 - **契约变更**：`OverlayRequest` 新增 `kind: 'form'`（`src/shared/types/ui.ts`），由 `src/shared/form-schema.ts` 的 `normalizeFormRequest` 在 `overlay:open` 主进程边界上校验/裁剪（字段 12、选项 24、key 唯一、number min/max、select initial 必须在 options 内）；渲染层由 `src/renderer/app/overlay-form.tsx` 的 `FormCard` 画成宿主原生浮层，能盖住原生网页视图。
@@ -200,6 +210,7 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 - 文档：`plugins/README.md` 前端 API 一节；测试 `tests/form-schema.test.ts`、`tests/ui/overlay-form.test.tsx`。
 
 ### Agent-first：账号域名绑定与凭据填充不再设 UI 门槛（2026-11-27）
+
 
 - `plugins/account-manager/server.js` 移除 `update` 的 `ACCOUNT_DOMAIN_BINDING_UI_ONLY` 检查（Agent 可用 CLI/RPC 维护 `url` / `urls` / `allowedHosts`）；`buildFillOptions` 不再对 Agent 强制 `requireDomains=true`；`src/main/plugins/api/browser.ts` 的 `fillSecret` 不再按 `caller` 强制 `requireDomains`。
 - **保留的边界**：`reveal` / `totpCode` / `export` 仍仅 UI（AGENTS.md 硬约束：Agent 通道永不返回明文）；`space: "person"` 仍禁；`allowCrossOrigin` 仍仅插件界面可显式跨站；账号配了非空域名白名单时仍按 `hostAllowed` 校验并拒绝名单外站点（原有跨站断言保持成立）。

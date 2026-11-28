@@ -22,6 +22,8 @@ export interface MockEnvApiControls {
   historySuggest: ReturnType<typeof vi.fn>;
   popupMenu: ReturnType<typeof vi.fn>;
   openOverlay: ReturnType<typeof vi.fn>;
+  showTooltip: ReturnType<typeof vi.fn>;
+  hideTooltip: ReturnType<typeof vi.fn>;
   emitPopoverAction: (event: PopoverActionEvent) => void;
 }
 
@@ -167,6 +169,8 @@ export function installMockEnvApi(overrides: Partial<EnvApi> = {}): MockEnvApiCo
   const historySuggest = vi.fn(async () => []);
   const popupMenu = vi.fn(async () => null);
   const openOverlay = vi.fn(async () => null);
+  const showTooltip = vi.fn(async () => {});
+  const hideTooltip = vi.fn(async () => {});
 
   const base = {
     platform: 'darwin',
@@ -232,6 +236,10 @@ export function installMockEnvApi(overrides: Partial<EnvApi> = {}): MockEnvApiCo
     getOverlayState: vi.fn(async () => null),
     resolveOverlay: vi.fn(async () => {}),
     onOverlayState: vi.fn(noopUnsub),
+    showTooltip,
+    hideTooltip,
+    getTooltipState: vi.fn(async () => null),
+    onTooltipState: vi.fn(noopUnsub),
     openPopover,
     updatePopover: updatePopover as EnvApi['updatePopover'],
     closePopover,
@@ -314,6 +322,8 @@ export function installMockEnvApi(overrides: Partial<EnvApi> = {}): MockEnvApiCo
     historySuggest,
     popupMenu,
     openOverlay,
+    showTooltip,
+    hideTooltip,
     emitPopoverAction: (event) => {
       for (const listener of popoverActionListeners) listener(event);
     },

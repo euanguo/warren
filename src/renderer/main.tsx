@@ -9,8 +9,10 @@ document.documentElement.dataset.surface = surface;
 const App = lazy(() => import('./app/App').then((m) => ({ default: m.App })));
 const OverlayRoot = lazy(() => import('./app/overlay-root').then((m) => ({ default: m.OverlayRoot })));
 const PopoverRoot = lazy(() => import('./app/popover-root').then((m) => ({ default: m.PopoverRoot })));
+const TooltipRoot = lazy(() => import('./app/tooltip-root').then((m) => ({ default: m.TooltipRoot })));
 
-const Root = surface === 'overlay' ? OverlayRoot : surface === 'popover' ? PopoverRoot : App;
+const Root =
+  surface === 'overlay' ? OverlayRoot : surface === 'popover' ? PopoverRoot : surface === 'tooltip' ? TooltipRoot : App;
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

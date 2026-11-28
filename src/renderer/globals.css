@@ -59,11 +59,13 @@
     overflow: hidden;
   }
 
-  /* OverlayHost / PopoverHost 独立渲染表面必须保持全透底，防止圆角外缘透出窗体底色 */
+  /* OverlayHost / PopoverHost / TooltipHost 独立渲染表面必须保持全透底，防止圆角外缘透出窗体底色 */
   html[data-surface='overlay'],
   html[data-surface='overlay'] body,
   html[data-surface='popover'],
-  html[data-surface='popover'] body {
+  html[data-surface='popover'] body,
+  html[data-surface='tooltip'],
+  html[data-surface='tooltip'] body {
     background: transparent !important;
   }
 }

@@ -31,7 +31,7 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /** 构造壳层页面 URL（支持 `?surface=overlay` / `?surface=popover`）。 */
-export function appShellUrl(surface?: 'overlay' | 'popover'): string {
+export function appShellUrl(surface?: 'overlay' | 'popover' | 'tooltip'): string {
   return surface ? `${APP_PROTOCOL_ORIGIN}/index.html?surface=${surface}` : `${APP_PROTOCOL_ORIGIN}/index.html`;
 }
 

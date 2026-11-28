@@ -6,6 +6,7 @@ import os from 'node:os';
 import { normalizeFormRequest } from '../shared/form-schema.ts';
 import type { Permission } from '../shared/permissions.ts';
 import { DEFAULT_SKIN_ID, resolveSkinPalette } from '../shared/skin.ts';
+import { normalizeTooltipRequest } from '../shared/tooltip-schema.ts';
 import type {
   AppSettings,
   ApprovalMode,
@@ -13,6 +14,7 @@ import type {
   NativeMenuItem,
   NavigationAction,
   OverlayRequest,
+  OverlayTooltipRequest,
   PopoverActionEvent,
   PopoverId,
   PopoverOpenOptions,
@@ -33,11 +35,13 @@ import { collectSystemDiagnostics } from './system-doctor.ts';
 import { popupNativeMenu } from './ui/native-menu.ts';
 import type { OverlayHost } from './ui/overlay-host.ts';
 import type { PopoverHost } from './ui/popover-host.ts';
+import type { TooltipHost } from './ui/tooltip-host.ts';
 
 export interface IpcRoutesDeps {
   getWindow: () => BrowserWindow | undefined;
   getOverlayHost: () => OverlayHost | undefined;
   getPopoverHost: () => PopoverHost | undefined;
+  getTooltipHost: () => TooltipHost | undefined;
   getManager: () => EnvironmentManager;
   getPlugins: () => PluginHost;
   getMemoryMonitor?: () => MemoryMonitor | undefined;
@@ -54,10 +58,12 @@ export function isAuthorizedShellSender(
   window: BrowserWindow | undefined,
   overlayHost: OverlayHost | undefined,
   popoverHost: PopoverHost | undefined,
+  tooltipHost?: TooltipHost,
 ): boolean {
   if (sender === window?.webContents) return true;
   if (overlayHost?.webContents && sender === overlayHost.webContents) return true;
   if (popoverHost?.isOwnedWebContents(sender)) return true;
+  if (tooltipHost?.webContents && sender === tooltipHost.webContents) return true;
   return false;
 }
 
@@ -78,7 +84,15 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   };
   const handleShell = <A extends unknown[]>(channel: string, fn: (...args: A) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
-      if (!isAuthorizedShellSender(event.sender, deps.getWindow(), deps.getOverlayHost(), deps.getPopoverHost())) {
+      if (
+        !isAuthorizedShellSender(
+          event.sender,
+          deps.getWindow(),
+          deps.getOverlayHost(),
+          deps.getPopoverHost(),
+          deps.getTooltipHost(),
+        )
+      ) {
         throw new Error('unauthorized sender');
       }
       return fn(...(args as A));
@@ -266,6 +280,12 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   handleShell('overlay:resolve', (result: unknown) => {
     deps.getOverlayHost()?.resolve(result);
   });
+  // 仅主窗（唯一有原生视图之外这层 DOM 的窗口）能发 tooltip。
+  handle('tooltip:show', (request: OverlayTooltipRequest) =>
+    deps.getTooltipHost()?.show(normalizeTooltipRequest(request)),
+  );
+  handle('tooltip:hide', () => deps.getTooltipHost()?.hide());
+  handleShell('tooltip:current', () => deps.getTooltipHost()?.currentState?.() ?? null);
   handle('popover:open', (options: PopoverOpenOptions) => deps.getPopoverHost()?.open(options));
   handleShell('popover:update', (id: PopoverId, options: PopoverUpdateOptions) =>
     deps.getPopoverHost()?.update(id, options),

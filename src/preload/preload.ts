@@ -82,6 +82,10 @@ const api: EnvApi = {
   getOverlayState: () => ipcRenderer.invoke('overlay:current'),
   resolveOverlay: (result) => ipcRenderer.invoke('overlay:resolve', result),
   onOverlayState: (callback) => subscribe('overlay:state', callback),
+  showTooltip: (request) => ipcRenderer.invoke('tooltip:show', request),
+  hideTooltip: () => ipcRenderer.invoke('tooltip:hide'),
+  getTooltipState: () => ipcRenderer.invoke('tooltip:current'),
+  onTooltipState: (callback) => subscribe('tooltip:state', callback),
   openPopover: (options) => ipcRenderer.invoke('popover:open', options),
   updatePopover: <K extends PopoverId>(id: K, options: PopoverUpdateOptions<K>) =>
     ipcRenderer.invoke('popover:update', id, options),

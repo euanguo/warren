@@ -25,6 +25,7 @@ import type {
   FindInPageResult,
   NativeMenuItem,
   OverlayRequest,
+  OverlayTooltipRequest,
   PopoverActionEvent,
   PopoverId,
   PopoverOpenOptions,
@@ -172,6 +173,11 @@ export interface EnvApi {
   getOverlayState(): Promise<OverlayRequest | null>;
   resolveOverlay(result: unknown): Promise<void>;
   onOverlayState(callback: (request: OverlayRequest | null) => void): () => void;
+  /** 主窗 foreground tooltip：画在原生 overlay 层，命中测试穿透回网页。 */
+  showTooltip(request: OverlayTooltipRequest): Promise<void>;
+  hideTooltip(): Promise<void>;
+  getTooltipState(): Promise<OverlayTooltipRequest | null>;
+  onTooltipState(callback: (request: OverlayTooltipRequest | null) => void): () => void;
   openPopover(options: PopoverOpenOptions): Promise<void>;
   updatePopover<K extends PopoverId>(id: K, options: PopoverUpdateOptions<K>): Promise<void>;
   closePopover(id?: PopoverId): Promise<void>;
