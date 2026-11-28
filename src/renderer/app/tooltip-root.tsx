@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Kbd } from '@/components/ui/kbd';
 import { useStandaloneThemeSync } from '@/lib/theme';
@@ -29,17 +29,45 @@ export function tooltipPlacement({ anchor, side }: Pick<OverlayTooltipRequest, '
   }
 }
 
+/**
+ * 贴着窗口边缘时把浮层推回可视区（纯函数，便于单测）。
+ *
+ * 浮层窗口就是内容区大小，越界部分会被窗口裁掉。
+ */
+export function clampShift(
+  rect: { left: number; top: number; right: number; bottom: number },
+  width: number,
+  height: number,
+  margin = 4,
+): { dx: number; dy: number } {
+  return {
+    dx: Math.min(0, width - margin - rect.right) + Math.max(0, margin - rect.left),
+    dy: Math.min(0, height - margin - rect.bottom) + Math.max(0, margin - rect.top),
+  };
+}
+
 /** 原生 tooltip 窗口的渲染入口：只画，不接事件（窗口整体 ignoreMouseEvents）。 */
 export function NativeTooltip({ request }: { request: OverlayTooltipRequest | null }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    el.style.translate = '';
+    const { dx, dy } = clampShift(el.getBoundingClientRect(), window.innerWidth, window.innerHeight);
+    if (dx || dy) el.style.translate = `${dx}px ${dy}px`;
+  }, [request]);
+
   if (!request) return null;
   return (
     <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden>
       <div
+        ref={boxRef}
         data-slot="native-tooltip"
         style={tooltipPlacement(request)}
         className={cn(
           elevatedTooltipSurfaceClass,
-          'absolute inline-flex w-fit max-w-xs items-center gap-2 px-2.5 py-1.5 text-[12px] leading-[16px] font-normal text-tooltip-foreground select-none',
+          'absolute inline-flex w-max max-w-xs items-center gap-2 px-2.5 py-1.5 text-[12px] leading-[16px] font-normal text-tooltip-foreground select-none',
           request.description ? 'flex-col items-start gap-0.5' : null,
         )}
       >

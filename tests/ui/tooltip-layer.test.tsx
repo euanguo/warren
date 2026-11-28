@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { NativeTooltip, tooltipPlacement } from '@/app/tooltip-root';
+import { NativeTooltip, clampShift, tooltipPlacement } from '@/app/tooltip-root';
 import type { OverlayTooltipRequest } from '@shared/types';
 
 const ANCHOR = { x: 100, y: 200, width: 40, height: 20 };
@@ -34,6 +34,15 @@ describe('原生 tooltip 层', () => {
     expect(screen.getByText('⌘K')).toBeTruthy();
     expect(container.firstElementChild?.className).toContain('pointer-events-none');
     expect(container.querySelector('[data-slot="native-tooltip"]')).toBeTruthy();
+  });
+
+  it('贴边时把浮层推回可视区', () => {
+    const inside = { left: 100, top: 100, right: 200, bottom: 130 };
+    expect(clampShift(inside, 1440, 920)).toEqual({ dx: 0, dy: 0 });
+
+    // 右边缘溢出 29px → 左移 29px；下边缘溢出 10px → 上移 10px
+    const overflow = { left: 1380, top: 900, right: 1469, bottom: 1110 };
+    expect(clampShift(overflow, 1440, 920)).toEqual({ dx: -33, dy: -194 });
   });
 
   it('没有请求时不渲染任何东西', () => {

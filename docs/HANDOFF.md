@@ -199,8 +199,11 @@ tests/                   node:test 单元测试 + Vitest tests/ui/ 无头 UI 套
 - **做法**：`src/main/ui/tooltip-host.ts` 起一个独立透明子窗口（`transparent`、`focusable: false`、`setIgnoreMouseEvents(true)`、`showInactive()`），bounds = 主窗 `getContentBounds()`，与主窗内容区同原点，因此主窗的 `getBoundingClientRect()` 可直接当内部 CSS 坐标。首次悬停懒创建（不预热，遵守内存策略），并接入 `MemoryMonitor.reclaimIdle`。
 - **渲染**：`?surface=tooltip` → `src/renderer/app/tooltip-root.tsx`（`tooltipPlacement` 纯函数 + `NativeTooltip`）。`ActionTooltip` 仍用 base-ui `Tooltip` 的悬停/焦点状态机与 `sr-only` 内容（保 `aria-describedby`），只在 `onOpenChange` 时把锚点矩形交给主进程。
 - **新增 IPC**：`tooltip:show` / `tooltip:hide`（主窗）、`tooltip:current`（三个 surface 都可读），请求由 `src/shared/tooltip-schema.ts` 的 `normalizeTooltipRequest` 在主进程边界校验。
-- **坑**：透明窗口里的 `body` 会吃到 `bg-frame`，必须给 `html[data-surface='tooltip']` 也关掉背景，否则整块网页区域被画成纯黑。
-- 测试：`tests/tooltip-schema.test.ts`、`tests/ui/tooltip-layer.test.tsx`。
+- **坑 1**：透明窗口里的 `body` 会吃到 `bg-frame`，必须给 `html[data-surface='tooltip']` 也关掉背景，否则整块网页区域被画成纯黑。
+- **坑 2（只在装机版出现）**：tooltip 窗口的 webContents 不在 shell sender 白名单里，`tooltip:current` 直接报 `unauthorized sender`，浮层永远空白。`isAuthorizedShellSender` 已加 `tooltipHost` 参数。
+- **坑 3（贴右边缘）**：绝对定位元素的 shrink-to-fit 只按「left 到容器右边缘」的剩余宽度算，抽屉右角的「关闭工作台面板」tooltip 会被挤成竖排单字。修法是 `w-max` + `tooltip-root.tsx` 的 `clampShift`（`useLayoutEffect` 量完 rect 后用 `el.style.translate` 推回可视区）。
+- 打开 `overlay` / `popover` 前会先 `tooltipHost.hide()`：tooltip 是独立子窗口，会画在新开浮层之上。
+- 测试：`tests/tooltip-schema.test.ts`、`tests/ui/tooltip-layer.test.tsx`（含 `clampShift` 贴边用例）。
 
 ### 插件声明式表单 `shell.openForm`（2026-11-28）
 

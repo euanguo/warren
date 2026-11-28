@@ -274,6 +274,8 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   handle('overlay:open', (request: OverlayRequest) => {
     // 声明式表单是插件给的数据，必须在信任边界上校验；不合法就直接抛给调用方。
     const normalized = request?.kind === 'form' ? normalizeFormRequest(request) : request;
+    // tooltip 是独立子窗口，会画在新打开的原生浮层之上；开浮层前先收掉。
+    deps.getTooltipHost()?.hide();
     return deps.getOverlayHost()?.open(normalized) ?? null;
   });
   handleShell('overlay:current', () => deps.getOverlayHost()?.currentState() ?? null);
@@ -286,7 +288,10 @@ export function registerIpcRoutes(deps: IpcRoutesDeps): void {
   );
   handle('tooltip:hide', () => deps.getTooltipHost()?.hide());
   handleShell('tooltip:current', () => deps.getTooltipHost()?.currentState?.() ?? null);
-  handle('popover:open', (options: PopoverOpenOptions) => deps.getPopoverHost()?.open(options));
+  handle('popover:open', (options: PopoverOpenOptions) => {
+    deps.getTooltipHost()?.hide();
+    return deps.getPopoverHost()?.open(options);
+  });
   handleShell('popover:update', (id: PopoverId, options: PopoverUpdateOptions) =>
     deps.getPopoverHost()?.update(id, options),
   );
