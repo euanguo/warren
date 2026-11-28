@@ -29,7 +29,7 @@ import {
 } from '@/lib/plugin-badges';
 import { emptyRegistry, type PluginAppApi, type PluginRegistry } from '@/lib/plugin-sdk-types';
 import { PLUGIN_UI } from '@/lib/plugin-ui';
-import type { InstalledPlugin, OverlayFormValues, PluginSignal } from '@shared/types';
+import type { InstalledPlugin, OverlayFormRequest, OverlayFormValues, PluginSignal } from '@shared/types';
 
 function isPopoverWindow(): boolean {
   if (typeof window === 'undefined') return false;
@@ -191,7 +191,9 @@ function createApi(plugin: InstalledPlugin, registry: PluginRegistry, generation
         if (isPopoverWindow()) {
           throw Object.assign(new Error('独立浮窗不能用宿主表单'), { code: 'PLUGIN_FORM_UNSUPPORTED_SURFACE' });
         }
-        return window.envApi.openOverlay<OverlayFormValues>(request);
+        // kind 由宿主补：插件侧类型是「表单内容」，不带传输层的判别字段。显式注解让漏掉 kind 直接编译失败。
+        const form: OverlayFormRequest = { ...request, kind: 'form' };
+        return window.envApi.openOverlay<OverlayFormValues>(form);
       },
     },
     settings: plugin.settings,
